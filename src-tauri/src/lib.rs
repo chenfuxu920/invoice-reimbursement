@@ -2,7 +2,10 @@ mod models;
 mod ocr;
 mod parser;
 
-use ocr::{OcrClient, OcrServiceManager};
+use ocr::{OcrClient, OcrServiceManager, OcrTextItem};
+use parser::invoice_parser::parse_invoice_text;
+use parser::itinerary_parser::parse_itinerary_text;
+use models::invoice::{Invoice, InvoiceSource, Itinerary};
 use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
@@ -66,6 +69,49 @@ async fn is_ocr_service_running(state: tauri::State<'_, AppState>) -> Result<boo
     Ok(service.is_running())
 }
 
+// 发票识别与解析命令
+#[tauri::command]
+async fn recognize_invoice(
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+    file_type: String,  // "image" | "pdf"
+) -> Result<Invoice, String> {
+    let client = state.ocr_client.lock().await;
+
+    let source = if file_type == "pdf" {
+        InvoiceSource::Pdf(file_path.clone())
+    } else {
+        InvoiceSource::Photo(file_path.clone())
+    };
+
+    let result = if file_type == "pdf" {
+        let resp = client.recognize_pdf(&file_path).await?;
+        let all_texts: Vec<OcrTextItem> = resp.pages.iter()
+            .flat_map(|p| p.texts.clone())
+            .collect();
+        parse_invoice_text(&all_texts, source)?
+    } else {
+        let resp = client.recognize_image(&file_path).await?;
+        parse_invoice_text(&resp.texts, source)?
+    };
+
+    Ok(result)
+}
+
+// 行程单识别与解析命令
+#[tauri::command]
+async fn recognize_itinerary(
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+) -> Result<Vec<Itinerary>, String> {
+    let client = state.ocr_client.lock().await;
+    let resp = client.recognize_pdf(&file_path).await?;
+    let all_texts: Vec<OcrTextItem> = resp.pages.iter()
+        .flat_map(|p| p.texts.clone())
+        .collect();
+    Ok(parse_itinerary_text(&all_texts))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -82,6 +128,8 @@ pub fn run() {
             start_ocr_service,
             stop_ocr_service,
             is_ocr_service_running,
+            recognize_invoice,
+            recognize_itinerary,
         ])
         .setup(|app| {
             // 应用启动时自动启动 OCR 服务
