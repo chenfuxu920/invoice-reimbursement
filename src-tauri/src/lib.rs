@@ -1,4 +1,5 @@
 mod models;
+mod ocr;
 
 use tauri::Manager;
 
