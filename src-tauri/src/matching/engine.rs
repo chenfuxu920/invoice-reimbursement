@@ -284,4 +284,137 @@ mod tests {
         assert_eq!(result.amount_diff, 0.0);
         assert!((result.confidence - 1.0).abs() < f64::EPSILON);
     }
+
+    // ===== 新增测试 =====
+
+    #[test]
+    fn test_one_to_one_empty_payments() {
+        let engine = MatchEngine::default();
+        let invoice = make_invoice("inv1", 100.00);
+        let payments: Vec<PaymentRecord> = vec![];
+
+        let result = engine.match_one_to_one(&invoice, &payments);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_one_to_one_within_tolerance() {
+        let engine = MatchEngine::new(0.50);
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![make_payment("p1", 100.30)];
+
+        let result = engine.match_one_to_one(&invoice, &payments);
+        assert!(result.is_some());
+        let r = result.unwrap();
+        assert!((r.amount_diff - 0.30).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_one_to_one_beyond_tolerance() {
+        let engine = MatchEngine::new(0.10);
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![make_payment("p1", 100.50)];
+
+        let result = engine.match_one_to_one(&invoice, &payments);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_one_to_one_returns_first_match() {
+        let engine = MatchEngine::new(1.00);
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![
+            make_payment("p1", 100.50),
+            make_payment("p2", 99.80),
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert_eq!(result.payment_ids[0], "p1");
+    }
+
+    #[test]
+    fn test_one_to_many_exact_sum() {
+        let engine = MatchEngine::default();
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![
+            make_payment("p1", 40.00),
+            make_payment("p2", 60.00),
+        ];
+
+        let result = engine.match_one_to_many(&invoice, &payments).unwrap();
+        assert!(matches!(result.match_type, MatchType::OneToMany));
+        assert_eq!(result.payment_ids.len(), 2);
+        let total: f64 = result.payments.iter().map(|p| p.amount).sum();
+        assert!((total - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_one_to_many_three_payments() {
+        let engine = MatchEngine::default();
+        let invoice = make_invoice("inv1", 150.00);
+        let payments = vec![
+            make_payment("p1", 30.00),
+            make_payment("p2", 50.00),
+            make_payment("p3", 70.00),
+            make_payment("p4", 999.00),
+        ];
+
+        let result = engine.match_one_to_many(&invoice, &payments).unwrap();
+        assert!(matches!(result.match_type, MatchType::OneToMany));
+        let total: f64 = result.payments.iter().map(|p| p.amount).sum();
+        assert!((total - 150.0).abs() < 1.01);
+    }
+
+    #[test]
+    fn test_one_to_many_empty_payments() {
+        let engine = MatchEngine::default();
+        let invoice = make_invoice("inv1", 100.00);
+        let payments: Vec<PaymentRecord> = vec![];
+
+        let result = engine.match_one_to_many(&invoice, &payments);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_one_to_many_all_payments_too_large() {
+        let engine = MatchEngine::default();
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![
+            make_payment("p1", 200.00),
+            make_payment("p2", 300.00),
+        ];
+
+        let result = engine.match_one_to_many(&invoice, &payments);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_match_confidence_range() {
+        let engine = MatchEngine::new(1.00);
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![make_payment("p1", 99.50)];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert!(result.confidence > 0.0 && result.confidence <= 1.0);
+    }
+
+    #[test]
+    fn test_tolerance_zero_no_match_on_diff() {
+        let engine = MatchEngine::new(0.0);
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![make_payment("p1", 100.01)];
+
+        let result = engine.match_one_to_one(&invoice, &payments);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_tolerance_zero_exact_match() {
+        let engine = MatchEngine::new(0.0);
+        let invoice = make_invoice("inv1", 100.00);
+        let payments = vec![make_payment("p1", 100.00)];
+
+        let result = engine.match_one_to_one(&invoice, &payments);
+        assert!(result.is_some());
+    }
 }

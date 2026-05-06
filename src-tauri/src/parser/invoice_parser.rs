@@ -182,4 +182,205 @@ mod tests {
             chrono::NaiveDate::from_ymd_opt(2025, 8, 5).unwrap()
         );
     }
+
+    // ===== 新增测试 =====
+
+    #[test]
+    fn test_classify_train_keywords() {
+        // 火车
+        assert!(matches!(classify_invoice("铁路客服", ""), InvoiceCategory::Train));
+        assert!(matches!(classify_invoice("", "高铁出行"), InvoiceCategory::Train));
+        assert!(matches!(classify_invoice("火车票代售", ""), InvoiceCategory::Train));
+        assert!(matches!(classify_invoice("", "客运站"), InvoiceCategory::Train));
+    }
+
+    #[test]
+    fn test_classify_flight_keywords() {
+        assert!(matches!(classify_invoice("", "机票"), InvoiceCategory::Flight));
+        assert!(matches!(classify_invoice("航空服务", ""), InvoiceCategory::Flight));
+        assert!(matches!(classify_invoice("机场餐饮", ""), InvoiceCategory::Flight));
+        assert!(matches!(classify_invoice("", "航班延误"), InvoiceCategory::Flight));
+    }
+
+    #[test]
+    fn test_classify_ticket_change() {
+        assert!(matches!(classify_invoice("退票服务", ""), InvoiceCategory::TicketChange));
+        assert!(matches!(classify_invoice("", "改签费"), InvoiceCategory::TicketChange));
+        assert!(matches!(classify_invoice("保险公司", ""), InvoiceCategory::TicketChange));
+    }
+
+    #[test]
+    fn test_classify_city_transport() {
+        assert!(matches!(classify_invoice("出租汽车", ""), InvoiceCategory::CityTransport));
+        assert!(matches!(classify_invoice("", "网约车"), InvoiceCategory::CityTransport));
+        assert!(matches!(classify_invoice("高德打车", ""), InvoiceCategory::CityTransport));
+        assert!(matches!(classify_invoice("T3出行", ""), InvoiceCategory::CityTransport));
+        assert!(matches!(classify_invoice("曹操出行", ""), InvoiceCategory::CityTransport));
+    }
+
+    #[test]
+    fn test_classify_hotel_keywords() {
+        assert!(matches!(classify_invoice("宾馆", ""), InvoiceCategory::Hotel));
+        assert!(matches!(classify_invoice("", "住宿费"), InvoiceCategory::Hotel));
+        assert!(matches!(classify_invoice("招待所", ""), InvoiceCategory::Hotel));
+        assert!(matches!(classify_invoice("", "民宿"), InvoiceCategory::Hotel));
+    }
+
+    #[test]
+    fn test_classify_meal() {
+        assert!(matches!(classify_invoice("餐饮公司", ""), InvoiceCategory::Meal));
+        assert!(matches!(classify_invoice("", "饭店"), InvoiceCategory::Meal));
+        assert!(matches!(classify_invoice("食品店", ""), InvoiceCategory::Meal));
+        assert!(matches!(classify_invoice("", "餐厅"), InvoiceCategory::Meal));
+        assert!(matches!(classify_invoice("", "饭馆"), InvoiceCategory::Meal));
+    }
+
+    #[test]
+    fn test_classify_other() {
+        assert!(matches!(classify_invoice("办公用品", "文具"), InvoiceCategory::Other));
+        assert!(matches!(classify_invoice("", ""), InvoiceCategory::Other));
+    }
+
+    #[test]
+    fn test_extract_amount_with_comma() {
+        let text = "价税合计：¥1,234.56";
+        assert!((extract_amount(text).unwrap() - 1234.56).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_amount_heji() {
+        let text = "合计金额：100.00";
+        assert!((extract_amount(text).unwrap() - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_amount_total() {
+        let text = "总金额：55.50";
+        assert!((extract_amount(text).unwrap() - 55.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_amount_yuan_fallback() {
+        let text = "消费 ￥30.00 其他 ￥200.00";
+        // 应该取最大的金额
+        assert!((extract_amount(text).unwrap() - 200.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_extract_amount_failure() {
+        let text = "没有任何金额信息";
+        assert!(extract_amount(text).is_err());
+    }
+
+    #[test]
+    fn test_extract_seller_name() {
+        let text = "销售方：北京科技有限公司";
+        assert_eq!(extract_seller_name(text), "北京科技有限公司");
+    }
+
+    #[test]
+    fn test_extract_seller_name_colon() {
+        let text = "收款单位:上海贸易公司";
+        assert_eq!(extract_seller_name(text), "上海贸易公司");
+    }
+
+    #[test]
+    fn test_extract_seller_name_empty() {
+        let text = "没有销售方信息的文本";
+        assert_eq!(extract_seller_name(text), "");
+    }
+
+    #[test]
+    fn test_extract_item_name() {
+        let text = "项目名称：交通服务费";
+        assert_eq!(extract_item_name(text), "交通服务费");
+    }
+
+    #[test]
+    fn test_extract_item_name_goods() {
+        let text = "货物或应税劳务：餐饮服务";
+        assert_eq!(extract_item_name(text), "餐饮服务");
+    }
+
+    #[test]
+    fn test_extract_item_name_empty() {
+        let text = "没有项目名称的文本";
+        assert_eq!(extract_item_name(text), "");
+    }
+
+    #[test]
+    fn test_extract_date_iso_format() {
+        let text = "日期 2025-03-15 其他";
+        let date = extract_date(text);
+        assert_eq!(date, chrono::NaiveDate::from_ymd_opt(2025, 3, 15).unwrap());
+    }
+
+    #[test]
+    fn test_extract_date_default() {
+        let text = "没有日期信息";
+        let date = extract_date(text);
+        assert_eq!(date, chrono::NaiveDate::default());
+    }
+
+    #[test]
+    fn test_extract_invoice_number() {
+        let text = "发票号码：12345678";
+        assert_eq!(extract_invoice_number(text), "12345678");
+    }
+
+    #[test]
+    fn test_extract_invoice_number_no_prefix() {
+        let text = "No：87654321";
+        assert_eq!(extract_invoice_number(text), "87654321");
+    }
+
+    #[test]
+    fn test_extract_invoice_number_empty() {
+        let text = "没有发票号码";
+        assert_eq!(extract_invoice_number(text), "");
+    }
+
+    #[test]
+    fn test_parse_invoice_text_full() {
+        let texts = vec![
+            OcrTextItem { text: "发票号码：12345678".to_string(), confidence: 0.99, box_coords: None },
+            OcrTextItem { text: "价税合计：¥200.00".to_string(), confidence: 0.99, box_coords: None },
+            OcrTextItem { text: "销售方：滴滴出行".to_string(), confidence: 0.99, box_coords: None },
+            OcrTextItem { text: "项目名称：网约车服务".to_string(), confidence: 0.99, box_coords: None },
+            OcrTextItem { text: "2025年06月15日".to_string(), confidence: 0.99, box_coords: None },
+        ];
+        let result = parse_invoice_text(&texts, InvoiceSource::Photo("test.jpg".to_string()));
+        assert!(result.is_ok());
+        let invoice = result.unwrap();
+        assert_eq!(invoice.invoice_number, "12345678");
+        assert!((invoice.amount - 200.0).abs() < 0.01);
+        assert_eq!(invoice.seller_name, "滴滴出行");
+        assert_eq!(invoice.item_name, "网约车服务");
+        assert_eq!(invoice.date, chrono::NaiveDate::from_ymd_opt(2025, 6, 15).unwrap());
+        assert!(matches!(invoice.category, InvoiceCategory::CityTransport));
+    }
+
+    #[test]
+    fn test_parse_invoice_text_no_amount() {
+        let texts = vec![
+            OcrTextItem { text: "发票号码：12345678".to_string(), confidence: 0.99, box_coords: None },
+        ];
+        let result = parse_invoice_text(&texts, InvoiceSource::Pdf("test.pdf".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_invoice_text_empty() {
+        let texts: Vec<OcrTextItem> = vec![];
+        let result = parse_invoice_text(&texts, InvoiceSource::Link("http://example.com".to_string()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_contains_any() {
+        assert!(contains_any("滴滴出行", &["滴滴", "高德"]));
+        assert!(!contains_any("出租车", &["滴滴", "高德"]));
+        assert!(contains_any("hello", &["hello"]));
+        assert!(!contains_any("world", &["hello"]));
+    }
 }
