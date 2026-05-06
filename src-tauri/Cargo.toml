@@ -25,6 +25,9 @@ regex = "1"
 uuid = { version = "1", features = ["v4"] }
 calamine = "0.26"
 genpdf = "0.2"
+paddle-ocr-rs = "0.6"
+ort = { version = "=2.0.0-rc.10", features = ["download-binaries", "copy-dylibs", "ndarray"] }
+image = "0.25"
 
 [profile.release]
 opt-level = "s"
