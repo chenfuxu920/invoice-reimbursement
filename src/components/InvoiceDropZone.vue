@@ -1,0 +1,53 @@
+<template>
+  <div
+    class="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
+           hover:border-blue-400 hover:bg-blue-50 transition-colors"
+    :class="isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+    @dragover.prevent="isDragging = true"
+    @dragleave="isDragging = false"
+    @drop.prevent="handleDrop"
+    @click="openFilePicker"
+  >
+    <div v-if="loading" class="text-blue-500">
+      <span class="animate-spin inline-block mr-2">⏳</span> 识别中...
+    </div>
+    <template v-else>
+      <p class="text-gray-500">
+        {{ isDragging ? '松开以上传' : '拖拽发票文件到此处，或点击选择' }}
+      </p>
+      <p class="text-sm text-gray-400 mt-2">支持 PDF / 图片 / 多文件</p>
+    </template>
+    <input ref="fileInput" type="file" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png" @change="handleFileSelect" />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+
+defineProps<{ loading?: boolean }>()
+const emit = defineEmits<{ (e: 'files-selected', paths: string[]): void }>()
+
+const isDragging = ref(false)
+const fileInput = ref<HTMLInputElement>()
+
+function openFilePicker() {
+  fileInput.value?.click()
+}
+
+function handleDrop(e: DragEvent) {
+  isDragging.value = false
+  const files = e.dataTransfer?.files
+  if (files) {
+    const paths = Array.from(files).map(f => f.name)
+    emit('files-selected', paths)
+  }
+}
+
+function handleFileSelect(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (input.files) {
+    const paths = Array.from(input.files).map(f => f.name)
+    emit('files-selected', paths)
+  }
+}
+</script>
