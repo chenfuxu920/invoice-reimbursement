@@ -14,6 +14,9 @@ use models::payment::PaymentRecord;
 use models::match_result::MatchResult;
 use matching::batch;
 use matching::manual;
+use crate::pdf::form_generator;
+use crate::pdf::comparison_generator;
+use crate::pdf::form_builder;
 use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
@@ -152,6 +155,37 @@ async fn manual_match(
     Ok(manual::create_manual_match(invoice, payments))
 }
 
+// 生成报销表 PDF 命令
+#[tauri::command]
+async fn generate_form_pdf(
+    match_results: Vec<MatchResult>,
+    name: String,
+    department: String,
+    travel_start: String,
+    travel_end: String,
+    companions: u32,
+    output_path: String,
+) -> Result<(), String> {
+    let form = form_builder::build_reimbursement_form(
+        &match_results, &name, &department, &travel_start, &travel_end, companions as usize
+    );
+    form_generator::generate_reimbursement_pdf(&form, &output_path)
+        .map_err(|e| e.to_string())
+}
+
+// 生成对照表 PDF 命令
+#[tauri::command]
+async fn generate_comparison_pdf(
+    match_results: Vec<MatchResult>,
+    unmatched_invoice_ids: Vec<String>,
+    unmatched_payment_ids: Vec<String>,
+    output_path: String,
+) -> Result<(), String> {
+    comparison_generator::generate_comparison_pdf(
+        &match_results, &unmatched_invoice_ids, &unmatched_payment_ids, &output_path
+    ).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -174,6 +208,8 @@ pub fn run() {
             import_alipay_bill,
             auto_match,
             manual_match,
+            generate_form_pdf,
+            generate_comparison_pdf,
         ])
         .setup(|app| {
             // 应用启动时自动启动 OCR 服务
