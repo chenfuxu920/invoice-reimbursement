@@ -5,7 +5,10 @@ mod parser;
 use ocr::{OcrClient, OcrServiceManager, OcrTextItem};
 use parser::invoice_parser::parse_invoice_text;
 use parser::itinerary_parser::parse_itinerary_text;
+use parser::wechat_parser;
+use parser::alipay_parser;
 use models::invoice::{Invoice, InvoiceSource, Itinerary};
+use models::payment::PaymentRecord;
 use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
@@ -112,6 +115,18 @@ async fn recognize_itinerary(
     Ok(parse_itinerary_text(&all_texts))
 }
 
+// 微信账单导入命令
+#[tauri::command]
+async fn import_wechat_bill(file_path: String) -> Result<Vec<PaymentRecord>, String> {
+    wechat_parser::parse_wechat_bill(&file_path)
+}
+
+// 支付宝账单导入命令
+#[tauri::command]
+async fn import_alipay_bill(file_path: String) -> Result<Vec<PaymentRecord>, String> {
+    alipay_parser::parse_alipay_bill(&file_path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -130,6 +145,8 @@ pub fn run() {
             is_ocr_service_running,
             recognize_invoice,
             recognize_itinerary,
+            import_wechat_bill,
+            import_alipay_bill,
         ])
         .setup(|app| {
             // 应用启动时自动启动 OCR 服务
