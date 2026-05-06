@@ -14,3 +14,6 @@ pub use link_parser::extract_url_from_qrcode;
 
 pub mod wechat_parser;
 pub use wechat_parser::parse_wechat_bill;
+
+pub mod alipay_parser;
+pub use alipay_parser::parse_alipay_bill;
