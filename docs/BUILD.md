@@ -64,17 +64,6 @@ strip = true          # 剥离调试符号
 codegen-units = 1     # 单编译单元，更好的优化
 ```
 
-## OCR 服务
-
-应用启动时会自动启动 Python OCR 服务。确保：
-
-- **Python** 3.9+ 已安装
-- OCR 依赖已安装：
-  ```bash
-  pip install -r ocr-service/requirements.txt
-  ```
-- PaddleOCR/RapidOCR 模型可用（首次运行会自动下载）
-
 ## 打包配置
 
 Tauri 打包配置位于 `src-tauri/tauri.conf.json`，主要配置项：
