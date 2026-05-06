@@ -2,6 +2,7 @@ mod matching;
 mod models;
 mod ocr;
 mod parser;
+mod pdf;
 
 use ocr::{OcrClient, OcrServiceManager, OcrTextItem};
 use parser::invoice_parser::parse_invoice_text;
