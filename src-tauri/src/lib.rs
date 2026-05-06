@@ -1,5 +1,6 @@
 mod models;
 mod ocr;
+mod parser;
 
 use ocr::{OcrClient, OcrServiceManager};
 use std::sync::Mutex;
