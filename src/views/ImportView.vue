@@ -12,17 +12,22 @@
 
     <div class="border-t pt-8">
       <h3 class="text-lg font-medium mb-3">账单导入</h3>
-      <p class="text-gray-400">微信/支付宝账单导入功能开发中...</p>
+      <BillImporter @import="handleBillImport" />
+      <PaymentTable v-if="paymentStore.payments.length" :payments="paymentStore.payments" @remove="paymentStore.removePayment" class="mt-4" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { useInvoiceStore } from '../stores/invoice'
+import { usePaymentStore } from '../stores/payment'
 import InvoiceDropZone from '../components/InvoiceDropZone.vue'
 import InvoiceCard from '../components/InvoiceCard.vue'
+import BillImporter from '../components/BillImporter.vue'
+import PaymentTable from '../components/PaymentTable.vue'
 
 const invoiceStore = useInvoiceStore()
+const paymentStore = usePaymentStore()
 
 async function handleInvoiceFiles(paths: string[]) {
   for (const path of paths) {
@@ -32,6 +37,18 @@ async function handleInvoiceFiles(paths: string[]) {
     } catch (e) {
       console.error('添加发票失败:', e)
     }
+  }
+}
+
+async function handleBillImport(filePath: string, type: 'wechat' | 'alipay') {
+  try {
+    if (type === 'wechat') {
+      await paymentStore.importWechatBill(filePath)
+    } else {
+      await paymentStore.importAlipayBill(filePath)
+    }
+  } catch (e) {
+    console.error('导入账单失败:', e)
   }
 }
 </script>
