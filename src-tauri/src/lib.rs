@@ -10,6 +10,9 @@ use parser::wechat_parser;
 use parser::alipay_parser;
 use models::invoice::{Invoice, InvoiceSource, Itinerary};
 use models::payment::PaymentRecord;
+use models::match_result::MatchResult;
+use matching::batch;
+use matching::manual;
 use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
@@ -128,6 +131,26 @@ async fn import_alipay_bill(file_path: String) -> Result<Vec<PaymentRecord>, Str
     alipay_parser::parse_alipay_bill(&file_path)
 }
 
+// 自动批量匹配命令
+#[tauri::command]
+async fn auto_match(
+    invoices: Vec<Invoice>,
+    payments: Vec<PaymentRecord>,
+    tolerance: f64,
+) -> Result<serde_json::Value, String> {
+    let result = batch::batch_match(&invoices, &payments, tolerance);
+    Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
+}
+
+// 手动匹配命令
+#[tauri::command]
+async fn manual_match(
+    invoice: Invoice,
+    payments: Vec<PaymentRecord>,
+) -> Result<MatchResult, String> {
+    Ok(manual::create_manual_match(invoice, payments))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -148,6 +171,8 @@ pub fn run() {
             recognize_itinerary,
             import_wechat_bill,
             import_alipay_bill,
+            auto_match,
+            manual_match,
         ])
         .setup(|app| {
             // 应用启动时自动启动 OCR 服务
