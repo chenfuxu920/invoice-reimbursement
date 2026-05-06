@@ -23,3 +23,4 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
 regex = "1"
 uuid = { version = "1", features = ["v4"] }
+calamine = "0.26"
