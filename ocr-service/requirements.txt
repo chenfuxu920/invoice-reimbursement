@@ -1,0 +1,7 @@
+fastapi==0.115.0
+uvicorn==0.32.0
+python-multipart==0.0.12
+paddleocr==2.9.0
+paddlepaddle==3.0.0
+Pillow==11.0.0
+pdf2image==1.17.0
