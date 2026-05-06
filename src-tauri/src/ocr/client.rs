@@ -9,18 +9,18 @@ pub struct OcrTextItem {
     pub box_coords: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OcrImageResponse {
     pub texts: Vec<OcrTextItem>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OcrPageResult {
     pub page: u32,
     pub texts: Vec<OcrTextItem>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OcrPdfResponse {
     pub pages: Vec<OcrPageResult>,
 }
