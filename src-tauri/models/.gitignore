@@ -1,1 +1,3 @@
-*.onnx
+# Allow ONNX model files to be tracked (needed for Windows builds)
+# These are PaddleOCR v4 models (~16MB total)
+!*.onnx

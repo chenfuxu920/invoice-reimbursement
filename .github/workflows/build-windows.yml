@@ -1,0 +1,107 @@
+name: Build Windows Release
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Verify model files exist
+        shell: pwsh
+        run: |
+          $models = @(
+            "src-tauri/models/ch_PP-OCRv4_det_infer.onnx",
+            "src-tauri/models/ch_ppocr_mobile_v2.0_cls_infer.onnx",
+            "src-tauri/models/ch_PP-OCRv4_rec_infer.onnx",
+            "src-tauri/models/ppocr_keys_v1.txt"
+          )
+          foreach ($m in $models) {
+            if (-not (Test-Path $m)) {
+              Write-Error "Missing model file: $m"
+              exit 1
+            }
+            $size = (Get-Item $m).Length / 1MB
+            Write-Host "$m : $([math]::Round($size, 2)) MB"
+          }
+
+      - name: Build Tauri app (Release)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: npx tauri
+          args: build --bundles nsis
+
+      - name: Copy onnxruntime DLL to bundle
+        shell: pwsh
+        run: |
+          # Find onnxruntime DLL in the release directory
+          $dll = Get-ChildItem -Path "src-tauri/target/release" -Filter "onnxruntime*.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($dll) {
+            Write-Host "Found ONNX Runtime DLL: $($dll.FullName) ($([math]::Round($dll.Length / 1MB, 2)) MB)"
+            # Copy to NSIS bundle directory
+            $nsisDir = Get-ChildItem -Path "src-tauri/target/release/bundle/nsis" -Directory | Select-Object -First 1
+            if ($nsisDir) {
+              Copy-Item $dll.FullName -Destination $nsisDir.FullName
+              Write-Host "Copied to NSIS bundle: $($nsisDir.FullName)"
+            }
+          } else {
+            Write-Host "Warning: onnxruntime DLL not found in target/release (may be statically linked)"
+          }
+
+      - name: List build artifacts
+        shell: pwsh
+        run: |
+          Write-Host "=== Build artifacts ==="
+          Get-ChildItem -Path "src-tauri/target/release/bundle" -Recurse -File | ForEach-Object {
+            $size = [math]::Round($_.Length / 1MB, 2)
+            Write-Host "$($_.FullName) : $size MB"
+          }
+          Write-Host ""
+          Write-Host "=== Release directory DLLs ==="
+          Get-ChildItem -Path "src-tauri/target/release" -Filter "*.dll" | ForEach-Object {
+            $size = [math]::Round($_.Length / 1MB, 2)
+            Write-Host "$($_.Name) : $size MB"
+          }
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-reimbursement-windows-installer
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 30
+
+      - name: Upload portable bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: invoice-reimbursement-windows-portable
+          path: |
+            src-tauri/target/release/invoice-reimbursement.exe
+            src-tauri/target/release/onnxruntime*.dll
+          retention-days: 30
