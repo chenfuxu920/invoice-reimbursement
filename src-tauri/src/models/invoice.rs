@@ -13,6 +13,7 @@ pub enum InvoiceCategory {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", content = "path")]
 pub enum InvoiceSource {
     Photo(String),       // 照片路径
     Pdf(String),         // PDF路径
