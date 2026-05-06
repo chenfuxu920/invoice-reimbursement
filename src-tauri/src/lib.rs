@@ -1,3 +1,4 @@
+mod matching;
 mod models;
 mod ocr;
 mod parser;
