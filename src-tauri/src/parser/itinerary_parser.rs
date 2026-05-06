@@ -1,5 +1,5 @@
 use crate::models::invoice::Itinerary;
-use crate::ocr::client::OcrTextItem;
+use crate::ocr::OcrTextItem;
 use regex::Regex;
 
 pub fn parse_itinerary_text(texts: &[OcrTextItem]) -> Vec<Itinerary> {

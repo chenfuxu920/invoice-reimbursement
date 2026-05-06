@@ -4,7 +4,7 @@ pub mod ocr;
 pub mod parser;
 pub mod pdf;
 
-use ocr::{OcrClient, OcrServiceManager, OcrTextItem};
+use ocr::{OcrEngine, OcrTextItem};
 use parser::invoice_parser::parse_invoice_text;
 use parser::itinerary_parser::parse_itinerary_text;
 use parser::wechat_parser;
@@ -17,21 +17,22 @@ use matching::manual;
 use crate::pdf::form_generator;
 use crate::pdf::comparison_generator;
 use crate::pdf::form_builder;
-use std::sync::Mutex;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
 
 // 应用状态
 struct AppState {
-    ocr_client: AsyncMutex<OcrClient>,
-    ocr_service: Mutex<OcrServiceManager>,
+    ocr_engine: AsyncMutex<Option<OcrEngine>>,
 }
 
 // OCR 健康检查命令
 #[tauri::command]
 async fn ocr_health(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let client = state.ocr_client.lock().await;
-    client.health().await
+    let engine = state.ocr_engine.lock().await;
+    match engine.as_ref() {
+        Some(e) => Ok(e.health()?),
+        None => Ok(false),
+    }
 }
 
 // OCR 图片识别命令
@@ -40,8 +41,11 @@ async fn ocr_recognize_image(
     state: tauri::State<'_, AppState>,
     file_path: String,
 ) -> Result<serde_json::Value, String> {
-    let client = state.ocr_client.lock().await;
-    let result = client.recognize_image(&file_path).await?;
+    let mut engine = state.ocr_engine.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or("OCR engine not initialized. Model files may be missing.")?;
+    let result = engine.recognize_image(&file_path)?;
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
 }
 
@@ -51,33 +55,12 @@ async fn ocr_recognize_pdf(
     state: tauri::State<'_, AppState>,
     file_path: String,
 ) -> Result<serde_json::Value, String> {
-    let client = state.ocr_client.lock().await;
-    let result = client.recognize_pdf(&file_path).await?;
+    let mut engine = state.ocr_engine.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or("OCR engine not initialized. Model files may be missing.")?;
+    let result = engine.recognize_pdf(&file_path)?;
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
-}
-
-// 启动 OCR 服务命令
-#[tauri::command]
-async fn start_ocr_service(
-    state: tauri::State<'_, AppState>,
-    project_dir: String,
-) -> Result<(), String> {
-    let mut service = state.ocr_service.lock().map_err(|e| e.to_string())?;
-    service.start(&project_dir)
-}
-
-// 停止 OCR 服务命令
-#[tauri::command]
-async fn stop_ocr_service(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut service = state.ocr_service.lock().map_err(|e| e.to_string())?;
-    service.stop()
-}
-
-// 检查 OCR 服务是否运行
-#[tauri::command]
-async fn is_ocr_service_running(state: tauri::State<'_, AppState>) -> Result<bool, String> {
-    let service = state.ocr_service.lock().map_err(|e| e.to_string())?;
-    Ok(service.is_running())
 }
 
 // 发票识别与解析命令
@@ -85,9 +68,12 @@ async fn is_ocr_service_running(state: tauri::State<'_, AppState>) -> Result<boo
 async fn recognize_invoice(
     state: tauri::State<'_, AppState>,
     file_path: String,
-    file_type: String,  // "image" | "pdf"
+    file_type: String, // "image" | "pdf"
 ) -> Result<Invoice, String> {
-    let client = state.ocr_client.lock().await;
+    let mut engine = state.ocr_engine.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or("OCR engine not initialized. Model files may be missing.")?;
 
     let source = if file_type == "pdf" {
         InvoiceSource::Pdf(file_path.clone())
@@ -96,13 +82,11 @@ async fn recognize_invoice(
     };
 
     let result = if file_type == "pdf" {
-        let resp = client.recognize_pdf(&file_path).await?;
-        let all_texts: Vec<OcrTextItem> = resp.pages.iter()
-            .flat_map(|p| p.texts.clone())
-            .collect();
+        let resp = engine.recognize_pdf(&file_path)?;
+        let all_texts: Vec<OcrTextItem> = resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
         parse_invoice_text(&all_texts, source)?
     } else {
-        let resp = client.recognize_image(&file_path).await?;
+        let resp = engine.recognize_image(&file_path)?;
         parse_invoice_text(&resp.texts, source)?
     };
 
@@ -115,11 +99,12 @@ async fn recognize_itinerary(
     state: tauri::State<'_, AppState>,
     file_path: String,
 ) -> Result<Vec<Itinerary>, String> {
-    let client = state.ocr_client.lock().await;
-    let resp = client.recognize_pdf(&file_path).await?;
-    let all_texts: Vec<OcrTextItem> = resp.pages.iter()
-        .flat_map(|p| p.texts.clone())
-        .collect();
+    let mut engine = state.ocr_engine.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or("OCR engine not initialized. Model files may be missing.")?;
+    let resp = engine.recognize_pdf(&file_path)?;
+    let all_texts: Vec<OcrTextItem> = resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
     Ok(parse_itinerary_text(&all_texts))
 }
 
@@ -167,10 +152,14 @@ async fn generate_form_pdf(
     output_path: String,
 ) -> Result<(), String> {
     let form = form_builder::build_reimbursement_form(
-        &match_results, &name, &department, &travel_start, &travel_end, companions as usize
+        &match_results,
+        &name,
+        &department,
+        &travel_start,
+        &travel_end,
+        companions as usize,
     );
-    form_generator::generate_reimbursement_pdf(&form, &output_path)
-        .map_err(|e| e.to_string())
+    form_generator::generate_reimbursement_pdf(&form, &output_path).map_err(|e| e.to_string())
 }
 
 // 生成对照表 PDF 命令
@@ -182,8 +171,12 @@ async fn generate_comparison_pdf(
     output_path: String,
 ) -> Result<(), String> {
     comparison_generator::generate_comparison_pdf(
-        &match_results, &unmatched_invoice_ids, &unmatched_payment_ids, &output_path
-    ).map_err(|e| e.to_string())
+        &match_results,
+        &unmatched_invoice_ids,
+        &unmatched_payment_ids,
+        &output_path,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -192,16 +185,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState {
-            ocr_client: AsyncMutex::new(OcrClient::new("http://127.0.0.1:8080")),
-            ocr_service: Mutex::new(OcrServiceManager::new()),
+            ocr_engine: AsyncMutex::new(None), // 将在 setup 中初始化
         })
         .invoke_handler(tauri::generate_handler![
             ocr_health,
             ocr_recognize_image,
             ocr_recognize_pdf,
-            start_ocr_service,
-            stop_ocr_service,
-            is_ocr_service_running,
             recognize_invoice,
             recognize_itinerary,
             import_wechat_bill,
@@ -212,21 +201,31 @@ pub fn run() {
             generate_comparison_pdf,
         ])
         .setup(|app| {
-            // 应用启动时自动启动 OCR 服务
-            let state = app.state::<AppState>();
-            let service = state.ocr_service.lock().unwrap();
-            // 获取项目目录（使用当前工作目录或可配置路径）
-            if let Ok(project_dir) = std::env::current_dir() {
-                let project_dir_str = project_dir.to_string_lossy().to_string();
-                drop(service); // 释放锁后再启动
-                let state = app.state::<AppState>();
-                let mut service = state.ocr_service.lock().unwrap();
-                if let Err(e) = service.start(&project_dir_str) {
-                    eprintln!("Warning: Failed to auto-start OCR service: {}", e);
-                } else {
-                    println!("OCR service auto-started successfully");
+            // 初始化嵌入式 OCR 引擎
+            let resource_dir = app
+                .path()
+                .resource_dir()
+                .expect("Failed to get resource directory");
+            let models_dir = resource_dir.join("models");
+            let models_dir_str = models_dir.to_string_lossy().to_string();
+
+            let engine = match OcrEngine::new(&models_dir_str) {
+                Ok(e) => {
+                    println!("OCR engine initialized successfully from: {}", models_dir_str);
+                    Some(e)
                 }
-            }
+                Err(e) => {
+                    eprintln!(
+                        "Warning: Failed to initialize OCR engine ({}): {}",
+                        models_dir_str, e
+                    );
+                    eprintln!("OCR features will be unavailable. Please ensure model files are in the 'models/' directory.");
+                    None
+                }
+            };
+
+            let state = app.state::<AppState>();
+            *state.ocr_engine.blocking_lock() = engine;
 
             #[cfg(debug_assertions)]
             {
@@ -234,18 +233,6 @@ pub fn run() {
                 window.open_devtools();
             }
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            // 应用窗口关闭时自动停止 OCR 服务
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let state = window.state::<AppState>();
-                let mut service = state.ocr_service.lock().unwrap();
-                if let Err(e) = service.stop() {
-                    eprintln!("Warning: Failed to stop OCR service on close: {}", e);
-                } else {
-                    println!("OCR service stopped on application close");
-                }
-            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

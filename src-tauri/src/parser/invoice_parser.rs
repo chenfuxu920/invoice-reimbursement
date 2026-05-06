@@ -1,5 +1,5 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource};
-use crate::ocr::client::OcrTextItem;
+use crate::ocr::OcrTextItem;
 use regex::Regex;
 use uuid::Uuid;
 
