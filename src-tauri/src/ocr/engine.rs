@@ -33,16 +33,17 @@ pub struct OcrEngine {
 impl OcrEngine {
     /// 创建新的 OCR 引擎并加载模型
     /// models_dir 应包含:
-    ///   - ch_PP-OCRv4_det_infer.onnx (检测模型)
+    ///   - ch_PP-OCRv5_mobile_det.onnx (检测模型)
     ///   - ch_ppocr_mobile_v2.0_cls_infer.onnx (分类模型)
-    ///   - ch_PP-OCRv4_rec_infer.onnx (识别模型)
-    ///   - ppocr_keys_v1.txt (字典文件，可选，v4 rec 内置)
+    ///   - ch_PP-OCRv5_rec_mobile_infer.onnx (识别模型)
+    ///   - ppocr_keys_v1.txt (字典文件，可选，v5 rec 内置)
     pub fn new(models_dir: &str) -> Result<Self, String> {
-        let det_model = Path::new(models_dir).join("ch_PP-OCRv4_det_infer.onnx");
+        let det_model = Path::new(models_dir).join("ch_PP-OCRv5_mobile_det.onnx");
         let cls_model = Path::new(models_dir).join("ch_ppocr_mobile_v2.0_cls_infer.onnx");
-        let rec_model = Path::new(models_dir).join("ch_PP-OCRv4_rec_infer.onnx");
+        let rec_model = Path::new(models_dir).join("ch_PP-OCRv5_rec_mobile_infer.onnx");
+        let dict_file = Path::new(models_dir).join("ppocr_keys_v1.txt");
 
-        for (name, path) in [("det", &det_model), ("cls", &cls_model), ("rec", &rec_model)] {
+        for (name, path) in [("det", &det_model), ("cls", &cls_model), ("rec", &rec_model), ("dict", &dict_file)] {
             if !path.exists() {
                 return Err(format!(
                     "OCR model file not found: {} ({})",
@@ -53,10 +54,11 @@ impl OcrEngine {
         }
 
         let mut ocr = OcrLite::new();
-        ocr.init_models(
+        ocr.init_models_with_dict(
             det_model.to_str().unwrap(),
             cls_model.to_str().unwrap(),
             rec_model.to_str().unwrap(),
+            dict_file.to_str().unwrap(),
             2, // num_thread
         )
         .map_err(|e| format!("Failed to init PaddleOCR: {:?}", e))?;
@@ -78,8 +80,8 @@ impl OcrEngine {
                 50,    // padding
                 1024,  // max_side_len
                 0.5,   // box_score_thresh
-                0.3,   // box_thresh
-                1.6,   // un_clip_ratio
+                0.6,   // box_thresh (v5: 0.6)
+                1.5,   // un_clip_ratio (v5: 1.5)
                 true,  // do_angle
                 false, // most_angle
             )
@@ -120,8 +122,8 @@ impl OcrEngine {
                 50,    // padding
                 1024,  // max_side_len
                 0.5,   // box_score_thresh
-                0.3,   // box_thresh
-                1.6,   // un_clip_ratio
+                0.6,   // box_thresh (v5: 0.6)
+                1.5,   // un_clip_ratio (v5: 1.5)
                 true,  // do_angle
                 false, // most_angle
             )
