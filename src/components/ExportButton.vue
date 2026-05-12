@@ -19,7 +19,15 @@ const props = defineProps<{
   matchResults: MatchResult[]
   unmatchedInvoiceIds: string[]
   unmatchedPaymentIds: string[]
-  formInfo: { name: string; department: string; travelStart: string; travelEnd: string; companions: number }
+  formInfo: {
+    name: string
+    department: string
+    destination: string
+    travelStart: string
+    travelEnd: string
+    companions: number
+    hotelLevel: string
+  }
   disabled?: boolean
 }>()
 
@@ -31,9 +39,11 @@ async function exportFormPdf() {
       matchResults: props.matchResults,
       name: props.formInfo.name,
       department: props.formInfo.department,
+      destination: props.formInfo.destination,
       travelStart: props.formInfo.travelStart,
       travelEnd: props.formInfo.travelEnd,
       companions: props.formInfo.companions,
+      hotelLevel: props.formInfo.hotelLevel,
       outputPath
     })
     alert('报销表单 PDF 已生成！')
@@ -61,8 +71,6 @@ async function exportComparisonPdf() {
 }
 
 async function selectSavePath(prefix: string): Promise<string | null> {
-  // 使用 Tauri dialog 选择保存路径
-  // 如果 @tauri-apps/plugin-dialog 不可用，使用默认路径
   try {
     const { save } = await import('@tauri-apps/plugin-dialog')
     return await save({
@@ -70,7 +78,6 @@ async function selectSavePath(prefix: string): Promise<string | null> {
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
     })
   } catch {
-    // fallback: 返回默认路径
     return `~/${prefix}_${new Date().toISOString().slice(0, 10)}.pdf`
   }
 }

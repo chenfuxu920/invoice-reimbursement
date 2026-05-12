@@ -90,9 +90,13 @@ describe('Type definitions integrity', () => {
       transaction_id: 'TX001',
       transaction_time: '2025-01-15 12:00',
       amount: 100.0,
+      original_amount: 100.0,
+      refund_amount: 0,
+      discount: 0,
       merchant_name: '测试酒店',
       source: 'Wechat',
       category: '住宿',
+      payment_method: '',
     }
     expect(payment.id).toBeTruthy()
     expect(payment.amount).toBeGreaterThan(0)
@@ -123,6 +127,7 @@ describe('Type definitions integrity', () => {
           merchant_name: '测试酒店',
           source: 'Wechat',
           category: '住宿',
+          payment_method: '',
         },
       ],
       match_type: 'OneToOne',
@@ -150,18 +155,36 @@ describe('Type definitions integrity', () => {
     const form: ReimbursementForm = {
       name: '张三',
       department: '技术部',
+      destination: '上海',
       travel_start: '2025-01-15',
       travel_end: '2025-01-20',
+      travel_days: 6,
       companions: 2,
+      transport_details: [
+        { label: '车、船票', count: 1, amount: 553.0 },
+      ],
+      transport_subtotal: 553.0,
+      city_transport_count: 5,
+      city_transport_amount: 200.0,
+      hotel_levels: [
+        { level: '其他人员', persons: 1, days: 5, daily_rate: 180.0, amount: 900.0, actual_amount: 900.0 },
+      ],
+      hotel_subtotal: 900.0,
+      meal_subsidy: { persons: 1, days: 6, daily_rate: 100.0, amount: 600.0 },
+      baggage_amount: 0.0,
+      meal_reimbursement: 0.0,
+      advance_payment: 0.0,
       summaries: [
         { category: 'Train', count: 1, total_amount: 553.0 },
         { category: 'Hotel', count: 2, total_amount: 900.0 },
       ],
-      total_amount: 1453.0,
+      total_amount: 2253.0,
     }
     expect(form.name).toBeTruthy()
     expect(form.summaries.length).toBeGreaterThan(0)
     expect(form.total_amount).toBeGreaterThan(0)
+    expect(form.transport_details.length).toBeGreaterThan(0)
+    expect(form.meal_subsidy.amount).toBeGreaterThan(0)
   })
 
   it('Invoice with itineraries should be valid', () => {

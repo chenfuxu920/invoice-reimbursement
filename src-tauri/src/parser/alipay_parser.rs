@@ -1,50 +1,52 @@
 use crate::models::payment::{PaymentRecord, PaymentSource};
-use calamine::{open_workbook_auto, Reader};
 use uuid::Uuid;
 
 pub fn parse_alipay_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> {
-    let mut workbook = open_workbook_auto(file_path)
-        .map_err(|e| format!("打开支付宝账单失败: {}", e))?;
+    let bytes = std::fs::read(file_path)
+        .map_err(|e| format!("读取支付宝账单文件失败: {}", e))?;
 
-    let sheet = workbook
-        .sheet_names()
-        .get(0)
-        .ok_or("无工作表")?
-        .clone();
+    let (content, _encoding, _had_errors) = encoding_rs::GBK.decode(&bytes);
+    let content = content.into_owned();
 
-    let range = workbook
-        .worksheet_range(&sheet)
-        .map_err(|e| format!("读取工作表失败: {}", e))?;
+    // 第一遍解析：收集所有记录
+    struct RawRecord {
+        transaction_time: String,
+        transaction_type: String,
+        merchant_name: String,
+        amount: f64,
+        payment_method: String,
+        transaction_id: String,
+        is_refund: bool,
+    }
 
-    let mut records = Vec::new();
+    let mut raw_records: Vec<RawRecord> = Vec::new();
     let mut header_found = false;
 
-    for row in range.rows() {
-        let first_cell = row.get(0).map(|c| c.to_string()).unwrap_or_default();
+    for line in content.lines() {
+        let line = line.trim();
 
-        // 支付宝账单标题行
-        if first_cell.contains("交易时间") || first_cell.contains("交易号") {
-            header_found = true;
+        if line.is_empty() || line.starts_with('-') {
             continue;
         }
 
         if !header_found {
-            continue;
-        }
-        if row.len() < 8 {
+            if line.contains("交易时间") && line.contains("金额") {
+                header_found = true;
+            }
             continue;
         }
 
-        let transaction_time = row.get(0).map(|c| c.to_string()).unwrap_or_default();
-        let transaction_id = row.get(1).map(|c| c.to_string()).unwrap_or_default();
-        let merchant_name = row.get(4).map(|c| c.to_string()).unwrap_or_default();
-        let category = row.get(6).map(|c| c.to_string()).unwrap_or_default();
-        let amount_str = row.get(8).map(|c| c.to_string()).unwrap_or_default();
-        let direction = row.get(9).map(|c| c.to_string()).unwrap_or_default();
-
-        if !direction.contains("支出") {
+        let fields: Vec<&str> = line.split(',').collect();
+        if fields.len() < 8 {
             continue;
         }
+
+        let transaction_time = fields[0].trim().to_string();
+        let transaction_type = fields[1].trim().to_string();
+        let merchant_name = fields[2].trim().to_string();
+        let direction = fields[5].trim();
+        let amount_str = fields[6].trim();
+        let payment_method = fields.get(7).map(|s| s.trim().to_string()).unwrap_or_default();
 
         let amount: f64 = amount_str
             .replace("¥", "")
@@ -58,14 +60,83 @@ pub fn parse_alipay_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> 
             continue;
         }
 
+        let is_refund = transaction_type.contains("退款");
+
+        let signed_amount = if is_refund {
+            -amount
+        } else if direction.contains("收入") {
+            -amount
+        } else if direction.contains("支出") || direction.contains("支付") {
+            amount
+        } else {
+            continue;
+        };
+
+        let transaction_id = if fields.len() > 9 {
+            fields[9].trim().to_string()
+        } else {
+            Uuid::new_v4().to_string()
+        };
+
+        raw_records.push(RawRecord {
+            transaction_time,
+            transaction_type,
+            merchant_name,
+            amount: signed_amount,
+            payment_method,
+            transaction_id,
+            is_refund,
+        });
+    }
+
+    // 第二遍：处理退款关联，按交易单号前缀匹配
+    let mut refund_map: std::collections::HashMap<String, Vec<f64>> = std::collections::HashMap::new();
+    for rec in &raw_records {
+        if rec.is_refund {
+            // 退款记录的交易单号格式：原始单号*后缀
+            if let Some(pos) = rec.transaction_id.find('*') {
+                let prefix = &rec.transaction_id[..pos];
+                refund_map.entry(prefix.to_string()).or_default().push(rec.amount.abs());
+            }
+        }
+    }
+
+    // 第三遍：输出最终记录，处理退款抵消
+    let mut records = Vec::new();
+    for rec in &raw_records {
+        if rec.is_refund {
+            // 退款记录本身不输出为独立记录
+            continue;
+        }
+
+        // 检查是否有对应的退款
+        let refund_total: f64 = refund_map.get(&rec.transaction_id)
+            .map(|v| v.iter().sum())
+            .unwrap_or(0.0);
+
+        if refund_total >= rec.amount.abs() {
+            // 全额退款，跳过原始支付记录
+            continue;
+        }
+
+        // 部分退款：扣除退款金额
+        let final_amount = rec.amount - refund_total;
+        if final_amount == 0.0 {
+            continue;
+        }
+
         records.push(PaymentRecord {
             id: Uuid::new_v4().to_string(),
-            transaction_id,
-            transaction_time,
-            amount,
-            merchant_name,
+            transaction_id: rec.transaction_id.clone(),
+            transaction_time: rec.transaction_time.clone(),
+            amount: final_amount,
+            original_amount: rec.amount.abs(),
+            refund_amount: refund_total,
+            discount: 0.0,
+            merchant_name: rec.merchant_name.clone(),
             source: PaymentSource::Alipay,
-            category,
+            category: rec.transaction_type.clone(),
+            payment_method: rec.payment_method.clone(),
         });
     }
 
@@ -78,7 +149,7 @@ mod tests {
 
     #[test]
     fn test_parse_empty_file() {
-        let result = parse_alipay_bill("nonexistent.xlsx");
+        let result = parse_alipay_bill("nonexistent.csv");
         assert!(result.is_err());
     }
 }

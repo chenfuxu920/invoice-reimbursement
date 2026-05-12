@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>差旅费报销单</title>
+<style>
+  @page { size: A4 landscape; margin: 10mm; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "SimSun", "宋体", serif; font-size: 14px; padding: 20px; }
+  .report { width: 100%; border-collapse: collapse; border: 2px solid #000; table-layout: fixed; }
+  .report td { border: 1px solid #000; padding: 4px 6px; text-align: center; vertical-align: middle; }
+  .report .title { font-size: 18px; font-weight: bold; letter-spacing: 4px; padding: 10px 0; }
+  .lbl { text-align: left; font-weight: normal; white-space: nowrap; background: #f5f5f5; }
+  .val { text-align: left; font-weight: bold; }
+  .sec { writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 2px; font-weight: bold; }
+  .amt { text-align: right; }
+  .hdr td { height: 30px; font-weight: bold; }
+  .row td { height: 30px; }
+  .sum td { height: 36px; font-weight: bold; }
+</style>
+</head>
+<body>
+<table class="report">
+  <tr>
+    <td colspan="10" class="title">差 旅 费 报 销 单</td>
+  </tr>
+  <tr class="row">
+    <td class="lbl" style="width:6%">姓名</td>
+    <td class="val" style="width:10%">陈福旭</td>
+    <td class="lbl" style="width:6%">部职别</td>
+    <td class="val" style="width:16%" colspan="2">聘用工程师</td>
+    <td class="lbl" style="width:6%">同行人数</td>
+    <td class="val" colspan="4"></td>
+  </tr>
+  <tr class="row">
+    <td class="lbl">到达地点</td>
+    <td class="val" colspan="2">四川省成都市</td>
+    <td class="lbl" style="width:6%">出差日期</td>
+    <td class="val" style="width:10%">2025-08-04</td>
+    <td style="width:3%">至</td>
+    <td class="val" style="width:10%">2025-08-15</td>
+    <td class="val" style="width:4%">12</td>
+    <td style="width:3%">天</td>
+    <td style="width:6%"></td>
+  </tr>
+  <tr class="hdr">
+    <td class="lbl">类 别</td>
+    <td class="lbl">单据张数</td>
+    <td class="lbl">申报金额</td>
+    <td class="lbl">核准金额</td>
+    <td class="lbl">类 别</td>
+    <td class="lbl">人数</td>
+    <td class="lbl">天数</td>
+    <td class="lbl">标准</td>
+    <td class="lbl">申报金额</td>
+    <td class="lbl">核准金额</td>
+  </tr>
+  <tr class="row"><td rowspan="5" class="sec" style="width:4%; font-size:13px;">城市间<br>交通费</td><td class="lbl"></td><td></td><td></td><td></td><td rowspan="5" class="sec" style="width:4%; font-size:13px;">住宿费</td><td class="lbl">战区级以上</td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr class="row"><td class="lbl">飞机票</td><td class="amt">2</td><td class="amt">2220.00</td><td></td><td class="lbl">军级</td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr class="row"><td class="lbl">订（退、改签）票</td><td class="amt">1</td><td class="amt">368.00</td><td></td><td class="lbl">师级</td><td></td><td></td><td></td><td></td><td></td></tr>
+<tr class="row"><td class="lbl" rowspan="2">小 计</td><td></td><td class="amt">2588.00</td><td></td><td class="lbl">其他人员</td><td class="amt">1</td><td class="amt">8</td><td class="amt">370.00</td><td class="amt">2957.84(2975.84)</td><td></td></tr>
+<tr class="row"><td></td><td></td><td></td><td class="lbl">小 计</td><td></td><td></td><td></td><td class="amt">2957.84</td><td></td></tr>
+
+  <tr class="row">
+    <td class="lbl" colspan="2">市内交通费</td>
+    <td class="amt">4</td>
+    <td class="amt">682.80</td>
+    <td></td>
+    <td class="lbl" colspan="4">凭据报销伙食费</td>
+    <td class="amt">0.00</td>
+  </tr>
+  <tr class="row">
+    <td class="lbl" colspan="4">行李托运费</td>
+    <td class="amt" colspan="2">0.00</td>
+    <td class="lbl">预借款</td>
+    <td class="amt" colspan="3">¥:0.00</td>
+  </tr>
+  <tr class="row">
+    <td class="lbl" colspan="4">计发伙食补助费</td>
+    <td class="amt">1</td>
+    <td class="amt">12</td>
+    <td class="amt">100.00</td>
+    <td class="amt">1200.00</td>
+    <td colspan="2"></td>
+  </tr>
+  <tr class="sum">
+    <td class="lbl" colspan="4">申报金额</td>
+    <td class="val" colspan="6" style="text-align:center; font-size:15px;">(¥: 7428.64)</td>
+  </tr>
+  <tr class="sum">
+    <td class="lbl" colspan="4">核准金额</td>
+    <td class="val" colspan="6" style="text-align:center; font-size:15px;">柒仟肆佰贰拾捌元陆角肆分 (¥: )</td>
+  </tr>
+</table>
+</body>
+</html>

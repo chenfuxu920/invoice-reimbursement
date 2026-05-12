@@ -37,7 +37,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["models/*.onnx", "models/*.txt"],
+    "resources": ["models/*.onnx", "models/*.txt", "pdfium.dll"],
     "category": "Business",
     "shortDescription": "发票识别与报销管理助手",
     "longDescription": "发票报销助手是一款基于 Tauri + Vue 3 的桌面应用，支持发票 OCR 识别、报销单管理、Excel 导入导出和 PDF 报表生成。",
@@ -64,12 +64,5 @@
       }
     }
   },
-  "plugins": {
-    "fs": {
-      "scope": {
-        "allow": ["$APPDATA/**", "$DOWNLOAD/**", "$HOME/**"],
-        "deny": []
-      }
-    }
-  }
+  "plugins": {}
 }

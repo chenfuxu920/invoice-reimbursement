@@ -20,6 +20,8 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],
+        remarks: String::new(),
+        hotel_detail: None,
     }
 }
 
@@ -40,6 +42,8 @@ fn make_city_transport_invoice(id: &str, amount: f64) -> Invoice {
             dropoff: "国贸".to_string(),
             amount: 30.0,
         }],
+        remarks: String::new(),
+        hotel_detail: None,
     }
 }
 
@@ -49,9 +53,11 @@ fn make_payment(id: &str, amount: f64, merchant: &str) -> PaymentRecord {
         transaction_id: format!("TX-{}", id),
         transaction_time: "2025-01-15 12:00".to_string(),
         amount,
+        discount: 0.0,
         merchant_name: merchant.to_string(),
         source: PaymentSource::Wechat,
         category: "交通".to_string(),
+        payment_method: String::new(),
     }
 }
 
@@ -179,9 +185,11 @@ fn test_form_builder_integration() {
         &result.matched,
         "张三",
         "技术部",
+        "",
         "2025-01-15",
         "2025-01-20",
         2,
+        "其他人员",
     );
 
     // Verify form fields
@@ -200,8 +208,11 @@ fn test_form_builder_integration() {
     assert_eq!(form.summaries[2].category, InvoiceCategory::Hotel);
     assert_eq!(form.summaries[3].category, InvoiceCategory::Meal);
 
-    // Verify total amount
-    let expected_total = 553.0 + 1200.0 + 450.0 + 80.0;
+    // Verify total amount (发票金额 + 伙食补助6天×100=600)
+    let expected_total = 553.0 + 1200.0 + 450.0 + 80.0 + 600.0;
+    println!("actual total: {:.2}, expected: {:.2}", form.total_amount, expected_total);
+    println!("transport: {:.2}, city: {:.2}, hotel: {:.2}, meal_subsidy: {:.2}",
+        form.transport_subtotal, form.city_transport_amount, form.hotel_subtotal, form.meal_subsidy.amount);
     assert!((form.total_amount - expected_total).abs() < 0.01,
         "Total amount should be {}", expected_total);
 }
@@ -213,14 +224,17 @@ fn test_form_builder_empty_results() {
         &[],
         "李四",
         "市场部",
+        "",
         "2025-02-01",
         "2025-02-05",
         0,
+        "其他人员",
     );
 
     assert_eq!(form.name, "李四");
     assert!(form.summaries.is_empty());
-    assert!((form.total_amount - 0.0).abs() < f64::EPSILON);
+    // 空匹配结果也包含伙食补助（5天×100=500）
+    assert!((form.total_amount - 500.0).abs() < 0.01);
 }
 
 // ===== Manual match integration tests =====
@@ -306,9 +320,11 @@ fn test_end_to_end_flow() {
         &match_result.matched,
         "张三",
         "技术部",
+        "",
         "2025-01-15",
         "2025-01-20",
         1,
+        "其他人员",
     );
 
     // Step 4: Verify form
@@ -337,7 +353,7 @@ fn test_end_to_end_flow() {
     assert!((form.summaries[4].total_amount - 205.0).abs() < 0.01);
     assert_eq!(form.summaries[4].count, 2);
 
-    // Total
-    let expected_total = 553.0 + 1280.0 + 900.0 + 205.0 + 100.0;
+    // Total (发票金额 + 伙食补助6天×100=600)
+    let expected_total = 553.0 + 1280.0 + 900.0 + 205.0 + 100.0 + 600.0;
     assert!((form.total_amount - expected_total).abs() < 0.01);
 }

@@ -1,19 +1,42 @@
 use crate::models::match_result::MatchResult;
 use crate::models::invoice::InvoiceCategory;
-use crate::models::reimbursement::{ReimbursementForm, CategorySummary};
+use crate::models::hotel_standard::get_hotel_nightly_rate_std;
+use crate::models::reimbursement::{
+    ReimbursementForm, CategorySummary, TransportDetail, HotelLevelDetail, MealSubsidyDetail,
+};
+use chrono::NaiveDate;
 use std::collections::HashMap;
 
-/// 从匹配结果构建报销表单
+fn days_between(start: &str, end: &str) -> usize {
+    let parse = |s: &str| -> Option<NaiveDate> {
+        NaiveDate::parse_from_str(s, "%Y-%m-%d").ok()
+    };
+    match (parse(start), parse(end)) {
+        (Some(s), Some(e)) => {
+            let diff = (e - s).num_days();
+            if diff >= 0 { (diff + 1) as usize } else { 1 }
+        }
+        _ => 1,
+    }
+}
+
+/// 从匹配结果构建报销表单（完整版，包含所有明细）
 pub fn build_reimbursement_form(
     match_results: &[MatchResult],
     name: &str,
     department: &str,
+    destination: &str,
     travel_start: &str,
     travel_end: &str,
     companions: usize,
+    hotel_level: &str,
 ) -> ReimbursementForm {
-    let mut category_map: HashMap<InvoiceCategory, (usize, f64)> = HashMap::new();
+    let travel_days = days_between(travel_start, travel_end);
+    let meal_subsidy_rate: f64 = 100.0;
+    let nightly_rate_std = get_hotel_nightly_rate_std(destination);
 
+    // 按类别汇总
+    let mut category_map: HashMap<InvoiceCategory, (usize, f64)> = HashMap::new();
     for result in match_results {
         let cat = &result.invoice.category;
         let entry = category_map.entry(cat.clone()).or_insert((0, 0.0));
@@ -21,16 +44,86 @@ pub fn build_reimbursement_form(
         entry.1 += result.invoice.amount;
     }
 
-    let mut summaries: Vec<CategorySummary> = category_map
-        .into_iter()
-        .map(|(category, (count, total_amount))| CategorySummary {
-            category,
-            count,
-            total_amount,
-        })
+    // 城市间交通费明细
+    let transport_labels = [
+        (InvoiceCategory::Train, "车、船票"),
+        (InvoiceCategory::Flight, "飞机票"),
+        (InvoiceCategory::TicketChange, "订（退、改签）票"),
+    ];
+    let mut transport_details = Vec::new();
+    let mut transport_subtotal = 0.0;
+    for (cat, label) in &transport_labels {
+        if let Some(&(count, amount)) = category_map.get(cat) {
+            transport_details.push(TransportDetail {
+                label: label.to_string(),
+                count,
+                amount,
+            });
+            transport_subtotal += amount;
+        }
+    }
+
+    // 市内交通费
+    let (city_transport_count, city_transport_amount) = category_map
+        .get(&InvoiceCategory::CityTransport)
+        .copied()
+        .unwrap_or((0, 0.0));
+
+    // 住宿费：从每张酒店发票的 hotel_detail 获取天数，按标准封顶
+    let hotel_invoices: Vec<&MatchResult> = match_results
+        .iter()
+        .filter(|r| r.invoice.category == InvoiceCategory::Hotel)
         .collect();
 
-    // 按固定顺序排列
+    let mut total_hotel_nights: usize = 0;
+    let mut total_hotel_actual: f64 = 0.0;
+    let mut total_hotel_reimbursable: f64 = 0.0;
+
+    for result in &hotel_invoices {
+        let inv = &result.invoice;
+        let (nights, actual_amount) = if let Some(ref detail) = inv.hotel_detail {
+            (detail.nights, inv.amount)
+        } else {
+            // 无 hotel_detail 时，用 travel_days - 1 作为估算
+            let est_nights = if travel_days > 1 { travel_days - 1 } else { 1 };
+            (est_nights, inv.amount)
+        };
+        total_hotel_nights += nights;
+        total_hotel_actual += actual_amount;
+
+        // 按标准封顶
+        let standard_amount = nightly_rate_std * nights as f64;
+        total_hotel_reimbursable += actual_amount.min(standard_amount);
+    }
+
+    let hotel_levels = if !hotel_invoices.is_empty() {
+        let _avg_daily_rate = if total_hotel_nights > 0 {
+            total_hotel_actual / total_hotel_nights as f64
+        } else {
+            0.0
+        };
+        vec![HotelLevelDetail {
+            level: hotel_level.to_string(),
+            persons: 1,
+            days: total_hotel_nights,
+            daily_rate: nightly_rate_std,
+            amount: total_hotel_reimbursable,
+            actual_amount: total_hotel_actual,
+        }]
+    } else {
+        vec![]
+    };
+
+    // 伙食补助
+    let meal_subsidy_amount = travel_days as f64 * meal_subsidy_rate;
+    let meal_subsidy = MealSubsidyDetail {
+        persons: 1,
+        days: travel_days,
+        daily_rate: meal_subsidy_rate,
+        amount: meal_subsidy_amount,
+    };
+
+    // 兼容旧接口的 summaries
     let order = [
         InvoiceCategory::Train,
         InvoiceCategory::Flight,
@@ -40,19 +133,49 @@ pub fn build_reimbursement_form(
         InvoiceCategory::Meal,
         InvoiceCategory::Other,
     ];
+    let mut summaries: Vec<CategorySummary> = category_map
+        .into_iter()
+        .map(|(category, (count, total_amount))| CategorySummary {
+            category,
+            count,
+            total_amount,
+        })
+        .collect();
+    summaries.sort_by_key(|s| order.iter().position(|c| c == &s.category).unwrap_or(99));
 
-    summaries.sort_by_key(|s| {
-        order.iter().position(|c| c == &s.category).unwrap_or(99)
-    });
-
-    let total_amount: f64 = summaries.iter().map(|s| s.total_amount).sum();
+    // total_amount = 所有发票可报销金额 + 伙食补助
+    let invoice_total: f64 = match_results.iter().map(|r| {
+        if r.invoice.category == InvoiceCategory::Hotel {
+            // 酒店用封顶后的金额
+            let nights = r.invoice.hotel_detail.as_ref()
+                .map(|d| d.nights)
+                .unwrap_or(if travel_days > 1 { travel_days - 1 } else { 1 });
+            let standard = nightly_rate_std * nights as f64;
+            r.invoice.amount.min(standard)
+        } else {
+            r.invoice.amount
+        }
+    }).sum();
+    let total_amount = invoice_total + meal_subsidy_amount;
 
     ReimbursementForm {
         name: name.to_string(),
         department: department.to_string(),
+        destination: destination.to_string(),
         travel_start: travel_start.to_string(),
         travel_end: travel_end.to_string(),
+        travel_days,
         companions,
+        transport_details,
+        transport_subtotal,
+        city_transport_count,
+        city_transport_amount,
+        hotel_levels,
+        hotel_subtotal: total_hotel_reimbursable,
+        meal_subsidy,
+        baggage_amount: 0.0,
+        meal_reimbursement: 0.0,
+        advance_payment: 0.0,
         summaries,
         total_amount,
     }
@@ -61,7 +184,7 @@ pub fn build_reimbursement_form(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::invoice::{Invoice, InvoiceSource};
+    use crate::models::invoice::{Invoice, InvoiceSource, HotelDetail};
     use crate::models::match_result::MatchType;
     use crate::models::payment::{PaymentRecord, PaymentSource};
     use chrono::NaiveDate;
@@ -73,28 +196,48 @@ mod tests {
             amount,
             seller_name: "Test Seller".to_string(),
             item_name: "Test Item".to_string(),
-            date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            date: NaiveDate::from_ymd_opt(2025, 8, 4).unwrap(),
             category,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            remarks: String::new(),
+            hotel_detail: None,
         }
     }
 
-    fn make_payment(id: &str, amount: f64) -> PaymentRecord {
-        PaymentRecord {
+    fn make_hotel_invoice(id: &str, amount: f64, nights: usize) -> Invoice {
+        Invoice {
             id: id.to_string(),
-            transaction_id: format!("TX-{}", id),
-            transaction_time: "2025-01-01 12:00".to_string(),
+            invoice_number: format!("INV-{}", id),
             amount,
-            merchant_name: "Test Merchant".to_string(),
+            seller_name: "Test Hotel".to_string(),
+            item_name: "*住宿服务*住宿费".to_string(),
+            date: NaiveDate::from_ymd_opt(2025, 8, 4).unwrap(),
+            category: InvoiceCategory::Hotel,
+            source: InvoiceSource::Pdf("test.pdf".to_string()),
+            itineraries: vec![],
+            remarks: format!("订单日期:8-04至8-{:02},共{}天,共1间", 4 + nights as u32, nights),
+            hotel_detail: Some(HotelDetail {
+                check_in: Some(NaiveDate::from_ymd_opt(2025, 8, 4).unwrap()),
+                check_out: Some(NaiveDate::from_ymd_opt(2025, 8, 4 + nights as u32).unwrap()),
+                nights,
+                nightly_rate: amount / nights as f64,
+            }),
+        }
+    }
+
+    fn make_match_result_from_invoice(invoice: Invoice) -> MatchResult {
+        let payment = PaymentRecord {
+            id: format!("pay-{}", invoice.id),
+            transaction_id: format!("TX-{}", invoice.id),
+            transaction_time: "2025-08-04 12:00".to_string(),
+            amount: invoice.amount,
+            discount: 0.0,
+            merchant_name: "Test".to_string(),
             source: PaymentSource::Wechat,
             category: "交通".to_string(),
-        }
-    }
-
-    fn make_match_result(invoice_id: &str, invoice_amount: f64, category: InvoiceCategory) -> MatchResult {
-        let invoice = make_invoice(invoice_id, invoice_amount, category);
-        let payment = make_payment(&format!("pay-{}", invoice_id), invoice_amount);
+            payment_method: String::new(),
+        };
         MatchResult {
             invoice_id: invoice.id.clone(),
             invoice,
@@ -107,143 +250,42 @@ mod tests {
     }
 
     #[test]
-    fn test_build_form_empty_results() {
+    fn test_build_form_with_hotel_detail() {
+        // 住宿11晚，实际总额 4222.63，成都→四川省标准 370/晚 → 封顶 370*11=4070
+        let hotel_inv = make_hotel_invoice("inv-hotel", 4222.63, 11);
+        let results = vec![
+            make_match_result_from_invoice(make_invoice("inv1", 553.0, InvoiceCategory::Train)),
+            make_match_result_from_invoice(hotel_inv),
+        ];
         let form = build_reimbursement_form(
-            &[],
-            "张三",
-            "技术部",
-            "2025-01-01",
-            "2025-01-05",
-            0,
+            &results, "", "", "成都", "2025-08-04", "2025-08-15", 0, "其他人员",
         );
-        assert_eq!(form.name, "张三");
-        assert_eq!(form.department, "技术部");
-        assert_eq!(form.travel_start, "2025-01-01");
-        assert_eq!(form.travel_end, "2025-01-05");
-        assert_eq!(form.companions, 0);
-        assert!(form.summaries.is_empty());
-        assert!((form.total_amount - 0.0).abs() < f64::EPSILON);
+        assert_eq!(form.travel_days, 12);
+        assert_eq!(form.hotel_levels.len(), 1);
+        assert_eq!(form.hotel_levels[0].days, 11);
+        // 实际 4222.63 > 标准 370*11=4070，应封顶
+        assert!((form.hotel_levels[0].actual_amount - 4222.63).abs() < 0.01);
+        assert!((form.hotel_levels[0].amount - 4070.0).abs() < 0.01);
+        // total_amount = 553 + 4070 + 1200(伙食补助)
+        assert!((form.total_amount - 5823.0).abs() < 0.01);
     }
 
     #[test]
-    fn test_build_form_single_category() {
-        let results = vec![
-            make_match_result("inv1", 100.0, InvoiceCategory::Train),
-            make_match_result("inv2", 200.0, InvoiceCategory::Train),
-        ];
+    fn test_build_form_hotel_under_standard() {
+        // 住宿5晚，实际总额 1500，标准 350/晚 → 封顶 350*5=1750，不触发封顶
+        let hotel_inv = make_hotel_invoice("inv-hotel", 1500.0, 5);
+        let results = vec![make_match_result_from_invoice(hotel_inv)];
         let form = build_reimbursement_form(
-            &results,
-            "李四",
-            "市场部",
-            "2025-02-01",
-            "2025-02-03",
-            1,
+            &results, "", "", "", "2025-08-04", "2025-08-09", 0, "其他人员",
         );
-        assert_eq!(form.summaries.len(), 1);
-        assert_eq!(form.summaries[0].category, InvoiceCategory::Train);
-        assert_eq!(form.summaries[0].count, 2);
-        assert!((form.summaries[0].total_amount - 300.0).abs() < 0.01);
-        assert!((form.total_amount - 300.0).abs() < 0.01);
+        assert_eq!(form.hotel_levels[0].days, 5);
+        assert!((form.hotel_levels[0].amount - 1500.0).abs() < 0.01);
+        assert!((form.hotel_levels[0].actual_amount - 1500.0).abs() < 0.01);
     }
 
     #[test]
-    fn test_build_form_multiple_categories() {
-        let results = vec![
-            make_match_result("inv1", 500.0, InvoiceCategory::Flight),
-            make_match_result("inv2", 300.0, InvoiceCategory::Hotel),
-            make_match_result("inv3", 80.0, InvoiceCategory::CityTransport),
-            make_match_result("inv4", 150.0, InvoiceCategory::Meal),
-        ];
-        let form = build_reimbursement_form(
-            &results,
-            "王五",
-            "财务部",
-            "2025-03-01",
-            "2025-03-05",
-            2,
-        );
-        assert_eq!(form.summaries.len(), 4);
-        // 验证排序：Flight(1) -> CityTransport(3) -> Hotel(4) -> Meal(5)
-        assert_eq!(form.summaries[0].category, InvoiceCategory::Flight);
-        assert_eq!(form.summaries[1].category, InvoiceCategory::CityTransport);
-        assert_eq!(form.summaries[2].category, InvoiceCategory::Hotel);
-        assert_eq!(form.summaries[3].category, InvoiceCategory::Meal);
-        // 验证总金额
-        assert!((form.total_amount - 1030.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_build_form_category_summary_amounts() {
-        let results = vec![
-            make_match_result("inv1", 50.5, InvoiceCategory::Meal),
-            make_match_result("inv2", 30.0, InvoiceCategory::Meal),
-            make_match_result("inv3", 200.0, InvoiceCategory::Hotel),
-        ];
-        let form = build_reimbursement_form(
-            &results,
-            "赵六",
-            "人事部",
-            "2025-04-01",
-            "2025-04-02",
-            0,
-        );
-        // 验证 Meal 类别汇总
-        let meal_summary = form.summaries.iter().find(|s| s.category == InvoiceCategory::Meal).unwrap();
-        assert_eq!(meal_summary.count, 2);
-        assert!((meal_summary.total_amount - 80.5).abs() < 0.01);
-
-        // 验证 Hotel 类别汇总
-        let hotel_summary = form.summaries.iter().find(|s| s.category == InvoiceCategory::Hotel).unwrap();
-        assert_eq!(hotel_summary.count, 1);
-        assert!((hotel_summary.total_amount - 200.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_build_form_category_ordering() {
-        // 验证类别按固定顺序排列：Train, Flight, TicketChange, CityTransport, Hotel, Meal, Other
-        let results = vec![
-            make_match_result("inv1", 10.0, InvoiceCategory::Other),
-            make_match_result("inv2", 20.0, InvoiceCategory::Meal),
-            make_match_result("inv3", 30.0, InvoiceCategory::Hotel),
-            make_match_result("inv4", 40.0, InvoiceCategory::CityTransport),
-            make_match_result("inv5", 50.0, InvoiceCategory::TicketChange),
-            make_match_result("inv6", 60.0, InvoiceCategory::Flight),
-            make_match_result("inv7", 70.0, InvoiceCategory::Train),
-        ];
-        let form = build_reimbursement_form(
-            &results,
-            "测试",
-            "测试部",
-            "2025-01-01",
-            "2025-01-10",
-            0,
-        );
-        assert_eq!(form.summaries.len(), 7);
-        assert_eq!(form.summaries[0].category, InvoiceCategory::Train);
-        assert_eq!(form.summaries[1].category, InvoiceCategory::Flight);
-        assert_eq!(form.summaries[2].category, InvoiceCategory::TicketChange);
-        assert_eq!(form.summaries[3].category, InvoiceCategory::CityTransport);
-        assert_eq!(form.summaries[4].category, InvoiceCategory::Hotel);
-        assert_eq!(form.summaries[5].category, InvoiceCategory::Meal);
-        assert_eq!(form.summaries[6].category, InvoiceCategory::Other);
-    }
-
-    #[test]
-    fn test_build_form_total_amount() {
-        let results = vec![
-            make_match_result("inv1", 553.0, InvoiceCategory::Train),
-            make_match_result("inv2", 1200.0, InvoiceCategory::Flight),
-            make_match_result("inv3", 450.0, InvoiceCategory::Hotel),
-        ];
-        let form = build_reimbursement_form(
-            &results,
-            "钱七",
-            "运营部",
-            "2025-05-01",
-            "2025-05-10",
-            3,
-        );
-        assert!((form.total_amount - 2203.0).abs() < 0.01);
-        assert_eq!(form.companions, 3);
+    fn test_days_between() {
+        assert_eq!(days_between("2025-08-04", "2025-08-15"), 12);
+        assert_eq!(days_between("2025-01-01", "2025-01-01"), 1);
     }
 }

@@ -5,11 +5,10 @@ pub mod parser;
 pub mod pdf;
 
 use ocr::{OcrEngine, OcrTextItem};
-use parser::invoice_parser::parse_invoice_text;
 use parser::itinerary_parser::parse_itinerary_text;
 use parser::wechat_parser;
 use parser::alipay_parser;
-use models::invoice::{Invoice, InvoiceSource, Itinerary};
+use models::invoice::{Invoice, Itinerary};
 use models::payment::PaymentRecord;
 use models::match_result::MatchResult;
 use matching::batch;
@@ -17,6 +16,9 @@ use matching::manual;
 use crate::pdf::form_generator;
 use crate::pdf::comparison_generator;
 use crate::pdf::form_builder;
+use crate::pdf::form_html_generator;
+use crate::pdf::invoice_pipeline::{self, ParseResult};
+use crate::pdf::text_extractor;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
 
@@ -74,23 +76,24 @@ async fn recognize_invoice(
     let engine = engine
         .as_mut()
         .ok_or("OCR engine not initialized. Model files may be missing.")?;
-
-    let source = if file_type == "pdf" {
-        InvoiceSource::Pdf(file_path.clone())
+    if file_type == "pdf" {
+        invoice_pipeline::parse_invoice_from_pdf(&file_path, engine)
     } else {
-        InvoiceSource::Photo(file_path.clone())
-    };
+        invoice_pipeline::parse_invoice_from_image(&file_path, engine)
+    }
+}
 
-    let result = if file_type == "pdf" {
-        let resp = engine.recognize_pdf(&file_path)?;
-        let all_texts: Vec<OcrTextItem> = resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
-        parse_invoice_text(&all_texts, source)?
-    } else {
-        let resp = engine.recognize_image(&file_path)?;
-        parse_invoice_text(&resp.texts, source)?
-    };
-
-    Ok(result)
+// 批量识别文件（发票+行程单），自动匹配行程单到发票
+#[tauri::command]
+async fn batch_recognize(
+    state: tauri::State<'_, AppState>,
+    file_paths: Vec<String>,
+) -> Result<ParseResult, String> {
+    let mut engine = state.ocr_engine.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or("OCR engine not initialized. Model files may be missing.")?;
+    Ok(invoice_pipeline::parse_all_from_files(&file_paths, engine))
 }
 
 // 行程单识别与解析命令
@@ -99,13 +102,24 @@ async fn recognize_itinerary(
     state: tauri::State<'_, AppState>,
     file_path: String,
 ) -> Result<Vec<Itinerary>, String> {
-    let mut engine = state.ocr_engine.lock().await;
-    let engine = engine
-        .as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
-    let resp = engine.recognize_pdf(&file_path)?;
-    let all_texts: Vec<OcrTextItem> = resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
-    Ok(parse_itinerary_text(&all_texts))
+    // 优先尝试直接提取 PDF 文字（适用于文字型 PDF）
+    match text_extractor::extract_text_from_pdf(&file_path) {
+        Ok(text_items) if text_extractor::has_sufficient_text(&text_items, 20) => {
+            // 文字型 PDF，直接使用提取的文字
+            Ok(parse_itinerary_text(&text_items))
+        }
+        _ => {
+            // 扫描型 PDF 或文字提取失败，回退到 OCR
+            let mut engine = state.ocr_engine.lock().await;
+            let engine = engine
+                .as_mut()
+                .ok_or("OCR engine not initialized. Model files may be missing.")?;
+            let resp = engine.recognize_pdf(&file_path)?;
+            let all_texts: Vec<OcrTextItem> =
+                resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
+            Ok(parse_itinerary_text(&all_texts))
+        }
+    }
 }
 
 // 微信账单导入命令
@@ -146,20 +160,77 @@ async fn generate_form_pdf(
     match_results: Vec<MatchResult>,
     name: String,
     department: String,
+    destination: String,
     travel_start: String,
     travel_end: String,
     companions: u32,
+    hotel_level: String,
     output_path: String,
 ) -> Result<(), String> {
     let form = form_builder::build_reimbursement_form(
         &match_results,
         &name,
         &department,
+        &destination,
         &travel_start,
         &travel_end,
         companions as usize,
+        &hotel_level,
     );
     form_generator::generate_reimbursement_pdf(&form, &output_path).map_err(|e| e.to_string())
+}
+
+// 生成报销单 HTML 命令
+#[tauri::command]
+async fn generate_reimbursement_html(
+    match_results: Vec<MatchResult>,
+    name: String,
+    department: String,
+    destination: String,
+    travel_start: String,
+    travel_end: String,
+    companions: u32,
+    hotel_level: String,
+    output_path: String,
+) -> Result<String, String> {
+    let form = form_builder::build_reimbursement_form(
+        &match_results,
+        &name,
+        &department,
+        &destination,
+        &travel_start,
+        &travel_end,
+        companions as usize,
+        &hotel_level,
+    );
+    form_html_generator::generate_reimbursement_html(&form, &output_path)
+        .map_err(|e| e.to_string())?;
+    Ok(output_path)
+}
+
+// 生成报销单 HTML 内容（不写文件，返回 HTML 字符串）
+#[tauri::command]
+async fn render_reimbursement_html(
+    match_results: Vec<MatchResult>,
+    name: String,
+    department: String,
+    destination: String,
+    travel_start: String,
+    travel_end: String,
+    companions: u32,
+    hotel_level: String,
+) -> Result<String, String> {
+    let form = form_builder::build_reimbursement_form(
+        &match_results,
+        &name,
+        &department,
+        &destination,
+        &travel_start,
+        &travel_end,
+        companions as usize,
+        &hotel_level,
+    );
+    Ok(form_html_generator::generate_reimbursement_html_string(&form))
 }
 
 // 生成对照表 PDF 命令
@@ -192,6 +263,7 @@ pub fn run() {
             ocr_recognize_image,
             ocr_recognize_pdf,
             recognize_invoice,
+            batch_recognize,
             recognize_itinerary,
             import_wechat_bill,
             import_alipay_bill,
@@ -199,13 +271,22 @@ pub fn run() {
             manual_match,
             generate_form_pdf,
             generate_comparison_pdf,
+            generate_reimbursement_html,
+            render_reimbursement_html,
         ])
         .setup(|app| {
-            // 初始化嵌入式 OCR 引擎
+            // 初始化 PDFium（从资源目录加载 pdfium.dll 用于 PDF 渲染）
             let resource_dir = app
                 .path()
                 .resource_dir()
                 .expect("Failed to get resource directory");
+            let pdfium_dll = resource_dir.join("pdfium.dll");
+            match ocr::engine::init_pdfium(&pdfium_dll) {
+                Ok(()) => println!("PDFium initialized successfully from: {}", pdfium_dll.display()),
+                Err(e) => eprintln!("Warning: PDFium init failed: {}", e),
+            }
+
+            // 初始化嵌入式 OCR 引擎
             let models_dir = resource_dir.join("models");
             let models_dir_str = models_dir.to_string_lossy().to_string();
 

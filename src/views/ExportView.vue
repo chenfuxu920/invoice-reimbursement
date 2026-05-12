@@ -51,8 +51,10 @@ const matchStore = useMatchStore()
 const formInfo = ref({
   name: '',
   department: '',
+  destination: '',
   travelStart: '',
   travelEnd: '',
-  companions: 0
+  companions: 0,
+  hotelLevel: '其他人员',
 })
 </script>

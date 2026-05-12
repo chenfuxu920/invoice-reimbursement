@@ -28,7 +28,6 @@
     >
       <p class="text-gray-500">拖拽账单文件到此处，或点击选择 Excel 文件</p>
       <p class="text-sm text-gray-400 mt-1">.xlsx / .xls / .csv</p>
-      <input ref="fileInput" type="file" class="hidden" accept=".xlsx,.xls,.csv" @change="handleFileSelect" />
     </div>
 
     <div v-if="loading" class="text-center text-blue-500">
@@ -39,34 +38,37 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { open } from '@tauri-apps/plugin-dialog'
 
 type BillType = 'wechat' | 'alipay'
 
 const billType = ref<BillType>('wechat')
 const isDragging = ref(false)
 const loading = ref(false)
-const fileInput = ref<HTMLInputElement>()
 
 const emit = defineEmits<{
   (e: 'import', filePath: string, type: BillType): void
 }>()
 
-function openFilePicker() {
-  fileInput.value?.click()
+async function openFilePicker() {
+  const selected = await open({
+    multiple: false,
+    filters: [{
+      name: '账单文件',
+      extensions: ['xlsx', 'xls', 'csv']
+    }]
+  })
+  if (selected) {
+    emit('import', selected, billType.value)
+  }
 }
 
 function handleDrop(e: DragEvent) {
   isDragging.value = false
   const files = e.dataTransfer?.files
   if (files && files.length > 0) {
-    emit('import', files[0].name, billType.value)
-  }
-}
-
-function handleFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement
-  if (input.files && input.files.length > 0) {
-    emit('import', input.files[0].name, billType.value)
+    const path = (files[0] as any).path || files[0].name
+    emit('import', path, billType.value)
   }
 }
 </script>

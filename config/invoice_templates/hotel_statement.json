@@ -1,0 +1,45 @@
+{
+  "template_id": "hotel_statement",
+  "name": "酒店住宿账单",
+  "keywords": ["酒店", "住宿", "房费"],
+  "fields": [
+    {
+      "name": "amount",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "总计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "金额[：:￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "name": "seller_name",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(.+酒店)",
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "name": "date",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日",
+          "confidence": 0.85
+        }
+      ]
+    }
+  ]
+}

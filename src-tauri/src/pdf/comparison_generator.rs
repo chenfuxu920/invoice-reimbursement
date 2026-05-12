@@ -2,28 +2,46 @@ use crate::models::match_result::MatchResult;
 use genpdf::{Document, elements, fonts};
 use std::error::Error;
 
+fn load_chinese_fonts() -> Result<fonts::FontFamily<fonts::FontData>, Box<dyn Error>> {
+    let font_candidates: Vec<(&str, &str)> = if cfg!(target_os = "windows") {
+        vec![
+            ("C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simhei.ttf"),
+            ("C:/Windows/Fonts/simfang.ttf", "C:/Windows/Fonts/simfang.ttf"),
+            ("C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/simkai.ttf"),
+        ]
+    } else {
+        vec![
+            ("/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Regular.ttf", "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Bold.ttf"),
+            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+        ]
+    };
+
+    for (regular_path, bold_path) in font_candidates {
+        if std::path::Path::new(regular_path).exists() {
+            let regular = fonts::FontData::load(regular_path, None)?;
+            let bold = if regular_path != bold_path && std::path::Path::new(bold_path).exists() {
+                fonts::FontData::load(bold_path, None)?
+            } else {
+                regular.clone()
+            };
+            return Ok(fonts::FontFamily {
+                regular: regular.clone(),
+                bold: bold.clone(),
+                italic: regular,
+                bold_italic: bold,
+            });
+        }
+    }
+    Err("No Chinese font found".into())
+}
+
 pub fn generate_comparison_pdf(
     match_results: &[MatchResult],
     unmatched_invoice_ids: &[String],
     unmatched_payment_ids: &[String],
     output_path: &str,
 ) -> Result<(), Box<dyn Error>> {
-    // 加载中文字体（与 form_generator 共用字体路径）
-    let font_dir = "/usr/share/fonts/truetype/noto-cjk/";
-    let regular = fonts::FontData::load(
-        format!("{}NotoSansSC-Regular.ttf", font_dir),
-        None,
-    )?;
-    let bold = fonts::FontData::load(
-        format!("{}NotoSansSC-Bold.ttf", font_dir),
-        None,
-    )?;
-    let font_family = fonts::FontFamily {
-        regular: regular.clone(),
-        bold: bold.clone(),
-        italic: regular,
-        bold_italic: bold,
-    };
+    let font_family = load_chinese_fonts()?;
 
     let mut doc = Document::new(font_family);
     doc.set_title("发票-支付对照表");

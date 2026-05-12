@@ -31,6 +31,8 @@ pub struct Invoice {
     pub category: InvoiceCategory,    // 自动识别的类别
     pub source: InvoiceSource,        // 来源
     pub itineraries: Vec<Itinerary>,  // 行程（打车场景）
+    pub remarks: String,              // 备注栏内容
+    pub hotel_detail: Option<HotelDetail>, // 住宿详情（仅住宿发票）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,15 @@ pub struct Itinerary {
     pub pickup: String,        // 上车点
     pub dropoff: String,       // 下车点
     pub amount: f64,           // 行程金额
+}
+
+/// 住宿发票详情
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HotelDetail {
+    pub check_in: Option<NaiveDate>,   // 入住日期
+    pub check_out: Option<NaiveDate>,  // 离店日期
+    pub nights: usize,                 // 住宿天数
+    pub nightly_rate: f64,             // 实际每晚均价
 }
 
 #[cfg(test)]
@@ -97,6 +108,8 @@ mod tests {
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            remarks: String::new(),
+            hotel_detail: None,
         };
         assert_eq!(invoice.id, "test-id");
         assert_eq!(invoice.invoice_number, "INV001");
@@ -125,6 +138,8 @@ mod tests {
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Photo("taxi.jpg".to_string()),
             itineraries: vec![itin.clone()],
+            remarks: String::new(),
+            hotel_detail: None,
         };
         assert_eq!(invoice.itineraries.len(), 1);
         assert_eq!(invoice.itineraries[0].provider, "滴滴");

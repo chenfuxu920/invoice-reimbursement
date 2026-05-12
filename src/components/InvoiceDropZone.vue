@@ -5,7 +5,6 @@
     :class="isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
     @dragover.prevent="isDragging = true"
     @dragleave="isDragging = false"
-    @drop.prevent="handleDrop"
     @click="openFilePicker"
   >
     <div v-if="loading" class="text-blue-500">
@@ -17,37 +16,43 @@
       </p>
       <p class="text-sm text-gray-400 mt-2">支持 PDF / 图片 / 多文件</p>
     </template>
-    <input ref="fileInput" type="file" class="hidden" multiple accept=".pdf,.jpg,.jpeg,.png" @change="handleFileSelect" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { open } from '@tauri-apps/plugin-dialog'
+import { listen } from '@tauri-apps/api/event'
 
 defineProps<{ loading?: boolean }>()
 const emit = defineEmits<{ (e: 'files-selected', paths: string[]): void }>()
 
 const isDragging = ref(false)
-const fileInput = ref<HTMLInputElement>()
+let unlisten: (() => void) | null = null
 
-function openFilePicker() {
-  fileInput.value?.click()
-}
+onMounted(async () => {
+  unlisten = await listen<string[]>('tauri://file-drop', (event) => {
+    isDragging.value = false
+    if (event.payload.length > 0) {
+      emit('files-selected', event.payload)
+    }
+  })
+})
 
-function handleDrop(e: DragEvent) {
-  isDragging.value = false
-  const files = e.dataTransfer?.files
-  if (files) {
-    const paths = Array.from(files).map(f => f.name)
-    emit('files-selected', paths)
-  }
-}
+onUnmounted(() => {
+  if (unlisten) unlisten()
+})
 
-function handleFileSelect(e: Event) {
-  const input = e.target as HTMLInputElement
-  if (input.files) {
-    const paths = Array.from(input.files).map(f => f.name)
-    emit('files-selected', paths)
+async function openFilePicker() {
+  const selected = await open({
+    multiple: true,
+    filters: [{
+      name: '发票文件',
+      extensions: ['pdf', 'jpg', 'jpeg', 'png']
+    }]
+  })
+  if (selected) {
+    emit('files-selected', selected)
   }
 }
 </script>

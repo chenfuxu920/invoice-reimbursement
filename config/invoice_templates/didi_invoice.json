@@ -1,0 +1,34 @@
+{
+  "template_id": "didi_invoice",
+  "name": "滴滴出行发票",
+  "keywords": ["滴滴", "出行", "网约车"],
+  "fields": [
+    {
+      "name": "amount",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "金额[：:￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "合计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "name": "seller_name",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "销售方[：:](.+?)(?=\\s|$)",
+          "confidence": 0.85
+        }
+      ]
+    }
+  ]
+}

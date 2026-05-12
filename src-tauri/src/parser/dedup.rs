@@ -46,6 +46,8 @@ mod tests {
             category: InvoiceCategory::Train,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            remarks: String::new(),
+            hotel_detail: None,
         }
     }
 
@@ -68,6 +70,7 @@ mod tests {
             make_invoice("2", "", 100.0, "A"), // 重复（金额+日期+销售方相同）
             make_invoice("3", "", 100.0, "B"), // 不同销售方
         ];
+        #[allow(unused_variables)]
         let dupes = deduplicate_invoices(&mut invoices);
         assert_eq!(invoices.len(), 2);
     }
@@ -136,6 +139,8 @@ mod tests {
                 category: InvoiceCategory::Train,
                 source: InvoiceSource::Pdf("test.pdf".to_string()),
                 itineraries: vec![],
+                remarks: String::new(),
+                hotel_detail: None,
             },
             Invoice {
                 id: "2".to_string(),
@@ -147,6 +152,8 @@ mod tests {
                 category: InvoiceCategory::Train,
                 source: InvoiceSource::Pdf("test.pdf".to_string()),
                 itineraries: vec![],
+                remarks: String::new(),
+                hotel_detail: None,
             },
         ];
         let dupes = deduplicate_invoices(&mut invoices);

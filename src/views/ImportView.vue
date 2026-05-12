@@ -25,18 +25,30 @@ import InvoiceDropZone from '../components/InvoiceDropZone.vue'
 import InvoiceCard from '../components/InvoiceCard.vue'
 import BillImporter from '../components/BillImporter.vue'
 import PaymentTable from '../components/PaymentTable.vue'
+import { invoke } from '@tauri-apps/api/core'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
 
 async function handleInvoiceFiles(paths: string[]) {
-  for (const path of paths) {
-    const fileType = path.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'
-    try {
-      await invoiceStore.addInvoice(path, fileType)
-    } catch (e) {
-      console.error('添加发票失败:', e)
+  const pdfs = paths.filter(p => p.toLowerCase().endsWith('.pdf'))
+  if (pdfs.length === 0) {
+    for (const path of paths) {
+      try { await invoiceStore.addInvoice(path, 'image') }
+      catch (e) { console.error('添加发票失败:', e) }
     }
+    return
+  }
+  try {
+    const result: { invoices: any[], errors: [string, string][] } = await invoke('batch_recognize', { filePaths: pdfs })
+    for (const inv of result.invoices) {
+      invoiceStore.invoices.push(inv)
+    }
+    for (const [name, err] of result.errors) {
+      console.error(`文件 ${name} 识别失败:`, err)
+    }
+  } catch (e) {
+    console.error('批量识别失败:', e)
   }
 }
 

@@ -19,28 +19,35 @@ impl MatchEngine {
         Self::new(DEFAULT_TOLERANCE)
     }
 
-    /// One-to-one matching: find a single payment that matches the invoice amount
+    /// One-to-one matching: find the single payment closest to the invoice amount
     /// within the tolerance.
     pub fn match_one_to_one(
         &self,
         invoice: &Invoice,
         payments: &[PaymentRecord],
     ) -> Option<MatchResult> {
+        let mut best: Option<(f64, &PaymentRecord)> = None;
         for payment in payments {
-            let diff = (invoice.amount - payment.amount).abs();
+            let diff_total = (invoice.amount - payment.total_value()).abs();
+            let diff_amount = (invoice.amount - payment.amount).abs();
+            let diff = diff_total.min(diff_amount);
             if diff <= self.tolerance {
-                return Some(MatchResult {
-                    invoice_id: invoice.id.clone(),
-                    invoice: invoice.clone(),
-                    payment_ids: vec![payment.id.clone()],
-                    payments: vec![payment.clone()],
-                    match_type: MatchType::OneToOne,
-                    confidence: 1.0 - (diff / invoice.amount.max(0.01)),
-                    amount_diff: diff,
-                });
+                match best {
+                    Some((best_diff, _)) if diff < best_diff => best = Some((diff, payment)),
+                    None => best = Some((diff, payment)),
+                    _ => {}
+                }
             }
         }
-        None
+        best.map(|(diff, payment)| MatchResult {
+            invoice_id: invoice.id.clone(),
+            invoice: invoice.clone(),
+            payment_ids: vec![payment.id.clone()],
+            payments: vec![payment.clone()],
+            match_type: MatchType::OneToOne,
+            confidence: 1.0 - (diff / invoice.amount.max(0.01)),
+            amount_diff: diff,
+        })
     }
 
     /// One-to-many matching: find a subset of payments whose sum matches
@@ -170,6 +177,8 @@ mod tests {
             category: InvoiceCategory::Other,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries: vec![],
+            remarks: String::new(),
+            hotel_detail: None,
         }
     }
 
@@ -179,9 +188,11 @@ mod tests {
             transaction_id: format!("TX-{}", id),
             transaction_time: "2025-01-01 12:00".to_string(),
             amount,
+            discount: 0.0,
             merchant_name: "Test Merchant".to_string(),
             source: PaymentSource::Wechat,
             category: "交通".to_string(),
+            payment_method: String::new(),
         }
     }
 
@@ -320,16 +331,18 @@ mod tests {
     }
 
     #[test]
-    fn test_one_to_one_returns_first_match() {
+    fn test_one_to_one_returns_closest_match() {
         let engine = MatchEngine::new(1.00);
         let invoice = make_invoice("inv1", 100.00);
         let payments = vec![
-            make_payment("p1", 100.50),
-            make_payment("p2", 99.80),
+            make_payment("p1", 99.30),
+            make_payment("p2", 100.50),
+            make_payment("p3", 99.80),
         ];
 
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
-        assert_eq!(result.payment_ids[0], "p1");
+        // p3 (99.80, diff=0.20) is closer than p1 (99.30, diff=0.70) and p2 (100.50, diff=0.50)
+        assert_eq!(result.payment_ids[0], "p3");
     }
 
     #[test]
@@ -418,3 +431,4 @@ mod tests {
         assert!(result.is_some());
     }
 }
+
