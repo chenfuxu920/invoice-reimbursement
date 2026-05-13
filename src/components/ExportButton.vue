@@ -1,12 +1,12 @@
 <template>
   <div class="space-y-3">
-    <button @click="exportFormPdf" :disabled="disabled"
+    <button @click="exportFormHtml" :disabled="disabled"
             class="w-full px-4 py-3 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors">
-      📄 生成报销表单 PDF
+      📄 生成报销单 HTML
     </button>
-    <button @click="exportComparisonPdf" :disabled="disabled"
-            class="w-full px-4 py-3 rounded bg-green-500 text-white font-medium hover:bg-green-600 disabled:opacity-50 transition-colors">
-      📊 生成发票-支付对照 PDF
+    <button @click="exportComparisonImagePdf" :disabled="disabled"
+            class="w-full px-4 py-3 rounded bg-orange-500 text-white font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors">
+      🖼️ 生成对照 PDF（含发票图片）
     </button>
   </div>
 </template>
@@ -31,11 +31,16 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 
-async function exportFormPdf() {
+async function exportFormHtml() {
   try {
-    const outputPath = await selectSavePath('报销表单')
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const outputPath = await save({
+      defaultPath: `报销单_${new Date().toISOString().slice(0, 10)}.html`,
+      filters: [{ name: 'HTML', extensions: ['html'] }]
+    })
     if (!outputPath) return
-    await invoke('generate_form_pdf', {
+
+    await invoke('generate_reimbursement_html', {
       matchResults: props.matchResults,
       name: props.formInfo.name,
       department: props.formInfo.department,
@@ -46,39 +51,44 @@ async function exportFormPdf() {
       hotelLevel: props.formInfo.hotelLevel,
       outputPath
     })
-    alert('报销表单 PDF 已生成！')
+    alert('报销单 HTML 已生成！')
   } catch (e) {
     console.error('生成失败:', e)
     alert('生成失败: ' + e)
   }
 }
 
-async function exportComparisonPdf() {
+async function exportComparisonImagePdf() {
   try {
-    const outputPath = await selectSavePath('对照表')
-    if (!outputPath) return
-    await invoke('generate_comparison_pdf', {
-      matchResults: props.matchResults,
-      unmatchedInvoiceIds: props.unmatchedInvoiceIds,
-      unmatchedPaymentIds: props.unmatchedPaymentIds,
-      outputPath
-    })
-    alert('对照 PDF 已生成！')
-  } catch (e) {
-    console.error('生成失败:', e)
-    alert('生成失败: ' + e)
-  }
-}
+    let invoiceDir = ''
+    for (const r of props.matchResults) {
+      if (r.invoice.source.type === 'Pdf' && r.invoice.source.path) {
+        invoiceDir = r.invoice.source.path
+          .split(/[\\/]/).slice(0, -1).join('/')
+        if (invoiceDir) break
+      }
+    }
+    if (!invoiceDir) {
+      alert('未找到发票 PDF 文件路径，请确认发票是通过文件导入的')
+      return
+    }
 
-async function selectSavePath(prefix: string): Promise<string | null> {
-  try {
     const { save } = await import('@tauri-apps/plugin-dialog')
-    return await save({
-      defaultPath: `${prefix}_${new Date().toISOString().slice(0, 10)}.pdf`,
+    const outputPath = await save({
+      defaultPath: `对照表含图片_${new Date().toISOString().slice(0, 10)}.pdf`,
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
     })
-  } catch {
-    return `~/${prefix}_${new Date().toISOString().slice(0, 10)}.pdf`
+    if (!outputPath) return
+
+    await invoke('generate_comparison_image_pdf', {
+      matchResults: props.matchResults,
+      invoiceDir,
+      outputPath,
+    })
+    alert('对照 PDF（含发票图片）已生成！')
+  } catch (e) {
+    console.error('生成失败:', e)
+    alert('生成失败: ' + e)
   }
 }
 </script>

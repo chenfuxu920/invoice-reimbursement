@@ -26,35 +26,75 @@
       </div>
 
       <!-- 报销信息表单 -->
-      <ReimbursementForm @update="formInfo = $event" class="mb-6" />
+      <ReimbursementForm @update="handleFormUpdate" class="mb-6" />
+
+      <!-- 预览 -->
+      <div class="flex gap-3 mb-6">
+        <button @click="previewForm"
+                class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors">
+          预览报销单
+        </button>
+      </div>
+
+      <!-- 报销单预览（直接渲染表格） -->
+      <div v-if="matchStore.reimbursementHtml" class="border rounded-lg overflow-hidden mb-6">
+        <div class="bg-gray-100 px-4 py-2 text-sm text-gray-600">
+          <span>报销单预览</span>
+        </div>
+        <div class="p-4 overflow-auto" style="min-height: 600px;">
+          <div v-html="matchStore.reimbursementHtml"></div>
+        </div>
+      </div>
 
       <!-- 导出按钮 -->
       <ExportButton
         :match-results="matchStore.matches"
         :unmatched-invoice-ids="matchStore.unmatchedInvoices.map(i => i.id)"
         :unmatched-payment-ids="matchStore.unmatchedPayments.map(p => p.id)"
-        :form-info="formInfo"
-        :disabled="!formInfo.name || !formInfo.department"
+        :form-info="exportFormInfo"
       />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { reactive, computed } from 'vue'
 import { useMatchStore } from '../stores/match'
 import ReimbursementForm from '../components/ReimbursementForm.vue'
 import ExportButton from '../components/ExportButton.vue'
 
 const matchStore = useMatchStore()
 
-const formInfo = ref({
-  name: '',
-  department: '',
+const formInfo = reactive({
   destination: '',
   travelStart: '',
   travelEnd: '',
-  companions: 0,
   hotelLevel: '其他人员',
 })
+
+const exportFormInfo = computed(() => ({
+  name: '',
+  department: '',
+  destination: formInfo.destination,
+  travelStart: formInfo.travelStart,
+  travelEnd: formInfo.travelEnd,
+  companions: 0,
+  hotelLevel: formInfo.hotelLevel,
+}))
+
+function handleFormUpdate(val: { destination: string; travelStart: string; travelEnd: string; hotelLevel: string }) {
+  formInfo.destination = val.destination
+  formInfo.travelStart = val.travelStart
+  formInfo.travelEnd = val.travelEnd
+  formInfo.hotelLevel = val.hotelLevel
+}
+
+async function previewForm() {
+  try {
+    await matchStore.renderReimbursementHtml(exportFormInfo.value)
+  } catch (e) {
+    console.error('预览失败:', e)
+    alert('预览失败: ' + e)
+  }
+}
 </script>

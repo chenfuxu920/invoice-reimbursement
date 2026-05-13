@@ -1,35 +1,42 @@
 use crate::models::reimbursement::ReimbursementForm;
 use std::error::Error;
 
-/// 生成报销单 HTML（匹配纸质报销单格式）
+/// 生成完整的报销单 HTML 文件（含 DOCTYPE / html / head / body）
 pub fn generate_reimbursement_html(
     form: &ReimbursementForm,
     output_path: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let html = build_html(form);
+    let table = build_table_html(form);
+    let html = format!(
+        r##"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>差旅费报销单</title>
+</head>
+<body>
+{table}
+</body>
+</html>"##,
+        table = table
+    );
     std::fs::write(output_path, html)?;
     Ok(())
 }
 
-/// 生成 HTML 字符串（供前端内联预览）
+/// 生成仅包含 <style> + <table> 的 HTML 片段（供前端内联预览）
 pub fn generate_reimbursement_html_string(form: &ReimbursementForm) -> String {
-    build_html(form)
+    build_table_html(form)
 }
 
-fn build_html(form: &ReimbursementForm) -> String {
-    // 城市间交通费行 + 住宿费行（左右对齐，在同一组 <tr> 中）
+fn build_table_html(form: &ReimbursementForm) -> String {
     let transport_rows_html = build_transport_rows(form);
 
     let total_amount_str = format!("{:.2}", form.total_amount);
     let total_chinese = amount_to_chinese(form.total_amount);
 
     format!(
-        r##"<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<title>差旅费报销单</title>
-<style>
+        r##"<style>
   @page {{ size: A4 landscape; margin: 10mm; }}
   * {{ margin: 0; padding: 0; box-sizing: border-box; }}
   body {{ font-family: "SimSun", "宋体", serif; font-size: 14px; padding: 20px; }}
@@ -44,8 +51,6 @@ fn build_html(form: &ReimbursementForm) -> String {
   .row td {{ height: 30px; }}
   .sum td {{ height: 36px; font-weight: bold; }}
 </style>
-</head>
-<body>
 <table class="report">
   <tr>
     <td colspan="10" class="title">差 旅 费 报 销 单</td>
@@ -112,9 +117,7 @@ fn build_html(form: &ReimbursementForm) -> String {
     <td class="lbl" colspan="4">核准金额</td>
     <td class="val" colspan="6" style="text-align:center; font-size:15px;">{total_chinese} (¥: )</td>
   </tr>
-</table>
-</body>
-</html>"##,
+</table>"##,
         name = form.name,
         department = form.department,
         companions = if form.companions > 0 { form.companions.to_string() } else { String::new() },
