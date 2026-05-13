@@ -1,1 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="31.88" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 257"><defs><linearGradient id="IconifyId1813088fe1fbc01fb466" x1="-.828%" x2="57.636%" y1="7.652%" y2="78.411%"><stop offset="0%" stop-color="#41D1FF"></stop><stop offset="100%" stop-color="#BD34FE"></stop></linearGradient><linearGradient id="IconifyId1813088fe1fbc01fb467" x1="43.376%" x2="50.316%" y1="2.242%" y2="89.03%"><stop offset="0%" stop-color="#FFBD4F"></stop><stop offset="100%" stop-color="#FF9640"></stop></linearGradient></defs><path fill="url(#IconifyId1813088fe1fbc01fb466)" d="M255.153 37.938L134.897 252.976c-2.483 4.44-8.862 4.466-11.382.048L.875 37.958c-2.746-4.814 1.371-10.646 6.827-9.67l120.385 21.517a6.537 6.537 0 0 0 2.322-.004l117.867-21.483c5.438-.991 9.574 4.796 6.877 9.62Z"></path><path fill="url(#IconifyId1813088fe1fbc01fb467)" d="M185.432.063L96.44 17.501a3.268 3.268 0 0 0-2.634 3.014l-5.474 92.456a3.268 3.268 0 0 0 3.997 3.378l24.777-5.718c2.318-.535 4.413 1.507 3.936 3.838l-7.361 36.047c-.495 2.426 1.782 4.5 4.151 3.78l15.304-4.649c2.372-.72 4.652 1.36 4.15 3.788l-11.698 56.621c-.732 3.542 3.979 5.473 5.943 2.437l1.313-2.028l72.516-144.72c1.215-2.423-.88-5.186-3.54-4.672l-25.505 4.922c-2.396.462-4.435-1.77-3.759-4.114l16.646-57.705c.677-2.35-1.37-4.583-3.769-4.113Z"></path></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="docGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F0F4FF"/>
+    </linearGradient>
+    <linearGradient id="checkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#16A34A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bgGrad)"/>
+
+  <!-- Document body -->
+  <rect x="64" y="52" width="128" height="152" rx="10" ry="10" fill="url(#docGrad)" stroke="#CBD5E1" stroke-width="1.5"/>
+
+  <!-- Folded corner -->
+  <path d="M160 52 L160 84 L192 84 Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="1.5"/>
+
+  <!-- Title line (document header) -->
+  <rect x="78" y="70" width="60" height="5" rx="2.5" fill="#2563EB"/>
+
+  <!-- Lines representing text on document -->
+  <rect x="78" y="88" width="90" height="3" rx="1.5" fill="#CBD5E1"/>
+  <rect x="78" y="98" width="80" height="3" rx="1.5" fill="#CBD5E1"/>
+  <rect x="78" y="108" width="85" height="3" rx="1.5" fill="#CBD5E1"/>
+
+  <!-- Divider line -->
+  <line x1="78" y1="122" x2="178" y2="122" stroke="#E2E8F0" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- ¥ symbol on document -->
+  <text x="128" y="148" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#2563EB" opacity="0.3">¥</text>
+
+  <!-- Checkmark circle badge -->
+  <circle cx="160" cy="170" r="22" fill="url(#checkGrad)"/>
+  <path d="M150 170 L157 177 L170 163" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
