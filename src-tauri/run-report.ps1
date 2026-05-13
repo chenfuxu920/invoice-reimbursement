@@ -70,7 +70,10 @@ try {
         Write-Host ""
         Write-Host "生成成功!" -ForegroundColor Green
         Write-Host "输出文件:" -ForegroundColor Green
-        Get-ChildItem "$OutputDir\报销单*" -ErrorAction SilentlyContinue | ForEach-Object {
+        Get-ChildItem "$OutputDir\报销单.html" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "  $($_.FullName)" -ForegroundColor Green
+        }
+        Get-ChildItem "$OutputDir\对照表_含图片.pdf" -ErrorAction SilentlyContinue | ForEach-Object {
             Write-Host "  $($_.FullName)" -ForegroundColor Green
         }
     } else {

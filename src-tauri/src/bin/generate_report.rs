@@ -4,8 +4,7 @@ use invoice_reimbursement_lib::parser::alipay_parser;
 use invoice_reimbursement_lib::parser::wechat_parser;
 use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
-use invoice_reimbursement_lib::pdf::form_generator::generate_reimbursement_pdf;
-use invoice_reimbursement_lib::pdf::comparison_generator::generate_comparison_pdf;
+use invoice_reimbursement_lib::pdf::comparison_image_pdf_generator;
 use invoice_reimbursement_lib::pdf::invoice_pipeline::parse_all_from_dir;
 use std::path::Path;
 
@@ -36,6 +35,29 @@ fn main() {
     // 1. 初始化 OCR 引擎
     println!("正在初始化 OCR 引擎...");
     let mut engine = OcrEngine::new("models").expect("OCR 初始化失败，请确保 models 目录存在");
+
+    // 初始化 PDFium（用于发票图片渲染）
+    let pdfium_candidates = [
+        std::path::Path::new("pdfium.dll"),
+        std::path::Path::new("..\\pdfium.dll"),
+        &std::path::Path::new(&std::env::current_exe().unwrap_or_default())
+            .parent().unwrap_or(std::path::Path::new("."))
+            .join("pdfium.dll"),
+    ];
+    let mut pdfium_ok = false;
+    for path in &pdfium_candidates {
+        if path.exists() {
+            match invoice_reimbursement_lib::ocr::engine::init_pdfium(path) {
+                Ok(_) => { pdfium_ok = true; break; }
+                Err(_) => continue,
+            }
+        }
+    }
+    if pdfium_ok {
+        println!("  PDFium 已初始化");
+    } else {
+        println!("  PDFium 未初始化，图片渲染功能不可用");
+    }
 
     // 2. 解析所有文件（发票+行程单）
     println!("\n=== 解析文件 ({}) ===", invoice_dir);
@@ -133,23 +155,18 @@ fn main() {
     let html = generate_reimbursement_html_string(&form);
     let html_path = format!("{}/报销单.html", output_dir);
     std::fs::write(&html_path, &html).expect("写入 HTML 失败");
-    println!("  HTML: {}", html_path);
+    println!("  报销单 HTML: {}", html_path);
 
-    let pdf_path = format!("{}/报销单.pdf", output_dir);
-    match generate_reimbursement_pdf(&form, &pdf_path) {
-        Ok(_) => println!("  PDF: {}", pdf_path),
-        Err(e) => println!("  PDF 生成失败: {}", e),
-    }
-
-    let comparison_path = format!("{}/对照表.pdf", output_dir);
-    match generate_comparison_pdf(
+    // 生成对照单 PDF（含发票图片）
+    let image_pdf_path = format!("{}/对照表_含图片.pdf", output_dir);
+    match comparison_image_pdf_generator::generate_comparison_image_pdf(
         &match_result.matched,
-        &match_result.unmatched_invoices.iter().map(|i| i.id.clone()).collect::<Vec<_>>(),
-        &match_result.unmatched_payments.iter().map(|p| p.id.clone()).collect::<Vec<_>>(),
-        &comparison_path,
+        invoice_dir,
+        &image_pdf_path,
+        400,
     ) {
-        Ok(_) => println!("  对照表: {}", comparison_path),
-        Err(e) => println!("  对照表生成失败: {}", e),
+        Ok(_) => println!("  对照单 PDF(含图片): {}", image_pdf_path),
+        Err(e) => println!("  对照单 PDF(含图片) 生成失败: {}", e),
     }
 
     println!("\n完成 ✓");

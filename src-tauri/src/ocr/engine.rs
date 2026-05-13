@@ -7,6 +7,11 @@ use super::structured_output::{OcrStructuredOutput, OcrTextBlock, BoundingBox, T
 
 static PDFIUM_PATH: OnceLock<PathBuf> = OnceLock::new();
 
+/// 获取 PDFium 动态库路径（供 crate 内部其他模块使用）
+pub fn get_pdfium_path() -> Option<&'static PathBuf> {
+    PDFIUM_PATH.get()
+}
+
 /// 设置 PDFium 动态库路径（在 Tauri setup 回调中调用）
 pub fn init_pdfium(pdfium_dll_path: &Path) -> Result<(), String> {
     let path = pdfium_dll_path.to_path_buf();
