@@ -24,5 +24,9 @@ export const useInvoiceStore = defineStore('invoice', () => {
     invoices.value = invoices.value.filter(i => i.id !== id)
   }
 
-  return { invoices, loading, addInvoice, removeInvoice }
+  function clearInvoices() {
+    invoices.value = []
+  }
+
+  return { invoices, loading, addInvoice, removeInvoice, clearInvoices }
 })
