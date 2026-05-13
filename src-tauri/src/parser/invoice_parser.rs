@@ -148,6 +148,7 @@ pub fn parse_invoice_text(
         category,
         source,
         itineraries: vec![],
+        itinerary_file: None,
         remarks: regions.remarks.clone(),
         hotel_detail,
     })
@@ -324,6 +325,7 @@ pub fn parse_structured_invoice_with_templates(
         category,
         source,
         itineraries: vec![],
+        itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
     })
@@ -374,6 +376,7 @@ fn try_parse_with_template(
         category,
         source: source.clone(),
         itineraries: vec![],
+        itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
     })

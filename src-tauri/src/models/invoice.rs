@@ -31,6 +31,7 @@ pub struct Invoice {
     pub category: InvoiceCategory,    // 自动识别的类别
     pub source: InvoiceSource,        // 来源
     pub itineraries: Vec<Itinerary>,  // 行程（打车场景）
+    pub itinerary_file: Option<String>, // 关联的行程单文件（仅市内交通）
     pub remarks: String,              // 备注栏内容
     pub hotel_detail: Option<HotelDetail>, // 住宿详情（仅住宿发票）
 }
@@ -108,6 +109,7 @@ mod tests {
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         };
@@ -138,6 +140,7 @@ mod tests {
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Photo("taxi.jpg".to_string()),
             itineraries: vec![itin.clone()],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         };

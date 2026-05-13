@@ -284,6 +284,7 @@ mod tests {
             category,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries: vec![],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         }
@@ -306,6 +307,7 @@ mod tests {
                 dropoff: "B站".to_string(),
                 amount: 30.00,
             }],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         }
@@ -317,6 +319,8 @@ mod tests {
             transaction_id: format!("TX-{}", id),
             transaction_time: "2025-01-01 12:00".to_string(),
             amount,
+            original_amount: amount,
+            refund_amount: 0.0,
             discount: 0.0,
             merchant_name: "Test Merchant".to_string(),
             source: PaymentSource::Wechat,

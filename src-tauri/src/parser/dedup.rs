@@ -46,6 +46,7 @@ mod tests {
             category: InvoiceCategory::Train,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         }
@@ -139,6 +140,7 @@ mod tests {
                 category: InvoiceCategory::Train,
                 source: InvoiceSource::Pdf("test.pdf".to_string()),
                 itineraries: vec![],
+                itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
             },
@@ -152,6 +154,7 @@ mod tests {
                 category: InvoiceCategory::Train,
                 source: InvoiceSource::Pdf("test.pdf".to_string()),
                 itineraries: vec![],
+                itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
             },

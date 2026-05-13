@@ -46,6 +46,7 @@ mod tests {
             category: InvoiceCategory::Other,
             source: InvoiceSource::Pdf(String::new()),
             itineraries: vec![],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         }
@@ -57,6 +58,8 @@ mod tests {
             transaction_id: String::new(),
             transaction_time: String::new(),
             amount,
+            original_amount: amount,
+            refund_amount: 0.0,
             discount: 0.0,
             merchant_name: String::new(),
             source: PaymentSource::Wechat,

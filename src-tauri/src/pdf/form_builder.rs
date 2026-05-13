@@ -200,6 +200,7 @@ mod tests {
             category,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         }
@@ -216,6 +217,7 @@ mod tests {
             category: InvoiceCategory::Hotel,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
+            itinerary_file: None,
             remarks: format!("订单日期:8-04至8-{:02},共{}天,共1间", 4 + nights as u32, nights),
             hotel_detail: Some(HotelDetail {
                 check_in: Some(NaiveDate::from_ymd_opt(2025, 8, 4).unwrap()),
@@ -232,6 +234,8 @@ mod tests {
             transaction_id: format!("TX-{}", invoice.id),
             transaction_time: "2025-08-04 12:00".to_string(),
             amount: invoice.amount,
+            original_amount: invoice.amount,
+            refund_amount: 0.0,
             discount: 0.0,
             merchant_name: "Test".to_string(),
             source: PaymentSource::Wechat,

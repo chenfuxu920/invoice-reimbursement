@@ -25,6 +25,7 @@ fn make_hotel_match(
         category: InvoiceCategory::Hotel,
         source: InvoiceSource::Pdf("test.pdf".to_string()),
         itineraries: vec![],
+        itinerary_file: None,
         remarks: format!(
             "{},订单日期:{}至{},共{}天,共1间",
             seller,
@@ -72,6 +73,7 @@ fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller
         category,
         source: InvoiceSource::Pdf("test.pdf".to_string()),
         itineraries: vec![],
+        itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
     };

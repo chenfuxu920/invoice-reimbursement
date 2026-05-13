@@ -62,6 +62,7 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
             category,
             source: InvoiceSource::Link(format!("http://example.com/invoice/{}", i)),
             itineraries,
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         });
@@ -245,6 +246,7 @@ mod performance_tests {
                     dropoff: "终点".to_string(),
                     amount: 100.0,
                 }],
+                itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
             });
@@ -257,6 +259,8 @@ mod performance_tests {
                 transaction_id: format!("TXN-{:08}", i),
                 transaction_time: format!("2025-01-{:02} {:02}:00", (i % 28) + 1, (i % 12) + 8),
                 amount: 30.0 + (i as f64 % 40.0),
+                original_amount: 30.0 + (i as f64 % 40.0),
+                refund_amount: 0.0,
                 discount: 0.0,
                 merchant_name: "滴滴".to_string(),
                 source: if i % 2 == 0 { PaymentSource::Wechat } else { PaymentSource::Alipay },

@@ -20,6 +20,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],
+        itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
     }
@@ -42,6 +43,7 @@ fn make_city_transport_invoice(id: &str, amount: f64) -> Invoice {
             dropoff: "国贸".to_string(),
             amount: 30.0,
         }],
+        itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
     }

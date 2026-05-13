@@ -118,6 +118,7 @@ mod tests {
             category,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries,
+            itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
         }

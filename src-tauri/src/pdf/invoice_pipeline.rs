@@ -156,6 +156,7 @@ pub fn pair_invoices_with_itineraries(
         if let Some(inv) = target {
             inv.category = InvoiceCategory::CityTransport;
             inv.itineraries = doc.itineraries;
+            inv.itinerary_file = Some(doc.file_name.clone());
         } else {
             // 没有匹配的发票，创建一张虚拟发票
             let id = uuid::Uuid::new_v4().to_string();
@@ -167,8 +168,9 @@ pub fn pair_invoices_with_itineraries(
                 item_name: "市内交通".to_string(),
                 date: chrono::NaiveDate::default(),
                 category: InvoiceCategory::CityTransport,
-                source: InvoiceSource::Pdf(doc.file_name),
+                source: InvoiceSource::Pdf(doc.file_name.clone()),
                 itineraries: doc.itineraries,
+                itinerary_file: Some(doc.file_name.clone()),
                 remarks: String::new(),
                 hotel_detail: None,
             });

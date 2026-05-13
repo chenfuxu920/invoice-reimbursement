@@ -20,6 +20,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],
+        itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
     }
