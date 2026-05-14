@@ -154,6 +154,8 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
     let hotel_row_count = hotel_levels.len() + 1; // 4 levels + 1 subtotal
     let total_rows = transport_row_count.max(hotel_row_count);
 
+    let hotel_actual_total: f64 = form.hotel_levels.iter().map(|h| h.actual_amount).sum();
+
     let mut html = String::new();
 
     for row_idx in 0..total_rows {
@@ -181,10 +183,10 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
                 ));
             }
         } else if row_idx == 3 {
-            // 交通费小计行
+            // 交通费小计行（明细行核准金额为空，小计不填）
             html.push_str(&format!(
-                r##"<td class="lbl">小 计</td><td></td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
-                form.transport_subtotal, form.transport_subtotal
+                r##"<td class="lbl">小 计</td><td></td><td class="amt">{:.2}</td><td></td>"##,
+                form.transport_subtotal
             ));
         } else {
             // 市内交通费行（住宿费行末行对齐）
@@ -220,8 +222,8 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
         } else if row_idx == 4 {
             // 住宿费小计行
             html.push_str(&format!(
-                r##"<td class="lbl">小 计</td><td></td><td></td><td></td><td class="amt">{:.2}</td><td></td>"##,
-                form.hotel_subtotal
+                r##"<td class="lbl">小 计</td><td></td><td></td><td></td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
+                hotel_actual_total, form.hotel_subtotal
             ));
         } else {
             html.push_str(r##"<td></td><td></td><td></td><td></td><td></td><td></td>"##);
