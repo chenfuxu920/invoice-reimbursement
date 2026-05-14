@@ -37,6 +37,7 @@ pdf-extract = "0.10"
 encoding_rs = "0.8"
 parangi = "0.1.0"
 printpdf = { version = "0.7", features = ["embedded_images"] }
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"

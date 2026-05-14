@@ -1,10 +1,11 @@
 <template>
   <div class="space-y-3">
-    <button @click="exportFormHtml" :disabled="disabled"
+    <LoadingOverlay :visible="loading" :message="loadingMessage" />
+    <button @click="exportFormHtml" :disabled="disabled || loading"
             class="w-full px-4 py-3 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors">
       📄 生成报销单 HTML
     </button>
-    <button @click="exportComparisonImagePdf" :disabled="disabled"
+    <button @click="exportComparisonImagePdf" :disabled="disabled || loading"
             class="w-full px-4 py-3 rounded bg-orange-500 text-white font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors">
       🖼️ 生成对照 PDF（含发票图片）
     </button>
@@ -12,7 +13,9 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import LoadingOverlay from './LoadingOverlay.vue'
 import type { MatchResult } from '../types'
 
 const props = defineProps<{
@@ -31,7 +34,12 @@ const props = defineProps<{
   disabled?: boolean
 }>()
 
+const loading = ref(false)
+const loadingMessage = ref('')
+
 async function exportFormHtml() {
+  loading.value = true
+  loadingMessage.value = '正在生成报销单...'
   try {
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({
@@ -55,10 +63,14 @@ async function exportFormHtml() {
   } catch (e) {
     console.error('生成失败:', e)
     alert('生成失败: ' + e)
+  } finally {
+    loading.value = false
   }
 }
 
 async function exportComparisonImagePdf() {
+  loading.value = true
+  loadingMessage.value = '正在生成对照单...'
   try {
     let invoiceDir = ''
     for (const r of props.matchResults) {
@@ -84,11 +96,14 @@ async function exportComparisonImagePdf() {
       matchResults: props.matchResults,
       invoiceDir,
       outputPath,
+      destination: props.formInfo.destination || null,
     })
     alert('对照 PDF（含发票图片）已生成！')
   } catch (e) {
     console.error('生成失败:', e)
     alert('生成失败: ' + e)
+  } finally {
+    loading.value = false
   }
 }
 </script>

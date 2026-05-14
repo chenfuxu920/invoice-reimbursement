@@ -40,6 +40,7 @@ export interface ReimbursementForm {
   transport_subtotal: number
   city_transport_count: number
   city_transport_amount: number
+  city_transport_actual_amount: number
   hotel_levels: HotelLevelDetail[]
   hotel_subtotal: number
   meal_subsidy: MealSubsidyDetail

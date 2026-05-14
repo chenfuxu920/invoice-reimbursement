@@ -5,12 +5,14 @@ use std::path::{Path, PathBuf};
 use ::image::GenericImageView;
 use printpdf::*;
 
+use crate::models::hotel_standard::get_hotel_nightly_rate_std;
 use crate::models::invoice::{InvoiceCategory, InvoiceSource};
 use crate::models::match_result::MatchResult;
 enum PdfBlock {
     Invoice {
         img: PathBuf,
         payment: String,
+        over_std: Option<String>,
     },
     ItineraryPage {
         img: PathBuf,
@@ -47,6 +49,7 @@ pub fn generate_comparison_image_pdf(
     invoice_dir: &str,
     output_path: &str,
     dpi: u32,
+    destination: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     let output = Path::new(output_path);
     let parent = output.parent().unwrap_or(Path::new("."));
@@ -66,6 +69,24 @@ pub fn generate_comparison_image_pdf(
                 let tmp = tmp_dir.to_string_lossy().to_string();
                 let img_path =
                     super::image_embedder::render_pdf_page_to_png(pdf_path, 0, &tmp, dpi)?;
+
+                let nightly_rate_std = destination.and_then(|_| {
+                    if matches!(result.invoice.category, InvoiceCategory::Hotel) {
+                        destination.map(get_hotel_nightly_rate_std)
+                    } else {
+                        None
+                    }
+                });
+                let over_std = nightly_rate_std.and_then(|std| {
+                    result.invoice.hotel_detail.as_ref().map(|detail| {
+                        let standard_amount = std * detail.nights as f64;
+                        if result.invoice.amount > standard_amount + 0.01 {
+                            Some(format!("发票金额{:.2}，实报{:.2}", result.invoice.amount, standard_amount))
+                        } else {
+                            None
+                        }
+                    }).flatten()
+                });
 
                 let has_table = matches!(result.invoice.category, InvoiceCategory::CityTransport)
                     && !result.invoice.itineraries.is_empty();
@@ -95,6 +116,7 @@ pub fn generate_comparison_image_pdf(
                 blocks.push(PdfBlock::Invoice {
                     img: img_path,
                     payment: payment_text,
+                    over_std,
                 });
             }
         }
@@ -150,13 +172,14 @@ pub fn generate_comparison_image_pdf(
         page_h: Mm,
     ) -> Result<(), Box<dyn Error>> {
         match block {
-            PdfBlock::Invoice { img, payment } => {
+            PdfBlock::Invoice { img, payment, over_std } => {
                 let img_data = ::image::open(img)?;
                 let (img_w, img_h) = img_data.dimensions();
 
                 let margin = 8.0;
+                let bottom_text_h = if over_std.is_some() { 35.0 } else { 20.0 };
                 let max_w = page_w.0 - margin - margin;
-                let max_h = page_h.0 - margin - margin - 20.0;
+                let max_h = page_h.0 - margin - margin - bottom_text_h;
 
                 let dpi_factor = 72.0 / 25.4;
                 let scale = ((max_w * dpi_factor) / img_w.max(1) as f32)
@@ -202,11 +225,19 @@ pub fn generate_comparison_image_pdf(
                     },
                 );
 
-                if !payment.is_empty() {
-                    let font_size = 14.0;
-                    let text_w_mm = payment.len() as f32 * font_size * (25.4 / 72.0) * 0.55;
-                    let cx = (page_w.0 - text_w_mm) / 2.0;
-                    layer.use_text(payment.as_str(), font_size, Mm(cx), Mm(10.0), font);
+                if !payment.is_empty() || over_std.is_some() {
+                    if let Some(ref over) = over_std {
+                        let font_size = 14.0;
+                        let text_w_mm = over.len() as f32 * font_size * (25.4 / 72.0) * 0.55;
+                        let cx = (page_w.0 - text_w_mm) / 2.0;
+                        layer.use_text(over.as_str(), font_size, Mm(cx), Mm(12.0), font);
+                    }
+                    if !payment.is_empty() {
+                        let font_size = 14.0;
+                        let text_w_mm = payment.len() as f32 * font_size * (25.4 / 72.0) * 0.55;
+                        let cx = (page_w.0 - text_w_mm) / 2.0;
+                        layer.use_text(payment.as_str(), font_size, Mm(cx), Mm(6.0), font);
+                    }
                 }
             }
             PdfBlock::ItineraryPage { img } => {

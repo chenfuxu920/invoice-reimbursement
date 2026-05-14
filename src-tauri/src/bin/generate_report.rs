@@ -164,6 +164,7 @@ fn main() {
         invoice_dir,
         &image_pdf_path,
         400,
+        Some(&form.destination),
     ) {
         Ok(_) => println!("  对照单 PDF(含图片): {}", image_pdf_path),
         Err(e) => println!("  对照单 PDF(含图片) 生成失败: {}", e),

@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri/v2/core/tauri-config-schema/schema.json",
-  "productName": "发票报销助手",
+  "productName": "发票报销助手 v0.1.0",
   "version": "0.1.0",
   "identifier": "com.invoice-reimbursement.app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "发票报销助手",
+        "title": "发票报销助手 v0.1.0",
         "label": "main",
         "width": 1024,
         "height": 768,

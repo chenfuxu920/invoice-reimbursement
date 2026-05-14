@@ -1,5 +1,6 @@
 <template>
   <div class="max-w-4xl mx-auto">
+    <LoadingOverlay :visible="isLoading" :message="loadingMessage" />
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-bold">导入发票与账单</h2>
       <div class="flex gap-2">
@@ -9,7 +10,7 @@
         </button>
         <button @click="handleGlobalImport" :disabled="globalLoading"
                 class="px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors text-sm font-medium">
-          {{ globalLoading ? '⏳ 导入中...' : '📂 全局导入' }}
+          📂 全局导入
         </button>
       </div>
     </div>
@@ -32,19 +33,30 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useInvoiceStore } from '../stores/invoice'
 import { usePaymentStore } from '../stores/payment'
 import InvoiceDropZone from '../components/InvoiceDropZone.vue'
 import InvoiceCard from '../components/InvoiceCard.vue'
 import BillImporter from '../components/BillImporter.vue'
 import PaymentTable from '../components/PaymentTable.vue'
+import LoadingOverlay from '../components/LoadingOverlay.vue'
 import { invoke } from '@tauri-apps/api/core'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
 
 const globalLoading = ref(false)
+const billLoading = ref(false)
+
+const isLoading = computed(() => globalLoading.value || invoiceStore.loading || billLoading.value)
+
+const loadingMessage = computed(() => {
+  if (globalLoading.value) return '正在批量导入发票与账单...'
+  if (invoiceStore.loading) return '正在识别发票...'
+  if (billLoading.value) return '正在解析账单...'
+  return '处理中...'
+})
 
 async function handleInvoiceFiles(paths: string[]) {
   const pdfs = paths.filter(p => p.toLowerCase().endsWith('.pdf'))
@@ -69,6 +81,7 @@ async function handleInvoiceFiles(paths: string[]) {
 }
 
 async function handleBillImport(filePath: string, type: 'wechat' | 'alipay') {
+  billLoading.value = true
   try {
     if (type === 'wechat') {
       await paymentStore.importWechatBill(filePath)
@@ -77,6 +90,8 @@ async function handleBillImport(filePath: string, type: 'wechat' | 'alipay') {
     }
   } catch (e) {
     console.error('导入账单失败:', e)
+  } finally {
+    billLoading.value = false
   }
 }
 

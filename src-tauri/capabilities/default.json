@@ -5,6 +5,9 @@
   "permissions": [
     "core:default",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    "fs:scope-temp-recursive",
+    "fs:allow-read"
   ]
 }
+

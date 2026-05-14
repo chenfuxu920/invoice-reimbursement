@@ -36,14 +36,17 @@
         </button>
       </div>
 
-      <!-- 报销单预览（直接渲染表格） -->
+      <!-- 报销单预览（iframe 隔离样式，防止全局 CSS 泄漏） -->
       <div v-if="matchStore.reimbursementHtml" class="border rounded-lg overflow-hidden mb-6">
         <div class="bg-gray-100 px-4 py-2 text-sm text-gray-600">
           <span>报销单预览</span>
         </div>
-        <div class="p-4 overflow-auto" style="min-height: 600px;">
-          <div v-html="matchStore.reimbursementHtml"></div>
-        </div>
+        <iframe
+          :srcdoc="matchStore.reimbursementHtml"
+          class="w-full"
+          style="min-height: 600px; border: none;"
+          title="报销单预览"
+        />
       </div>
 
       <!-- 导出按钮 -->

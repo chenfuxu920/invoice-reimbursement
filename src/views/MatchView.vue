@@ -1,11 +1,12 @@
 <template>
   <div class="max-w-4xl mx-auto">
+    <LoadingOverlay :visible="matchStore.loading" message="正在匹配发票与账单..." />
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-bold">匹配结果</h2>
       <button @click="runAutoMatch"
               :disabled="invoiceStore.invoices.length === 0 || paymentStore.payments.length === 0 || matchStore.loading"
               class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50">
-        {{ matchStore.loading ? '匹配中...' : '自动匹配' }}
+        自动匹配
       </button>
     </div>
 
@@ -13,7 +14,14 @@
     <div v-if="matchStore.matches.length" class="mb-8">
       <h3 class="text-lg font-medium mb-3">已匹配 ({{ matchStore.matches.length }})</h3>
       <div class="grid gap-3">
-        <MatchCard v-for="m in matchStore.matches" :key="m.invoice_id" :match="m" @adjust="handleAdjust" />
+        <MatchCard
+          v-for="m in matchStore.matches"
+          :key="m.invoice_id"
+          :match="m"
+          @adjust="handleAdjust"
+          @view-invoice="handleViewInvoice"
+          @view-payment="handleViewPayment"
+        />
       </div>
     </div>
 
@@ -22,12 +30,16 @@
       <h3 class="text-lg font-medium mb-3 text-orange-600">未匹配发票 ({{ matchStore.unmatchedInvoices.length }})</h3>
       <div class="grid gap-2">
         <div v-for="inv in matchStore.unmatchedInvoices" :key="inv.id"
-             class="bg-orange-50 border border-orange-200 rounded p-3 flex justify-between items-center">
+             class="bg-orange-50 border border-orange-200 rounded p-3 flex justify-between items-center cursor-pointer hover:bg-orange-100 transition-colors"
+             @click="handleViewInvoice(inv)">
           <div>
             <span class="font-medium">{{ inv.invoice_number || '无编号' }}</span>
             <span class="text-gray-500 ml-2">¥{{ inv.amount.toFixed(2) }}</span>
           </div>
-          <button @click="startManualMatch(inv)" class="text-sm text-blue-500 hover:text-blue-700">手动匹配</button>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-blue-400">查看详情</span>
+            <button @click.stop="startManualMatch(inv)" class="text-sm text-blue-500 hover:text-blue-700">手动匹配</button>
+          </div>
         </div>
       </div>
     </div>
@@ -40,9 +52,15 @@
           未匹配支付 ({{ matchStore.unmatchedPayments.length }})
         </h3>
       </div>
-      <div v-show="showUnmatchedPayments" class="text-sm text-gray-400 ml-4">
-        <div v-for="p in matchStore.unmatchedPayments" :key="p.id" class="py-1">
-          {{ p.merchant_name }} · ¥{{ p.amount.toFixed(2) }} · {{ p.transaction_time }}
+      <div v-show="showUnmatchedPayments" class="ml-4 space-y-1">
+        <div v-for="p in matchStore.unmatchedPayments" :key="p.id"
+             class="py-2 px-3 rounded cursor-pointer hover:bg-gray-100 transition-colors"
+             @click="handleViewSinglePayment(p)">
+          <div class="flex justify-between items-center">
+            <span class="text-sm font-medium text-gray-700">{{ p.merchant_name }}</span>
+            <span class="text-sm text-gray-600">¥{{ p.amount.toFixed(2) }}</span>
+          </div>
+          <span class="text-xs text-gray-400">{{ p.transaction_time }} · {{ p.source === 'Wechat' ? '微信' : '支付宝' }}</span>
         </div>
       </div>
     </div>
@@ -60,6 +78,20 @@
       @close="showAdjustDialog = false"
       @confirm="handleManualMatch"
     />
+
+    <!-- 发票详情弹窗 -->
+    <InvoiceDetailModal
+      :visible="showInvoiceDetail"
+      :invoice="viewingInvoice"
+      @close="showInvoiceDetail = false"
+    />
+
+    <!-- 支付详情弹窗 -->
+    <PaymentDetailModal
+      :visible="showPaymentDetail"
+      :payments="viewingPayments"
+      @close="showPaymentDetail = false"
+    />
   </div>
 </template>
 
@@ -68,9 +100,12 @@ import { ref } from 'vue'
 import { useInvoiceStore } from '../stores/invoice'
 import { usePaymentStore } from '../stores/payment'
 import { useMatchStore } from '../stores/match'
+import LoadingOverlay from '../components/LoadingOverlay.vue'
 import MatchCard from '../components/MatchCard.vue'
 import MatchAdjustDialog from '../components/MatchAdjustDialog.vue'
-import type { Invoice, MatchResult } from '../types'
+import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
+import PaymentDetailModal from '../components/PaymentDetailModal.vue'
+import type { Invoice, MatchResult, PaymentRecord } from '../types'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
@@ -79,6 +114,12 @@ const matchStore = useMatchStore()
 const showUnmatchedPayments = ref(false)
 const showAdjustDialog = ref(false)
 const adjustingInvoice = ref<Invoice | null>(null)
+
+const showInvoiceDetail = ref(false)
+const viewingInvoice = ref<Invoice | null>(null)
+const showPaymentDetail = ref(false)
+const viewingPayments = ref<PaymentRecord[]>([])
+
 async function runAutoMatch() {
   await matchStore.autoMatch(invoiceStore.invoices, paymentStore.payments)
 }
@@ -97,5 +138,22 @@ async function handleManualMatch(invoice: Invoice, paymentIds: string[]) {
   const payments = matchStore.unmatchedPayments.filter(p => paymentIds.includes(p.id))
   await matchStore.manualMatch(invoice, payments)
   showAdjustDialog.value = false
+}
+
+function handleViewInvoice(invoice: Invoice) {
+  viewingInvoice.value = invoice
+  showInvoiceDetail.value = true
+}
+
+function handleViewPayment(match: MatchResult) {
+  if (match.payments.length > 0) {
+    viewingPayments.value = match.payments
+    showPaymentDetail.value = true
+  }
+}
+
+function handleViewSinglePayment(payment: PaymentRecord) {
+  viewingPayments.value = [payment]
+  showPaymentDetail.value = true
 }
 </script>

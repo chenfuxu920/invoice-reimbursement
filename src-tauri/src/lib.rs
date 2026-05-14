@@ -355,6 +355,7 @@ async fn generate_comparison_image_pdf(
     match_results: Vec<MatchResult>,
     invoice_dir: String,
     output_path: String,
+    destination: Option<String>,
 ) -> Result<(), String> {
     let _engine = state.ocr_engine.lock().await;
     comparison_image_pdf_generator::generate_comparison_image_pdf(
@@ -362,8 +363,93 @@ async fn generate_comparison_image_pdf(
         &invoice_dir,
         &output_path,
         400,
+        destination.as_deref(),
     )
     .map_err(|e| e.to_string())
+}
+
+// 渲染 PDF/图片预览：返回所有页面的图片路径
+#[tauri::command]
+async fn render_pdf_preview(file_path: String) -> Result<Vec<String>, String> {
+    use std::io::Read;
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", file_path));
+    }
+
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "tiff") {
+        let mut file = std::fs::File::open(&file_path).map_err(|e| format!("无法打开文件: {}", e))?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).map_err(|e| format!("读取文件失败: {}", e))?;
+        use base64::Engine;
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+        let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
+        return Ok(vec![format!("data:{};base64,{}", mime, b64)]);
+    }
+
+    if ext == "pdf" {
+        let tmp_dir = std::env::temp_dir()
+            .join(format!("invoice_preview_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir)
+            .map_err(|e| format!("无法创建临时目录: {}", e))?;
+        let tmp = tmp_dir.to_string_lossy().to_string();
+        let paths = crate::pdf::image_embedder::render_pdf_all_pages_to_pngs(&file_path, &tmp, 150)?;
+        let mut results = Vec::new();
+        for p in &paths {
+            let mut file = std::fs::File::open(p).map_err(|e| format!("无法打开临时文件: {}", e))?;
+            let mut buf = Vec::new();
+            file.read_to_end(&mut buf).map_err(|e| format!("读取临时文件失败: {}", e))?;
+            use base64::Engine;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+            results.push(format!("data:image/png;base64,{}", b64));
+        }
+        std::fs::remove_dir_all(&tmp_dir).ok();
+        return Ok(results);
+    }
+
+    Err(format!("不支持的文件类型: {}", ext))
+}
+
+// 调用系统默认程序打开文件
+#[tauri::command]
+async fn open_file_with_system(file_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", file_path));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/c", "start", "", &file_path])
+            .spawn()
+            .map_err(|e| format!("无法打开文件: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("无法打开文件: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&file_path)
+            .spawn()
+            .map_err(|e| format!("无法打开文件: {}", e))?;
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        return Err("不支持的操作系统".to_string());
+    }
+    Ok(())
 }
 
 // 生成对照表 PDF 命令
@@ -409,6 +495,8 @@ pub fn run() {
             generate_reimbursement_html,
             render_reimbursement_html,
             batch_global_import,
+            render_pdf_preview,
+            open_file_with_system,
         ])
         .setup(|app| {
             // 初始化 PDFium（从资源目录加载 pdfium.dll 用于 PDF 渲染）

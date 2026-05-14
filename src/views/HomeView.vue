@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-4xl mx-auto">
-    <h2 class="text-2xl font-bold mb-6">欢迎使用发票报销助手</h2>
+    <h2 class="text-2xl font-bold mb-6">欢迎使用发票报销助手 v0.1.0</h2>
 
     <!-- OCR 服务状态 -->
     <div class="bg-white rounded-lg border p-4 shadow-sm mb-6">

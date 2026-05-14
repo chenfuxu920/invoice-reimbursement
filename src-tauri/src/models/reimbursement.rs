@@ -52,7 +52,8 @@ pub struct ReimbursementForm {
 
     // 市内交通费
     pub city_transport_count: usize,
-    pub city_transport_amount: f64,
+    pub city_transport_amount: f64,         // 可报销金额（封顶后）
+    pub city_transport_actual_amount: f64,   // 实际支出金额
 
     // 住宿费
     pub hotel_levels: Vec<HotelLevelDetail>,

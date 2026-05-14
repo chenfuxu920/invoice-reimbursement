@@ -53,7 +53,7 @@ fn build_table_html(form: &ReimbursementForm) -> String {
 </style>
 <table class="report">
   <tr>
-    <td colspan="10" class="title">差 旅 费 报 销 单</td>
+    <td colspan="12" class="title">差 旅 费 报 销 单</td>
   </tr>
   <tr class="row">
     <td class="lbl" style="width:6%">姓名</td>
@@ -61,7 +61,7 @@ fn build_table_html(form: &ReimbursementForm) -> String {
     <td class="lbl" style="width:6%">部职别</td>
     <td class="val" style="width:16%" colspan="2">{department}</td>
     <td class="lbl" style="width:6%">同行人数</td>
-    <td class="val" colspan="4">{companions}</td>
+    <td class="val" colspan="6">{companions}</td>
   </tr>
   <tr class="row">
     <td class="lbl">到达地点</td>
@@ -72,14 +72,14 @@ fn build_table_html(form: &ReimbursementForm) -> String {
     <td class="val" style="width:10%">{travel_end}</td>
     <td class="val" style="width:4%">{travel_days}</td>
     <td style="width:3%">天</td>
-    <td style="width:6%"></td>
+    <td style="width:6%" colspan="3"></td>
   </tr>
   <tr class="hdr">
-    <td class="lbl">类 别</td>
+    <td class="lbl" colspan="2">类 别</td>
     <td class="lbl">单据张数</td>
     <td class="lbl">申报金额</td>
     <td class="lbl">核准金额</td>
-    <td class="lbl">类 别</td>
+    <td class="lbl" colspan="2">类 别</td>
     <td class="lbl">人数</td>
     <td class="lbl">天数</td>
     <td class="lbl">标准</td>
@@ -88,34 +88,32 @@ fn build_table_html(form: &ReimbursementForm) -> String {
   </tr>
   {transport_rows_html}
   <tr class="row">
-    <td class="lbl" colspan="2">市内交通费</td>
-    <td class="amt">{city_transport_count}</td>
-    <td class="amt">{city_transport_amount:.2}</td>
+    <td class="lbl" colspan="2">行李托运费</td>
     <td></td>
-    <td class="lbl" colspan="4">凭据报销伙食费</td>
-    <td class="amt">{meal_reimbursement:.2}</td>
-  </tr>
-  <tr class="row">
-    <td class="lbl" colspan="4">行李托运费</td>
-    <td class="amt" colspan="2">{baggage_amount:.2}</td>
-    <td class="lbl">预借款</td>
-    <td class="amt" colspan="3">¥:{advance_payment:.2}</td>
-  </tr>
-  <tr class="row">
-    <td class="lbl" colspan="4">计发伙食补助费</td>
+    <td></td>
+    <td></td>
+    <td class="lbl" colspan="2">计发伙食补助费</td>
     <td class="amt">{meal_subsidy_persons}</td>
     <td class="amt">{meal_subsidy_days}</td>
     <td class="amt">{meal_subsidy_rate:.2}</td>
     <td class="amt">{meal_subsidy_amount:.2}</td>
-    <td colspan="2"></td>
+    <td></td>
+  </tr>
+  <tr class="row">
+    <td class="lbl" colspan="2">凭据报销伙食费</td>
+    <td></td>
+    <td></td>
+    <td></td>
+    <td class="lbl" colspan="2">预 借 款</td>
+    <td class="amt" colspan="5">¥:{advance_payment:.2}</td>
   </tr>
   <tr class="sum">
-    <td class="lbl" colspan="4">申报金额</td>
-    <td class="val" colspan="6" style="text-align:center; font-size:15px;">(¥: {total_amount})</td>
+    <td class="lbl" colspan="2">申报金额</td>
+    <td class="val" colspan="10" style="text-align:center; font-size:15px;">(¥: {total_amount})</td>
   </tr>
   <tr class="sum">
-    <td class="lbl" colspan="4">核准金额</td>
-    <td class="val" colspan="6" style="text-align:center; font-size:15px;">{total_chinese} (¥: )</td>
+    <td class="lbl" colspan="2">核准金额</td>
+    <td class="val" colspan="10" style="text-align:center; font-size:15px;">{total_chinese} (¥: )</td>
   </tr>
 </table>"##,
         name = form.name,
@@ -126,10 +124,6 @@ fn build_table_html(form: &ReimbursementForm) -> String {
         travel_end = form.travel_end,
         travel_days = form.travel_days,
         transport_rows_html = transport_rows_html,
-        city_transport_count = form.city_transport_count,
-        city_transport_amount = form.city_transport_amount,
-        baggage_amount = form.baggage_amount,
-        meal_reimbursement = form.meal_reimbursement,
         advance_payment = form.advance_payment,
         meal_subsidy_persons = form.meal_subsidy.persons,
         meal_subsidy_days = form.meal_subsidy.days,
@@ -152,10 +146,10 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
         }
     }
 
-    // 城市间交通费 3行 + 小计2行 = 5行
+    // 城市间交通费 3行 + 小计1行 = 4行
     // 住宿费 4级别 + 小计 = 5行
     // 取较大值作为总行数
-    let transport_row_count = 5; // 3 detail + 2 subtotal
+    let transport_row_count = 4; // 3 detail + 1 subtotal
     let hotel_levels = ["战区级以上", "军级", "师级", "其他人员"];
     let hotel_row_count = hotel_levels.len() + 1; // 4 levels + 1 subtotal
     let total_rows = transport_row_count.max(hotel_row_count);
@@ -165,10 +159,10 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
     for row_idx in 0..total_rows {
         html.push_str("<tr class=\"row\">");
 
-        // === 左侧：城市间交通费 ===
+        // === 左侧 ===
         if row_idx == 0 {
             html.push_str(&format!(
-                r#"<td rowspan="{}" class="sec" style="width:4%; font-size:13px;">城市间<br>交通费</td>"#,
+                r##"<td rowspan="{}" class="sec" style="width:4%; font-size:13px;">城市间<br>交通费</td>"##,
                 transport_row_count
             ));
         }
@@ -177,27 +171,33 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
             // 交通费明细行
             if let Some(detail) = &details[row_idx] {
                 html.push_str(&format!(
-                    r#"<td class="lbl">{}</td><td class="amt">{}</td><td class="amt">{:.2}</td><td></td>"#,
+                    r##"<td class="lbl">{}</td><td class="amt">{}</td><td class="amt">{:.2}</td><td></td>"##,
                     detail.label, detail.count, detail.amount
                 ));
             } else {
-                html.push_str(r#"<td class="lbl"></td><td></td><td></td><td></td>"#);
+                html.push_str(&format!(
+                    r##"<td class="lbl">{}</td><td></td><td></td><td></td>"##,
+                    transport_labels[row_idx]
+                ));
             }
         } else if row_idx == 3 {
-            // 交通费小计行（跨2行）
+            // 交通费小计行
             html.push_str(&format!(
-                r#"<td class="lbl" rowspan="2">小 计</td><td></td><td class="amt">{:.2}</td><td></td>"#,
-                form.transport_subtotal
+                r##"<td class="lbl">小 计</td><td></td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
+                form.transport_subtotal, form.transport_subtotal
             ));
         } else {
-            // 空行（左侧无内容，为右侧住宿费对齐）
-            html.push_str(r#"<td></td><td></td><td></td>"#);
+            // 市内交通费行（住宿费行末行对齐）
+            html.push_str(&format!(
+                r##"<td class="lbl" colspan="2">市内交通费</td><td class="amt">{}</td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
+                form.city_transport_count, form.city_transport_actual_amount, form.city_transport_amount
+            ));
         }
 
         // === 右侧：住宿费 ===
         if row_idx == 0 {
             html.push_str(&format!(
-                r#"<td rowspan="{}" class="sec" style="width:4%; font-size:13px;">住宿费</td>"#,
+                r##"<td rowspan="{}" class="sec" style="width:4%; font-size:13px;">住宿费</td>"##,
                 hotel_row_count
             ));
         }
@@ -207,31 +207,24 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
             let level_name = hotel_levels[row_idx];
             let detail = form.hotel_levels.iter().find(|h| h.level == level_name);
             if let Some(d) = detail {
-                // 超标准时显示：报销金额(实际金额)
-                let amount_display = if d.actual_amount > d.amount + 0.01 {
-                    format!("{:.2}({:.2})", d.amount, d.actual_amount)
-                } else {
-                    format!("{:.2}", d.amount)
-                };
                 html.push_str(&format!(
-                    r#"<td class="lbl">{}</td><td class="amt">{}</td><td class="amt">{}</td><td class="amt">{:.2}</td><td class="amt">{}</td><td></td>"#,
-                    level_name, d.persons, d.days, d.daily_rate, amount_display
+                    r##"<td class="lbl">{}</td><td class="amt">{}</td><td class="amt">{}</td><td class="amt">{:.2}</td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
+                    level_name, d.persons, d.days, d.daily_rate, d.actual_amount, d.amount
                 ));
             } else {
                 html.push_str(&format!(
-                    r#"<td class="lbl">{}</td><td></td><td></td><td></td><td></td><td></td>"#,
+                    r##"<td class="lbl">{}</td><td></td><td></td><td></td><td></td><td></td>"##,
                     level_name
                 ));
             }
         } else if row_idx == 4 {
             // 住宿费小计行
             html.push_str(&format!(
-                r#"<td class="lbl">小 计</td><td></td><td></td><td></td><td class="amt">{:.2}</td><td></td>"#,
+                r##"<td class="lbl">小 计</td><td></td><td></td><td></td><td class="amt">{:.2}</td><td></td>"##,
                 form.hotel_subtotal
             ));
         } else {
-            // 空行
-            html.push_str(r#"<td></td><td></td><td></td><td></td><td></td><td></td>"#);
+            html.push_str(r##"<td></td><td></td><td></td><td></td><td></td><td></td>"##);
         }
 
         html.push_str("</tr>\n");
@@ -328,6 +321,7 @@ mod tests {
             transport_subtotal: 1753.5,
             city_transport_count: 20,
             city_transport_amount: 956.65,
+            city_transport_actual_amount: 956.65,
             hotel_levels: vec![
                 HotelLevelDetail { level: "其他人员".to_string(), persons: 1, days: 11, daily_rate: 350.0, amount: 3850.0, actual_amount: 4222.63 },
             ],

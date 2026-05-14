@@ -63,11 +63,16 @@ pub fn build_reimbursement_form(
         }
     }
 
-    // 市内交通费
-    let (city_transport_count, city_transport_amount) = category_map
+    // 市内交通费（含往返当日，平均每天不超过 80 元）
+    let city_transport_raw = category_map
         .get(&InvoiceCategory::CityTransport)
         .copied()
         .unwrap_or((0, 0.0));
+    let city_transport_count = city_transport_raw.0;
+    let city_transport_actual_amount = city_transport_raw.1;
+    let city_transport_daily_std: f64 = 80.0;
+    let city_transport_max = city_transport_daily_std * travel_days as f64;
+    let city_transport_amount = city_transport_actual_amount.min(city_transport_max);
 
     // 住宿费：从每张酒店发票的 hotel_detail 获取天数，按标准封顶
     let hotel_invoices: Vec<&MatchResult> = match_results
@@ -152,10 +157,14 @@ pub fn build_reimbursement_form(
                 .unwrap_or(if travel_days > 1 { travel_days - 1 } else { 1 });
             let standard = nightly_rate_std * nights as f64;
             r.invoice.amount.min(standard)
+        } else if r.invoice.category == InvoiceCategory::CityTransport {
+            // 市内交通费统一按总封顶计算，不由单张发票累加
+            0.0
         } else {
             r.invoice.amount
         }
     }).sum();
+    let invoice_total = invoice_total + city_transport_amount;
     let total_amount = invoice_total + meal_subsidy_amount;
 
     ReimbursementForm {
@@ -170,6 +179,7 @@ pub fn build_reimbursement_form(
         transport_subtotal,
         city_transport_count,
         city_transport_amount,
+        city_transport_actual_amount,
         hotel_levels,
         hotel_subtotal: total_hotel_reimbursable,
         meal_subsidy,
@@ -285,6 +295,42 @@ mod tests {
         assert_eq!(form.hotel_levels[0].days, 5);
         assert!((form.hotel_levels[0].amount - 1500.0).abs() < 0.01);
         assert!((form.hotel_levels[0].actual_amount - 1500.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_city_transport_under_cap() {
+        // 出差6天, 市内交通合计 400 < 80*6=480, 不封顶
+        let results = vec![
+            make_match_result_from_invoice(make_invoice("inv1", 553.0, InvoiceCategory::Train)),
+            make_match_result_from_invoice(make_invoice("inv2", 200.0, InvoiceCategory::CityTransport)),
+            make_match_result_from_invoice(make_invoice("inv3", 200.0, InvoiceCategory::CityTransport)),
+        ];
+        let form = build_reimbursement_form(
+            &results, "", "", "", "2025-08-04", "2025-08-09", 0, "其他人员",
+        );
+        assert_eq!(form.travel_days, 6);
+        assert_eq!(form.city_transport_count, 2);
+        assert!((form.city_transport_amount - 400.0).abs() < 0.01);
+        // total = 553 + 400 + 600(伙食) = 1553
+        assert!((form.total_amount - 1553.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_city_transport_over_cap() {
+        // 出差6天, 市内交通合计 600 > 80*6=480, 封顶为480
+        let results = vec![
+            make_match_result_from_invoice(make_invoice("inv1", 553.0, InvoiceCategory::Train)),
+            make_match_result_from_invoice(make_invoice("inv2", 300.0, InvoiceCategory::CityTransport)),
+            make_match_result_from_invoice(make_invoice("inv3", 300.0, InvoiceCategory::CityTransport)),
+        ];
+        let form = build_reimbursement_form(
+            &results, "", "", "", "2025-08-04", "2025-08-09", 0, "其他人员",
+        );
+        assert_eq!(form.travel_days, 6);
+        assert_eq!(form.city_transport_count, 2);
+        assert!((form.city_transport_amount - 480.0).abs() < 0.01);
+        // total = 553 + 480(封顶) + 600(伙食) = 1633
+        assert!((form.total_amount - 1633.0).abs() < 0.01);
     }
 
     #[test]

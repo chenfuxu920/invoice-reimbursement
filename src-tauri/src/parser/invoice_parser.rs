@@ -205,7 +205,15 @@ fn classify_from_regions(
     if items_text.contains("*住宿服务*") {
         return InvoiceCategory::Hotel;
     }
+    // *运输服务*/客运服务 可被火车票/机票共用，需先排除后再归为市内交通
     if items_text.contains("*运输服务*") || items_text.contains("*客运服务*") {
+        let items_lower = items_text.to_lowercase();
+        if contains_any(&items_lower, &["火车", "高铁", "铁路"]) {
+            return InvoiceCategory::Train;
+        }
+        if contains_any(&items_lower, &["航空", "机票"]) {
+            return InvoiceCategory::Flight;
+        }
         return InvoiceCategory::CityTransport;
     }
     if items_text.contains("*航空运输服务*") || items_text.contains("*旅客运输服务*") {
@@ -458,7 +466,14 @@ pub fn classify_from_full_text(
     if all_text.contains("*住宿服务*") {
         return InvoiceCategory::Hotel;
     }
+    // *运输服务*/客运服务 可被火车票/机票共用，先排除后再归为市内交通
     if all_text.contains("*运输服务*") || all_text.contains("*客运服务*") {
+        if contains_any(&all_text, &["火车", "高铁", "铁路"]) {
+            return InvoiceCategory::Train;
+        }
+        if contains_any(&all_text, &["航空", "机票"]) {
+            return InvoiceCategory::Flight;
+        }
         return InvoiceCategory::CityTransport;
     }
     if all_text.contains("*航空运输服务*") || all_text.contains("*旅客运输服务*") {
@@ -836,6 +851,31 @@ mod tests {
         });
         let result = classify_from_full_text(&ocr, &seller, &None, &InvoiceType::Other);
         assert_eq!(result, InvoiceCategory::Hotel);
+    }
+
+    #[test]
+    fn test_classify_from_full_text_train_with_transport_service_tax_code() {
+        // 火车票增值税发票使用 *运输服务* 税收编码，不应误识别为 CityTransport
+        let ocr = create_ocr_output(vec!["*运输服务*", "中国铁路", "高铁", "金额：200.00"]);
+        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::TrainInvoice);
+        assert_eq!(result, InvoiceCategory::Train);
+    }
+
+    #[test]
+    fn test_classify_from_full_text_train_with_passenger_tax_code() {
+        // 火车票使用 *客运服务* 税收编码
+        let ocr = create_ocr_output(vec!["*客运服务*", "铁路", "金额：150.00"]);
+        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::TrainInvoice);
+        assert_eq!(result, InvoiceCategory::Train);
+    }
+
+    #[test]
+    fn test_classify_from_regions_train_with_transport_service_tax_code() {
+        // 验证 classify_from_regions 中 *运输服务* 的火车票不被误识别为 CityTransport
+        let items_text = "*运输服务*高铁票 1 200.00";
+        let seller_text = "名称：中国铁路成都局";
+        let result = classify_from_regions(items_text, seller_text, "", "中国铁路成都局");
+        assert_eq!(result, InvoiceCategory::Train);
     }
 
     #[test]

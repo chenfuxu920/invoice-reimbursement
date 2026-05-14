@@ -17,13 +17,13 @@
     </div>
 
     <div class="grid grid-cols-2 gap-3">
-      <div class="bg-gray-50 rounded p-2">
-        <p class="text-xs text-gray-500">发票</p>
+      <div class="bg-gray-50 rounded p-2 cursor-pointer hover:bg-gray-100 transition-colors" @click="$emit('view-invoice', match.invoice)">
+        <p class="text-xs text-gray-500">发票 <span class="text-blue-500">查看详情 →</span></p>
         <p class="font-medium">{{ match.invoice.invoice_number || '无编号' }}</p>
         <p class="text-sm text-gray-600">¥{{ match.invoice.amount.toFixed(2) }}</p>
       </div>
-      <div class="bg-gray-50 rounded p-2">
-        <p class="text-xs text-gray-500">支付</p>
+      <div class="bg-gray-50 rounded p-2 cursor-pointer hover:bg-gray-100 transition-colors" @click="$emit('view-payment', match)">
+        <p class="text-xs text-gray-500">支付 <span class="text-blue-500">查看详情 →</span></p>
         <template v-if="match.payments.length === 1">
           <p class="font-medium">{{ match.payments[0].merchant_name || '未知' }}</p>
           <p class="text-sm text-gray-600">¥{{ match.payments[0].amount.toFixed(2) }}</p>
@@ -43,10 +43,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { MatchResult } from '../types'
+import type { Invoice, MatchResult } from '../types'
 
 const props = defineProps<{ match: MatchResult }>()
-defineEmits<{ (e: 'adjust', match: MatchResult): void }>()
+defineEmits<{
+  (e: 'adjust', match: MatchResult): void
+  (e: 'view-invoice', invoice: Invoice): void
+  (e: 'view-payment', match: MatchResult): void
+}>()
 
 const matchTypeLabel = computed(() => {
   const map: Record<string, string> = {
