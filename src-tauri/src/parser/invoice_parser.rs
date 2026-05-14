@@ -47,11 +47,11 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
         // 识别区域切换
         if trimmed.contains("购买方") && (trimmed.contains("名称") || trimmed.contains("统一社会信用代码")) {
             current_region = "buyer";
-        } else if trimmed.contains("销售方") && (trimmed.contains("名称") || trimmed.contains("统一社会信用代码")) {
+        } else if trimmed.contains("销售方") {
             current_region = "seller";
         } else if trimmed.contains("项目名称") || trimmed.contains("货物或应税劳务") {
             current_region = "items";
-        } else if trimmed.contains("价税合计") {
+        } else if trimmed.contains("价税合计") || trimmed.contains("票价") || trimmed.contains("合计金额") {
             current_region = "total";
         } else if trimmed.contains("备注") && !trimmed.contains("：") {
             current_region = "remarks";
@@ -100,20 +100,34 @@ pub fn parse_invoice_text(
         .collect::<Vec<_>>()
         .join("\n");
 
-    // 先拆分区域
     let regions = split_into_regions(&all_text);
 
-    // 从对应区域提取字段
     let amount = extract_amount(&regions.total)?;
     let seller_name = extract_seller_name(&regions.seller);
     let item_name = extract_item_name(&regions.items);
     let date = extract_date(&all_text);
     let invoice_number = extract_invoice_number(&regions.header);
 
-    // 分类：优先用商品明细区域，其次用销售方区域
-    let category = classify_from_regions(&regions.items, &regions.seller, &item_name, &seller_name);
+    let mut category = classify_from_regions(&regions.items, &regions.seller, &item_name, &seller_name);
 
-    // 住宿发票：解析备注栏获取入住/离店日期和天数
+    if category == InvoiceCategory::Other {
+        let blocks: Vec<_> = texts.iter().map(|t| {
+            crate::ocr::structured_output::OcrTextBlock {
+                text: t.text.clone(),
+                confidence: t.confidence,
+                bbox: crate::ocr::structured_output::BoundingBox::default(),
+                line_index: 0,
+                block_type: crate::ocr::structured_output::TextBlockType::Other,
+            }
+        }).collect();
+        let ocr_output = crate::ocr::structured_output::OcrStructuredOutput {
+            blocks,
+            layout: crate::ocr::structured_output::PageLayout::default(),
+        };
+        let invoice_type = InvoiceTypeDetector::detect(&ocr_output);
+        category = classify_from_full_text(&ocr_output, &None, &None, &invoice_type);
+    }
+
     let hotel_detail = if category == InvoiceCategory::Hotel {
         let remarks_nights = parse_nights_from_remarks(&regions.remarks);
         let item_quantity = extract_item_quantity(&regions.items);

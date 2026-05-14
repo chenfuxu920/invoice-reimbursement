@@ -1,4 +1,5 @@
 use crate::ocr::structured_output::OcrStructuredOutput;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,7 +83,11 @@ impl InvoiceTypeDetector {
     }
 
     fn is_train_invoice(text: &str) -> bool {
-        text.contains("火车票") || text.contains("铁路客票") || text.contains("高铁")
+        text.contains("火车票")
+            || text.contains("铁路客票")
+            || text.contains("铁路电子客票")
+            || text.contains("高铁")
+            || Regex::new(r"[GD]\d+").unwrap().is_match(text) && (text.contains("站") || text.contains("铁路"))
     }
 
     fn is_ride_hailing_invoice(text: &str) -> bool {
@@ -154,6 +159,18 @@ mod tests {
     #[test]
     fn test_detect_train_invoice() {
         let ocr = create_ocr_output(vec!["火车票", "成都东站"]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TrainInvoice);
+    }
+
+    #[test]
+    fn test_detect_railway_electronic_ticket() {
+        let ocr = create_ocr_output(vec!["电子发票（铁路电子客票）", "G878", "长沙南站", "武汉站"]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TrainInvoice);
+    }
+
+    #[test]
+    fn test_detect_high_speed_train_number() {
+        let ocr = create_ocr_output(vec!["D1234", "北京站", "上海站"]);
         assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TrainInvoice);
     }
 
