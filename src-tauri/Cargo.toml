@@ -2,7 +2,7 @@
 name = "invoice-reimbursement"
 version = "0.1.0"
 description = "发票报销助手"
-authors = ["you"]
+authors = ["白开水"]
 edition = "2021"
 default-run = "invoice-reimbursement"
 
