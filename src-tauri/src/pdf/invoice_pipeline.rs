@@ -106,7 +106,7 @@ pub fn parse_all_from_dir(
     }
 
     // 配对：将行程单与 CityTransport 发票关联
-    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 5.0);
+    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 0.01);
 
     ParseResult { invoices, errors }
 }
@@ -135,7 +135,7 @@ pub fn parse_all_from_files(
         }
     }
 
-    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 5.0);
+    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 0.01);
 
     ParseResult { invoices, errors }
 }
