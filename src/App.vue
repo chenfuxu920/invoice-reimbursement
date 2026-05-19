@@ -1,7 +1,7 @@
 <template>
   <div class="h-screen flex flex-col bg-gray-50">
     <nav class="flex items-center gap-4 px-6 py-3 bg-white border-b shadow-sm">
-      <h1 class="text-lg font-bold text-blue-600">发票报销助手 v0.1.0</h1>
+      <h1 class="text-lg font-bold text-blue-600">发票报销助手 v{{ version }}</h1>
       <router-link to="/" class="nav-link">首页</router-link>
       <router-link to="/import" class="nav-link">导入</router-link>
       <router-link to="/match" class="nav-link">匹配</router-link>
@@ -12,6 +12,10 @@
     </main>
   </div>
 </template>
+
+<script setup lang="ts">
+const version = __APP_VERSION__
+</script>
 
 <style scoped>
 @reference "tailwindcss";
