@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:build": "node scripts/sync-version.mjs && tauri build && pwsh -File scripts/create-portable.ps1",
     "test": "vitest run"
   },
   "dependencies": {
