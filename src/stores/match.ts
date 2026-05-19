@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { MatchResult, Invoice, PaymentRecord } from '../types'
+import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
 export const useMatchStore = defineStore('match', () => {
@@ -24,12 +24,51 @@ export const useMatchStore = defineStore('match', () => {
     }
   }
 
+  function unmatchInvoice(invoiceId: string) {
+    const match = matches.value.find(m => m.invoice_id === invoiceId)
+    if (match) {
+      matches.value = matches.value.filter(m => m.invoice_id !== invoiceId)
+      unmatchedPayments.value = [...unmatchedPayments.value, ...match.payments]
+      unmatchedInvoices.value = [...unmatchedInvoices.value, match.invoice]
+    }
+  }
+
   async function manualMatch(invoice: Invoice, payments: PaymentRecord[]) {
+    unmatchInvoice(invoice.id)
     const matchResult: MatchResult = await invoke('manual_match', { invoice, payments })
     matches.value.push(matchResult)
     unmatchedInvoices.value = unmatchedInvoices.value.filter(i => i.id !== invoice.id)
     const usedIds = new Set(payments.map(p => p.id))
     unmatchedPayments.value = unmatchedPayments.value.filter(p => !usedIds.has(p.id))
+  }
+
+  function removePayment(invoiceId: string, paymentId: string) {
+    const match = matches.value.find(m => m.invoice_id === invoiceId)
+    if (!match) return
+    const removed = match.payments.find(p => p.id === paymentId)
+    if (!removed) return
+    match.payments = match.payments.filter(p => p.id !== paymentId)
+    match.payment_ids = match.payment_ids.filter(id => id !== paymentId)
+    match.amount_diff = Math.abs(match.invoice.amount - match.payments.reduce((s, p) => s + p.amount, 0))
+    if (match.payments.length === 0) {
+      unmatchInvoice(invoiceId)
+    } else {
+      unmatchedPayments.value = [...unmatchedPayments.value, removed]
+      if (match.payments.length === 1) {
+        match.match_type = 'OneToOne'
+      }
+    }
+  }
+
+  function updateInvoiceCategory(invoiceId: string, category: InvoiceCategory) {
+    const match = matches.value.find(m => m.invoice_id === invoiceId)
+    if (match) {
+      match.invoice = { ...match.invoice, category }
+    }
+    const inv = unmatchedInvoices.value.find(i => i.id === invoiceId)
+    if (inv) {
+      inv.category = category
+    }
   }
 
   async function renderReimbursementHtml(formInfo: {
@@ -90,6 +129,7 @@ export const useMatchStore = defineStore('match', () => {
 
   return {
     matches, unmatchedInvoices, unmatchedPayments, loading, reimbursementHtml,
-    autoMatch, manualMatch, renderReimbursementHtml, saveReimbursementHtml, clearMatches,
+    autoMatch, unmatchInvoice, manualMatch, removePayment, updateInvoiceCategory,
+    renderReimbursementHtml, saveReimbursementHtml, clearMatches,
   }
 })

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Invoice } from '../types'
+import type { Invoice, InvoiceCategory } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
 export const useInvoiceStore = defineStore('invoice', () => {
@@ -24,9 +24,16 @@ export const useInvoiceStore = defineStore('invoice', () => {
     invoices.value = invoices.value.filter(i => i.id !== id)
   }
 
+  function updateCategory(invoiceId: string, category: InvoiceCategory) {
+    const invoice = invoices.value.find(i => i.id === invoiceId)
+    if (invoice) {
+      invoice.category = category
+    }
+  }
+
   function clearInvoices() {
     invoices.value = []
   }
 
-  return { invoices, loading, addInvoice, removeInvoice, clearInvoices }
+  return { invoices, loading, addInvoice, removeInvoice, updateCategory, clearInvoices }
 })
