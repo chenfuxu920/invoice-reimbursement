@@ -156,11 +156,14 @@ fn build_html(blocks: &[OutputBlock]) -> String {
                 }
 
                 if !rows.is_empty() {
-                    html.push_str("<div class=\"page table-page\">\n  <h3>行程支付明细</h3>\n  <table class=\"pay-table\">\n    <thead>\n      <tr><th class=\"col-seq\">行程序号</th><th class=\"col-amt\">行程金额</th><th class=\"col-pay\">支付单号</th></tr>\n    </thead>\n    <tbody>\n");
-                    for (seq, amt, pay_id) in rows {
-                        html.push_str(&format!("      <tr><td>{}</td><td>{:.2}</td><td>{}</td></tr>\n", seq, amt, pay_id));
+                    let max_rows_per_page: usize = 17;
+                    for chunk in rows.chunks(max_rows_per_page) {
+                        html.push_str("<div class=\"page table-page\">\n  <h3>行程支付明细</h3>\n  <table class=\"pay-table\">\n    <thead>\n      <tr><th class=\"col-seq\">行程序号</th><th class=\"col-amt\">行程金额</th><th class=\"col-pay\">支付单号</th></tr>\n    </thead>\n    <tbody>\n");
+                        for (seq, amt, pay_id) in chunk {
+                            html.push_str(&format!("      <tr><td>{}</td><td>{:.2}</td><td>{}</td></tr>\n", seq, amt, pay_id));
+                        }
+                        html.push_str("    </tbody>\n  </table>\n</div>\n");
                     }
-                    html.push_str("    </tbody>\n  </table>\n</div>\n");
                 }
             }
         }

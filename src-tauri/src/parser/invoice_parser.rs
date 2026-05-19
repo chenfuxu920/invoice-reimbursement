@@ -102,8 +102,14 @@ pub fn parse_invoice_text(
 
     let regions = split_into_regions(&all_text);
 
-    let amount = extract_amount(&regions.total)?;
-    let seller_name = extract_seller_name(&regions.seller);
+    let amount = match extract_amount(&regions.total) {
+        Ok(amt) => amt,
+        Err(_) => extract_amount(&all_text)?,
+    };
+    let mut seller_name = extract_seller_name(&regions.seller);
+    if seller_name.is_empty() {
+        seller_name = extract_seller_by_coords(texts);
+    }
     let item_name = extract_item_name(&regions.items);
     let date = extract_date(&all_text);
     let invoice_number = extract_invoice_number(&regions.header);
@@ -589,6 +595,27 @@ fn extract_seller_name(text: &str) -> String {
         return caps[1].trim().to_string();
     }
     String::new()
+}
+
+fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
+    let re = Regex::new(r"名称[：:]\s*(\S.+)").unwrap();
+    let mut best_x = 0.0f64;
+    let mut best_name = String::new();
+    for item in texts {
+        if let Some(caps) = re.captures(&item.text) {
+            let name = caps[1].trim();
+            if name.len() <= 2 { continue; }
+            if let Some(coords) = &item.box_coords {
+                if let Some(x) = coords.get("points").and_then(|p| p.get(0)).and_then(|p| p.get("x")).and_then(|v| v.as_f64()) {
+                    if x > best_x {
+                        best_x = x;
+                        best_name = name.to_string();
+                    }
+                }
+            }
+        }
+    }
+    best_name
 }
 
 fn extract_item_name(text: &str) -> String {

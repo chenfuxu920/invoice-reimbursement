@@ -41,3 +41,36 @@ Skills 位于 `.claude/skills/` 目录，每个 skill 有独立的 `SKILL.md` �
 
 如果你认为哪怕只有 1% 的可能性某个 skill 适用于你正在做的事情，你必须调用该 skill 检查。
 <!-- superpowers-zh:end -->
+
+## 项目背景
+
+发票报销自动化桌面工具（Tauri 2.x + Vue 3 + Rust/PaddleOCR）
+
+### 关键架构
+
+- **src-tauri/src/parser/invoice_parser.rs** — 发票解析（区域分割 + 正则提取 + 坐标回退销售方）
+- **src-tauri/src/parser/itinerary_parser.rs** — 行程单解析（OCR坐标表格解析 + parangi交叉验证）
+- **src-tauri/src/pdf/invoice_pipeline.rs** — 发票/行程单解析入口、配对逻辑
+- **src-tauri/src/ocr/engine.rs** — PaddleOCR v5 封装（PDFium RGBA→RGB已修复）
+
+### 近期重大改进 (2026-05)
+
+**行程单解析重写** (`itinerary_parser.rs` ~1100行):
+- 主行/续行分离：按序号Y坐标±30%行高分 group
+- 锚点构建：序号锚点 + 时间锚点 + 间隔填充（gap >1.8×行高时补金额锚点）
+- 里程/金额合并列分割：检测表头"里程[公里]金额[元]"合并块，金额只用 X>header_x 数据
+- 三重交叉验证（parangi纯文本 → OCR坐标结果）：
+  1. 金额修正（OCR误读12.0→parangi修正12.90）
+  2. Provider补全（OCR缺失"滴滴轻享"→parangi续行合并）
+  3. 时间恢复（OCR乱码"成都A428"→parangi恢复"04-25 08:48"，含续行分钟提取）
+
+**发票解析修复** (`invoice_parser.rs`):
+- `extract_seller_by_coords`: 坐标感知销售方提取（取最右侧"名称："块）
+- `extract_amount`: total区域失败时回退全文搜索
+- pipeline: parangi提取seller为空时回退OCR重解析
+
+### 已知限制
+- 滴滴page2表头合并块"序号车型上车时间城市"导致provider/time边界过宽
+- parangi对中文发票多列布局会乱序
+- 部分OCR乱码时间（如"A428"、"042708"）无法从OCR本身恢复，依赖parangi交叉验证
+- test_invoice_parser_with_templates 测试偶发超时（Tera模板编译耗时）

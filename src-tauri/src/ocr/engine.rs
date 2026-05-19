@@ -393,11 +393,17 @@ fn pdfium_render_to_images(pdf_path: &str) -> Result<Vec<image::RgbImage>, Strin
             )
             .map_err(|e| format!("Failed to render PDF page: {:?}", e))?;
 
-        let raw_pixels = bitmap.as_raw_bytes().to_vec();
         let width = bitmap.width() as u32;
         let height = bitmap.height() as u32;
+        let raw = bitmap.as_raw_bytes();
 
-        if let Some(img) = image::RgbImage::from_raw(width, height, raw_pixels) {
+        let rgb_data: Vec<u8> = if raw.len() == (width * height * 4) as usize {
+            raw.chunks_exact(4).flat_map(|px| &px[..3]).copied().collect()
+        } else {
+            raw.to_vec()
+        };
+
+        if let Some(img) = image::RgbImage::from_raw(width, height, rgb_data) {
             images.push(img);
         }
     }

@@ -1,7 +1,7 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
 use crate::ocr::OcrEngine;
 use crate::parser::invoice_parser::parse_invoice_text;
-use crate::parser::itinerary_parser::parse_itinerary_text;
+use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback};
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 use std::path::{Path, PathBuf};
 
@@ -20,11 +20,19 @@ pub struct ParseResult {
     pub errors: Vec<(String, String)>,
 }
 
-/// 解析单个发票 PDF：先尝试文字提取，失败则 OCR（多页）
+/// 解析单个发票 PDF：先尝试文字提取，失败或缺销售方信息则 OCR（多页）
 pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<Invoice, String> {
     let source = InvoiceSource::Pdf(pdf_path.to_string());
     let text_items = extract_text(pdf_path, engine)?;
-    check_and_parse(text_items, source)
+    match check_and_parse(text_items, source.clone()) {
+        Ok(invoice) if !invoice.seller_name.is_empty() => Ok(invoice),
+        Ok(_) | Err(_) => {
+            // parangi text may have scrambled multi-column layout; fall back to OCR
+            let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+            let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
+            check_and_parse(ocr_items, source)
+        }
+    }
 }
 
 fn extract_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
@@ -35,6 +43,11 @@ fn extract_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr
             Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
         }
     }
+}
+
+fn extract_ocr_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrPageResult>, String> {
+    let resp = engine.recognize_pdf(pdf_path)?;
+    Ok(resp.pages)
 }
 
 /// 解析单个发票图片：OCR 识别后分类检查
@@ -56,13 +69,23 @@ fn check_and_parse(
 }
 
 /// 解析行程单 PDF，返回行程明细集合
+/// 行程单优先走 OCR 路径以保留坐标，利用坐标还原表格行列结构；
+/// OCR 失败时回退到纯文本解析。
 pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<ItineraryDoc, String> {
     let texts = extract_text(pdf_path, engine)?;
     let doc_type = classify_pdf_document_type(&texts);
     if doc_type != PdfDocumentType::Itinerary && doc_type != PdfDocumentType::Invoice {
         return Err(format!("非行程单类型: {:?}", doc_type));
     }
-    let itineraries = parse_itinerary_text(&texts);
+
+    let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+    let ocr_result = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
+    let itineraries = if !ocr_result.is_empty() {
+        ocr_result
+    } else {
+        parse_itinerary_text(&texts)
+    };
+
     if itineraries.is_empty() {
         return Err("行程单中未解析到行程明细".to_string());
     }

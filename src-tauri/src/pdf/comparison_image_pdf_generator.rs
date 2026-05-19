@@ -151,7 +151,10 @@ pub fn generate_comparison_image_pdf(
             }
 
             if !rows.is_empty() {
-                blocks.push(PdfBlock::ItineraryTable { rows });
+                let max_rows_per_page: usize = 17;
+                for chunk in rows.chunks(max_rows_per_page) {
+                    blocks.push(PdfBlock::ItineraryTable { rows: chunk.to_vec() });
+                }
             }
         }
     }
