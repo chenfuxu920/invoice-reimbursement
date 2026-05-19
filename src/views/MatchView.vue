@@ -21,6 +21,8 @@
           @adjust="handleAdjust"
           @view-invoice="handleViewInvoice"
           @view-payment="handleViewPayment"
+          @update-category="handleUpdateCategory"
+          @remove-payment="handleRemovePayment"
         />
       </div>
     </div>
@@ -32,9 +34,14 @@
         <div v-for="inv in matchStore.unmatchedInvoices" :key="inv.id"
              class="bg-orange-50 border border-orange-200 rounded p-3 flex justify-between items-center cursor-pointer hover:bg-orange-100 transition-colors"
              @click="handleViewInvoice(inv)">
-          <div>
+          <div class="flex items-center gap-2">
             <span class="font-medium">{{ inv.invoice_number || '无编号' }}</span>
-            <span class="text-gray-500 ml-2">¥{{ inv.amount.toFixed(2) }}</span>
+            <span class="text-gray-500">¥{{ inv.amount.toFixed(2) }}</span>
+            <select :value="inv.category" @change="handleUpdateCategory(inv.id, ($event.target as HTMLSelectElement).value as InvoiceCategory)" @click.stop
+                    class="px-1 py-0.5 rounded text-xs border-0 cursor-pointer"
+                    :class="getCategoryBadgeClass(inv.category)">
+              <option v-for="(label, key) in CATEGORY_LABELS" :key="key" :value="key">{{ label }}</option>
+            </select>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-blue-400">查看详情</span>
@@ -74,8 +81,9 @@
     <MatchAdjustDialog
       :visible="showAdjustDialog"
       :invoice="adjustingInvoice"
+      :current-payments="adjustingMatch?.payments || []"
       :available-payments="matchStore.unmatchedPayments"
-      @close="showAdjustDialog = false"
+      @close="handleAdjustClose"
       @confirm="handleManualMatch"
     />
 
@@ -105,7 +113,9 @@ import MatchCard from '../components/MatchCard.vue'
 import MatchAdjustDialog from '../components/MatchAdjustDialog.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import PaymentDetailModal from '../components/PaymentDetailModal.vue'
-import type { Invoice, MatchResult, PaymentRecord } from '../types'
+import type { Invoice, MatchResult, PaymentRecord, InvoiceCategory } from '../types'
+import { CATEGORY_LABELS } from '../types/invoice'
+import { getCategoryBadgeClass } from '../utils/category'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
@@ -114,6 +124,7 @@ const matchStore = useMatchStore()
 const showUnmatchedPayments = ref(false)
 const showAdjustDialog = ref(false)
 const adjustingInvoice = ref<Invoice | null>(null)
+const adjustingMatch = ref<MatchResult | null>(null)
 
 const showInvoiceDetail = ref(false)
 const viewingInvoice = ref<Invoice | null>(null)
@@ -125,19 +136,40 @@ async function runAutoMatch() {
 }
 
 function handleAdjust(match: MatchResult) {
+  adjustingMatch.value = match
   adjustingInvoice.value = match.invoice
   showAdjustDialog.value = true
 }
 
+function handleAdjustClose() {
+  showAdjustDialog.value = false
+  adjustingMatch.value = null
+}
+
 function startManualMatch(invoice: Invoice) {
+  adjustingMatch.value = null
   adjustingInvoice.value = invoice
   showAdjustDialog.value = true
 }
 
 async function handleManualMatch(invoice: Invoice, paymentIds: string[]) {
-  const payments = matchStore.unmatchedPayments.filter(p => paymentIds.includes(p.id))
+  const allPayments = [...matchStore.unmatchedPayments]
+  if (adjustingMatch.value) {
+    allPayments.push(...adjustingMatch.value.payments)
+  }
+  const payments = allPayments.filter(p => paymentIds.includes(p.id))
   await matchStore.manualMatch(invoice, payments)
   showAdjustDialog.value = false
+  adjustingMatch.value = null
+}
+
+function handleUpdateCategory(invoiceId: string, category: InvoiceCategory) {
+  invoiceStore.updateCategory(invoiceId, category)
+  matchStore.updateInvoiceCategory(invoiceId, category)
+}
+
+function handleRemovePayment(invoiceId: string, paymentId: string) {
+  matchStore.removePayment(invoiceId, paymentId)
 }
 
 function handleViewInvoice(invoice: Invoice) {

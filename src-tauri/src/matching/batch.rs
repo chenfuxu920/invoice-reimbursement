@@ -2,6 +2,7 @@ use crate::models::invoice::{Invoice, InvoiceCategory};
 use crate::models::match_result::{MatchResult, MatchType};
 use crate::models::payment::PaymentRecord;
 use super::engine::MatchEngine;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -33,12 +34,14 @@ pub fn batch_match(
             && !invoice.itineraries.is_empty()
         {
             if invoice.itineraries.len() > 1 {
-                // 多行程条目：优先按行程单逐条匹配（可处理含高速费等场景）
                 match_itinerary_to_payments(invoice, &available_payments, tolerance)
-                    .or_else(|| engine.match_one_to_many(invoice, &available_payments))
+                    .or_else(|| {
+                        let time_filtered = filter_payments_by_itinerary_time(invoice, &available_payments);
+                        engine.match_one_to_many(invoice, &time_filtered)
+                    })
             } else {
-                // 单行程条目：走原始子集求和（金额可能是多笔支付的和）
-                engine.match_one_to_many(invoice, &available_payments)
+                let time_filtered = filter_payments_by_itinerary_time(invoice, &available_payments);
+                engine.match_one_to_many(invoice, &time_filtered)
             }
         } else {
             // 普通场景：一对一匹配
@@ -65,6 +68,40 @@ pub fn batch_match(
         matched,
         unmatched_invoices,
         unmatched_payments,
+    }
+}
+
+/// 按行程时间范围过滤支付记录：支付时间必须在首条行程时间之后、且不超过12小时
+fn filter_payments_by_itinerary_time(invoice: &Invoice, payments: &[PaymentRecord]) -> Vec<PaymentRecord> {
+    let first_itin_time = invoice.itineraries.first()
+        .and_then(|e| parse_datetime(&e.date_time));
+
+    match first_itin_time {
+        Some(it) => {
+            let mut filtered: Vec<PaymentRecord> = payments.iter()
+                .filter(|p| {
+                    let pt = match parse_datetime(&p.transaction_time) {
+                        Some(t) => t,
+                        None => return true,
+                    };
+                    if pt < it { return false; }
+                    let hours = (pt - it).num_hours();
+                    hours <= 12
+                })
+                .cloned()
+                .collect();
+            filtered.sort_by(|a, b| {
+                let ha = parse_datetime(&a.transaction_time)
+                    .map(|t| (t - it).num_hours())
+                    .unwrap_or(i64::MAX);
+                let hb = parse_datetime(&b.transaction_time)
+                    .map(|t| (t - it).num_hours())
+                    .unwrap_or(i64::MAX);
+                ha.cmp(&hb)
+            });
+            filtered
+        }
+        None => payments.to_vec(),
     }
 }
 
@@ -160,6 +197,7 @@ fn match_itinerary_to_payments(
 
 /// 为单个行程条目找最佳匹配支付
 /// merchant_filter: Some("xxx") 时只匹配该商户，None 时不限商户
+/// 时间约束：支付时间不能早于行程时间，且不能晚于行程时间太久（48小时）
 fn find_best_payment(
     entry: &crate::models::invoice::Itinerary,
     payments: &[PaymentRecord],
@@ -167,8 +205,9 @@ fn find_best_payment(
     merchant_filter: Option<&str>,
     tolerance: f64,
 ) -> Option<(PaymentRecord, f64)> {
-    let mut exact_best: Option<(f64, &PaymentRecord)> = None;  // (diff, payment)
-    let mut toll_best: Option<(f64, &PaymentRecord)> = None;
+    let itin_time = parse_datetime(&entry.date_time);
+    let mut exact_best: Option<(f64, f64, &PaymentRecord)> = None; // (amount_diff, hours_after, payment)
+    let mut toll_best: Option<(f64, f64, &PaymentRecord)> = None;
 
     for pay in payments {
         if used_ids.contains(&pay.id) {
@@ -176,6 +215,18 @@ fn find_best_payment(
         }
         if let Some(m) = merchant_filter {
             if !pay.merchant_name.to_lowercase().contains(m) {
+                continue;
+            }
+        }
+
+        let pay_time = parse_datetime(&pay.transaction_time);
+
+        if let (Some(it), Some(pt)) = (&itin_time, &pay_time) {
+            if pt < it {
+                continue;
+            }
+            let hours_after = (*pt - *it).num_hours();
+            if hours_after > 12 {
                 continue;
             }
         }
@@ -189,32 +240,62 @@ fn find_best_payment(
             }
         }
 
-        // 精确匹配：差额在容差内，取绝对值最小的
+        let hours_after = match (&itin_time, &pay_time) {
+            (Some(it), Some(pt)) if pt >= it => (*pt - *it).num_hours().max(0) as f64,
+            _ => 999.0,
+        };
+
         if diff.abs() <= tolerance {
             let abs_diff = diff.abs();
             match exact_best {
-                Some((best_diff, _)) if abs_diff < best_diff => exact_best = Some((abs_diff, pay)),
-                None => exact_best = Some((abs_diff, pay)),
+                Some((best_diff, best_h, _))
+                    if abs_diff < best_diff || ((abs_diff - best_diff).abs() < f64::EPSILON && hours_after < best_h) =>
+                {
+                    exact_best = Some((abs_diff, hours_after, pay));
+                }
+                None => exact_best = Some((abs_diff, hours_after, pay)),
                 _ => {}
             }
             continue;
         }
 
-        // 含高速费匹配
         if diff > 0.0 && diff <= entry.amount {
             if is_same_day_or_next_morning(&entry.date_time, &pay.transaction_time) {
                 match toll_best {
-                    Some((best_diff, _)) if diff < best_diff => toll_best = Some((diff, pay)),
-                    None => toll_best = Some((diff, pay)),
+                    Some((best_diff, best_h, _))
+                        if diff < best_diff || ((diff - best_diff).abs() < f64::EPSILON && hours_after < best_h) =>
+                    {
+                        toll_best = Some((diff, hours_after, pay));
+                    }
+                    None => toll_best = Some((diff, hours_after, pay)),
                     _ => {}
                 }
             }
         }
     }
 
-    // 精确匹配优先
-    exact_best.map(|(d, p)| (p.clone(), d))
-        .or_else(|| toll_best.map(|(d, p)| (p.clone(), d)))
+    exact_best
+        .map(|(d, _, p)| (p.clone(), d))
+        .or_else(|| toll_best.map(|(d, _, p)| (p.clone(), d)))
+}
+
+/// 解析时间字符串为 NaiveDateTime
+/// 支持: "YYYY-MM-DD HH:MM", "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DD"
+fn parse_datetime(time_str: &str) -> Option<NaiveDateTime> {
+    let formats = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    ];
+    for fmt in formats {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, fmt) {
+            return Some(dt);
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(time_str, fmt) {
+            return d.and_hms_opt(0, 0, 0);
+        }
+    }
+    None
 }
 
 /// 判断支付时间是否在行程当天或次日凌晨
@@ -452,5 +533,126 @@ mod tests {
         let result = batch_match(&[], &payments, 1.00);
         assert_eq!(result.matched.len(), 0);
         assert_eq!(result.unmatched_payments.len(), 1);
+    }
+
+    fn make_payment_at(id: &str, amount: f64, time: &str) -> PaymentRecord {
+        PaymentRecord {
+            id: id.to_string(),
+            transaction_id: format!("TX-{}", id),
+            transaction_time: time.to_string(),
+            amount,
+            original_amount: amount,
+            refund_amount: 0.0,
+            discount: 0.0,
+            merchant_name: "Test Merchant".to_string(),
+            source: PaymentSource::Wechat,
+            category: "交通".to_string(),
+            payment_method: String::new(),
+        }
+    }
+
+    fn make_itinerary_invoice(id: &str, amount: f64, itin_time: &str, itin_amount: f64) -> Invoice {
+        Invoice {
+            id: id.to_string(),
+            invoice_number: format!("INV-{}", id),
+            amount,
+            seller_name: "滴滴出行".to_string(),
+            item_name: "市内交通".to_string(),
+            date: NaiveDate::parse_from_str(&itin_time[..10], "%Y-%m-%d").unwrap(),
+            category: InvoiceCategory::CityTransport,
+            source: InvoiceSource::Link("http://example.com".to_string()),
+            itineraries: vec![Itinerary {
+                date_time: itin_time.to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A站".to_string(),
+                dropoff: "B站".to_string(),
+                amount: itin_amount,
+            }],
+            itinerary_file: None,
+            remarks: String::new(),
+            hotel_detail: None,
+        }
+    }
+
+    #[test]
+    fn test_itinerary_rejects_payment_before_trip() {
+        let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-15 08:00"),
+            make_payment_at("p2", 30.00, "2025-01-15 09:30"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].payment_ids, vec!["p2".to_string()]);
+        assert_eq!(result.unmatched_payments.len(), 1);
+        assert_eq!(result.unmatched_payments[0].id, "p1");
+    }
+
+    #[test]
+    fn test_itinerary_rejects_payment_too_far_after_trip() {
+        let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-16 10:00"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 0);
+        assert_eq!(result.unmatched_invoices.len(), 1);
+    }
+
+    #[test]
+    fn test_itinerary_prefers_closer_time_match() {
+        let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-15 20:00"),
+            make_payment_at("p2", 30.00, "2025-01-15 09:15"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].payment_ids, vec!["p2".to_string()]);
+    }
+
+    #[test]
+    fn test_itinerary_allows_payment_same_day_after_trip() {
+        let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-15 09:05"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].payment_ids, vec!["p1".to_string()]);
+    }
+
+    #[test]
+    fn test_itinerary_allows_payment_within_12h() {
+        let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-15 20:00"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].payment_ids, vec!["p1".to_string()]);
+    }
+
+    #[test]
+    fn test_itinerary_rejects_payment_beyond_12h() {
+        let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-16 08:00"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 0);
+        assert_eq!(result.unmatched_invoices.len(), 1);
     }
 }
