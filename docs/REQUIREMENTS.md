@@ -1,6 +1,6 @@
 # 发票报销自动化系统 — 需求规格文档
 
-> 版本：1.0 | 更新日期：2026-05-07
+> 版本：0.2.0 | 更新日期：2026-06-16
 
 ---
 
@@ -82,14 +82,15 @@
 
 #### 2.1.5 OCR 技术要求
 
-- **引擎**：PaddleOCR v5（嵌入式 ONNX 推理，paddle-ocr-rs 0.6.1）
+- **引擎**：PaddleOCR v5（嵌入式 ONNX/MNN 推理，ocr-rs 2.2.2）
 - **模型文件**：
-  - 检测模型：`ch_PP-OCRv5_mobile_det.onnx`（4.7MB）
-  - 识别模型：`ch_PP-OCRv5_rec_mobile_infer.onnx`（16MB）
-  - 分类模型：`ch_ppocr_mobile_v2.0_cls_infer.onnx`（572KB）
-  - 字典文件：`ppocr_keys_v1.txt`（6622 字符）
+  - 检测模型：`ch_PP-OCRv5_mobile_det.onnx` / `.mnn`
+  - 识别模型：`ch_PP-OCRv5_rec_mobile_infer.onnx` / `.mnn`
+  - 分类模型：`ch_ppocr_mobile_v2.0_cls_infer.onnx`
+  - 字典文件：`ppocr_keys_v5.txt` / `ppocr_keys_v1.txt`
+  - 兼容模型：`ch_PP-OCRv3_det_infer.onnx` / `ch_PP-OCRv3_rec_infer.onnx`
 - **单张识别时间**：< 3 秒
-- **PDF 处理**：先转图片（pdftoppm），再逐页 OCR
+- **PDF 处理**：PDFium 渲染 → OCR 逐页识别（支持 parangi 文本提取回退）
 
 ---
 
@@ -209,11 +210,11 @@
 
 #### 2.5.3 输出文件
 
-**文件 1：报销表单 PDF**
+**文件 1：报销表单**（HTML / PDF / XLSX）
 - 按类别统计的汇总表
 - 含基本信息和总计
 
-**文件 2：发票-支付对照 PDF**
+**文件 2：发票-支付对照表**（HTML / XLSX / 含图片 PDF）
 
 | 发票类型 | PDF 结构 |
 |----------|----------|
@@ -316,6 +317,9 @@ struct PaymentRecord {
     transaction_id: String,        // 交易单号
     transaction_time: String,      // 交易时间
     amount: f64,                   // 交易金额
+    original_amount: f64,          // 原始金额（退款前）
+    refund_amount: f64,            // 退款金额
+    discount: f64,                 // 优惠金额
     merchant_name: String,         // 商户名称
     source: PaymentSource,         // 来源（微信/支付宝）
     category: String,              // 交易类型
@@ -381,12 +385,16 @@ struct ReimbursementForm {
 
 | 依赖 | 用途 |
 |------|------|
-| `paddle-ocr-rs` 0.6.1 | OCR 推理 |
-| `ort` =2.0.0-rc.10 | ONNX Runtime |
+| `ocr-rs` 2.2 | OCR 推理 |
 | `image` | 图片处理 |
 | `printpdf` | PDF 生成 |
+| `genpdf` | 简单 PDF 生成 |
 | `calamine` | Excel 读取 |
-| `csv` | CSV 解析 |
+| `rust_xlsxwriter` | XLSX 写入 |
+| `csv` + `encoding_rs` | CSV 解析（含 GBK） |
+| `parangi` | PDF 文本提取（交叉验证） |
+| `pdfium-render` | PDF 页面渲染 |
+| `pdf-extract` | PDF 文本提取（回退方案） |
 | `serde` / `serde_json` | 序列化 |
 | `chrono` | 日期处理 |
 | `regex` | 正则匹配 |
@@ -432,10 +440,9 @@ struct ReimbursementForm {
 
 | 类别 | 测试数 | 状态 |
 |------|--------|------|
-| Rust 单元测试 | 83 | ✅ 全部通过 |
-| OCR 集成测试 | 3 | ✅ 全部通过 |
-| 前端测试 | 11 | ✅ 全部通过 |
-| **合计** | **97** | ✅ |
+| Rust 单元测试 | ~193 | ✅ 全部通过 |
+| 集成测试 | 8 个测试文件 | ✅ 大部分通过 |
+| 前端测试 | ~11 | ✅ 全部通过 |
 
 ---
 

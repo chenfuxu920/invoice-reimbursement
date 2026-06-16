@@ -69,9 +69,9 @@ codegen-units = 1     # 单编译单元，更好的优化
 Tauri 打包配置位于 `src-tauri/tauri.conf.json`，主要配置项：
 
 - **identifier**: `com.invoice-reimbursement.app`
-- **productName**: `发票报销助手`
+- **productName**: `发票报销助手 v0.2.0 - By 白开水`
 - **窗口**: 1024×768（最小 800×600），居中显示，可调整大小
-- **NSIS 安装程序**（Windows）: 支持简体中文/英文，当前用户安装模式
+- **NSIS 安装程序**（Windows）: 支持简体中文/英文，both 安装模式（可选当前用户/所有用户）
 - **DEB 包**（Linux）: 声明 webkit2gtk 和 GTK3 依赖
 
 ## 常见问题

@@ -56,18 +56,22 @@ invoice-reimbursement/
 │   ├── components/               # UI 组件
 │   │   ├── InvoiceDropZone.vue   # 发票拖拽上传
 │   │   ├── InvoiceCard.vue       # 发票卡片
+│   │   ├── InvoiceDetailModal.vue # 发票详情弹窗
 │   │   ├── BillImporter.vue      # 账单导入
 │   │   ├── PaymentTable.vue      # 支付记录表格
+│   │   ├── PaymentDetailModal.vue # 支付详情弹窗
 │   │   ├── MatchCard.vue         # 匹配结果卡片
 │   │   ├── MatchAdjustDialog.vue # 手动调整对话框
 │   │   ├── ReimbursementForm.vue # 报销表单预览
-│   │   └── ExportButton.vue      # 导出按钮
+│   │   ├── ExportButton.vue      # 导出按钮
+│   │   └── LoadingOverlay.vue    # 加载遮罩
 │   ├── views/                    # 页面视图
 │   │   ├── HomeView.vue          # 首页
 │   │   ├── ImportView.vue        # 导入页面
 │   │   ├── MatchView.vue         # 匹配页面
 │   │   └── ExportView.vue        # 导出页面
 │   ├── stores/                   # Pinia 状态管理
+│   │   ├── index.ts              # Store 入口
 │   │   ├── invoice.ts            # 发票状态
 │   │   ├── payment.ts            # 支付状态
 │   │   └── match.ts              # 匹配状态
@@ -76,10 +80,14 @@ invoice-reimbursement/
 │   ├── src/
 │   │   ├── ocr/                  # OCR 引擎
 │   │   │   ├── engine.rs         # PaddleOCR v5 封装
+│   │   │   ├── structured_output.rs # 结构化输出模型
 │   │   │   └── mod.rs
 │   │   ├── parser/               # 文档解析器
 │   │   │   ├── invoice_parser.rs # 发票文本解析
 │   │   │   ├── itinerary_parser.rs # 行程单解析
+│   │   │   ├── field_extractors.rs # 多策略字段提取
+│   │   │   ├── invoice_type_detector.rs # 发票类型检测
+│   │   │   ├── template_manager.rs # 模板管理器
 │   │   │   ├── alipay_parser.rs  # 支付宝账单解析
 │   │   │   ├── wechat_parser.rs  # 微信账单解析
 │   │   │   ├── dedup.rs          # 发票去重
@@ -87,25 +95,44 @@ invoice-reimbursement/
 │   │   ├── matching/             # 匹配引擎
 │   │   │   ├── engine.rs         # 核心匹配算法
 │   │   │   ├── batch.rs          # 批量匹配
+│   │   │   ├── batch_optimizer.rs # 批量优化器
+│   │   │   ├── scoring.rs        # 多维度评分
+│   │   │   ├── strategy_selector.rs # 策略选择
+│   │   │   ├── benchmarks.rs     # 性能基准测试
 │   │   │   └── manual.rs         # 手动匹配/调整
 │   │   ├── models/               # 数据模型
 │   │   │   ├── invoice.rs        # 发票模型
 │   │   │   ├── payment.rs        # 支付记录模型
 │   │   │   ├── match_result.rs   # 匹配结果模型
-│   │   │   └── reimbursement.rs  # 报销表单模型
-│   │   ├── pdf/                  # PDF 生成
+│   │   │   ├── reimbursement.rs  # 报销表单模型
+│   │   │   └── hotel_standard.rs # 住宿标准查询
+│   │   ├── pdf/                  # 报表生成
+│   │   │   ├── invoice_pipeline.rs # 发票/行程单解析入口
+│   │   │   ├── text_extractor.rs # PDF 文本提取
 │   │   │   ├── form_builder.rs   # 报销表单构建
 │   │   │   ├── form_generator.rs # 表单 PDF 生成
-│   │   │   ├── comparison_generator.rs # 对照 PDF 生成
-│   │   │   └── image_embedder.rs # 图片嵌入
+│   │   │   ├── form_html_generator.rs # 表单 HTML 生成
+│   │   │   ├── form_xlsx_generator.rs # 表单 XLSX 生成
+│   │   │   ├── comparison_generator.rs # 对照表生成
+│   │   │   ├── comparison_html_generator.rs # 对照 HTML 生成
+│   │   │   ├── comparison_xlsx_generator.rs # 对照 XLSX 生成
+│   │   │   ├── comparison_image_pdf_generator.rs # 含图对照 PDF
+│   │   │   └── image_embedder.rs # PDF 页面图片渲染
 │   │   └── lib.rs                # Tauri 命令注册
 │   ├── models/                   # OCR 模型文件
 │   │   ├── ch_PP-OCRv5_mobile_det.onnx
 │   │   ├── ch_PP-OCRv5_rec_mobile_infer.onnx
+│   │   ├── ch_PP-OCRv3_det_infer.onnx
+│   │   ├── ch_PP-OCRv3_rec_infer.onnx
 │   │   ├── ch_ppocr_mobile_v2.0_cls_infer.onnx
+│   │   ├── PP-OCRv5_mobile_det.mnn
+│   │   ├── PP-OCRv5_mobile_rec.mnn
+│   │   ├── ppocr_keys_v5.txt
 │   │   └── ppocr_keys_v1.txt
-│   └── tests/                    # Rust 集成测试
+│   ├── tests/                    # Rust 集成测试
+│   └── bin/                      # 命令行调试工具
 ├── data/                         # 测试数据（发票/账单样本）
+├── config/                       # 发票模板配置
 └── docs/                         # 项目文档
 ```
 
@@ -151,7 +178,7 @@ cd src-tauri && cargo test -- --ignored
 npm run test
 
 # E2E 测试（需要测试数据）
-cd src-tauri && cargo test --test e2e_invoice_test -- --ignored
+cd src-tauri && cargo test --test e2e_real_data_test -- --ignored
 ```
 
 ---
