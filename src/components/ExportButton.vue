@@ -9,6 +9,14 @@
             class="w-full px-4 py-3 rounded bg-orange-500 text-white font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors">
       🖼️ 生成对照 PDF（含发票图片）
     </button>
+    <button @click="exportFormXlsx" :disabled="disabled || loading"
+            class="w-full px-4 py-3 rounded bg-green-500 text-white font-medium hover:bg-green-600 disabled:opacity-50 transition-colors">
+      📊 生成报销单 Excel
+    </button>
+    <button @click="exportComparisonXlsx" :disabled="disabled || loading"
+            class="w-full px-4 py-3 rounded bg-purple-500 text-white font-medium hover:bg-purple-600 disabled:opacity-50 transition-colors">
+      📋 生成完整信息对照单
+    </button>
   </div>
 </template>
 
@@ -99,6 +107,61 @@ async function exportComparisonImagePdf() {
       destination: props.formInfo.destination || null,
     })
     alert('对照 PDF（含发票图片）已生成！')
+  } catch (e) {
+    console.error('生成失败:', e)
+    alert('生成失败: ' + e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function exportFormXlsx() {
+  loading.value = true
+  loadingMessage.value = '正在生成 Excel 报销单...'
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const outputPath = await save({
+      defaultPath: `报销单_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (!outputPath) return
+
+    await invoke('generate_reimbursement_xlsx', {
+      matchResults: props.matchResults,
+      name: props.formInfo.name,
+      department: props.formInfo.department,
+      destination: props.formInfo.destination,
+      travelStart: props.formInfo.travelStart,
+      travelEnd: props.formInfo.travelEnd,
+      companions: props.formInfo.companions,
+      hotelLevel: props.formInfo.hotelLevel,
+      outputPath
+    })
+    alert('报销单 Excel 已生成！')
+  } catch (e) {
+    console.error('生成失败:', e)
+    alert('生成失败: ' + e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function exportComparisonXlsx() {
+  loading.value = true
+  loadingMessage.value = '正在生成完整信息对照单...'
+  try {
+    const { save } = await import('@tauri-apps/plugin-dialog')
+    const outputPath = await save({
+      defaultPath: `信息对照单_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    })
+    if (!outputPath) return
+
+    await invoke('generate_comparison_xlsx', {
+      matchResults: props.matchResults,
+      outputPath
+    })
+    alert('完整信息对照单已生成！')
   } catch (e) {
     console.error('生成失败:', e)
     alert('生成失败: ' + e)

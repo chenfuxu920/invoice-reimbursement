@@ -19,6 +19,7 @@ struct ProvinceEntry {
 
 #[derive(Debug, Deserialize)]
 struct CityEntry {
+    #[allow(dead_code)]
     code: String,
     name: String,
     #[serde(rename = "provinceCode")]

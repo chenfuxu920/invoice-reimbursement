@@ -245,6 +245,9 @@ pub fn generate_comparison_image_pdf(
             }
             PdfBlock::ItineraryPage { img } => {
                 let img_data = ::image::open(img)?;
+                // 旋转270°：行程单截图是纵向的，对照单页面是横向的(A4横版297×210mm)
+                // 旋转后行程单充分利用横向空间，文字更清晰可读
+                let img_data = img_data.rotate270();
                 let (img_w, img_h) = img_data.dimensions();
 
                 let margin = 6.0;

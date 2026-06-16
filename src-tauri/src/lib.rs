@@ -19,6 +19,8 @@ use crate::pdf::comparison_generator;
 use crate::pdf::comparison_image_pdf_generator;
 use crate::pdf::form_builder;
 use crate::pdf::form_html_generator;
+use crate::pdf::form_xlsx_generator;
+use crate::pdf::comparison_xlsx_generator;
 use crate::pdf::invoice_pipeline::{self, ParseResult};
 use crate::pdf::text_extractor;
 use tokio::sync::Mutex as AsyncMutex;
@@ -233,6 +235,34 @@ async fn render_reimbursement_html(
         &hotel_level,
     );
     Ok(form_html_generator::generate_reimbursement_html_string(&form))
+}
+
+// 生成报销单 Excel 命令
+#[tauri::command]
+async fn generate_reimbursement_xlsx(
+    match_results: Vec<MatchResult>,
+    name: String,
+    department: String,
+    destination: String,
+    travel_start: String,
+    travel_end: String,
+    companions: u32,
+    hotel_level: String,
+    output_path: String,
+) -> Result<String, String> {
+    let form = form_builder::build_reimbursement_form(
+        &match_results,
+        &name,
+        &department,
+        &destination,
+        &travel_start,
+        &travel_end,
+        companions as usize,
+        &hotel_level,
+    );
+    form_xlsx_generator::generate_reimbursement_xlsx(&form, &match_results, &output_path)
+        .map_err(|e| e.to_string())?;
+    Ok(output_path)
 }
 
 // 全局导入结果
@@ -469,6 +499,17 @@ async fn generate_comparison_pdf(
     .map_err(|e| e.to_string())
 }
 
+// 生成完整信息对比 Excel 命令
+#[tauri::command]
+async fn generate_comparison_xlsx(
+    match_results: Vec<MatchResult>,
+    output_path: String,
+) -> Result<String, String> {
+    comparison_xlsx_generator::generate_comparison_xlsx(&match_results, &output_path)
+        .map_err(|e| e.to_string())?;
+    Ok(output_path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -490,10 +531,12 @@ pub fn run() {
             manual_match,
             generate_form_pdf,
             generate_comparison_pdf,
+            generate_comparison_xlsx,
             generate_comparison_image_pdf,
             generate_comparison_html,
             generate_reimbursement_html,
             render_reimbursement_html,
+            generate_reimbursement_xlsx,
             batch_global_import,
             render_pdf_preview,
             open_file_with_system,
