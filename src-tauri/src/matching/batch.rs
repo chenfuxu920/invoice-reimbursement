@@ -2,7 +2,7 @@ use crate::models::invoice::{Invoice, InvoiceCategory};
 use crate::models::match_result::{MatchResult, MatchType};
 use crate::models::payment::PaymentRecord;
 use super::engine::MatchEngine;
-use chrono::NaiveDateTime;
+use chrono::{Datelike, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -82,7 +82,7 @@ fn filter_payments_by_itinerary_time(invoice: &Invoice, payments: &[PaymentRecor
                 .filter(|p| {
                     let pt = match parse_datetime(&p.transaction_time) {
                         Some(t) => t,
-                        None => return true,
+                        None => return false,
                     };
                     if pt < it { return false; }
                     let hours = (pt - it).num_hours();
@@ -249,7 +249,7 @@ fn find_best_payment(
             let abs_diff = diff.abs();
             match exact_best {
                 Some((best_diff, best_h, _))
-                    if abs_diff < best_diff || ((abs_diff - best_diff).abs() < f64::EPSILON && hours_after < best_h) =>
+                    if hours_after < best_h || ((hours_after - best_h).abs() < f64::EPSILON && abs_diff < best_diff) =>
                 {
                     exact_best = Some((abs_diff, hours_after, pay));
                 }
@@ -263,7 +263,7 @@ fn find_best_payment(
             if is_same_day_or_next_morning(&entry.date_time, &pay.transaction_time) {
                 match toll_best {
                     Some((best_diff, best_h, _))
-                        if diff < best_diff || ((diff - best_diff).abs() < f64::EPSILON && hours_after < best_h) =>
+                        if hours_after < best_h || ((hours_after - best_h).abs() < f64::EPSILON && diff < best_diff) =>
                     {
                         toll_best = Some((diff, hours_after, pay));
                     }
@@ -281,20 +281,51 @@ fn find_best_payment(
 
 /// 解析时间字符串为 NaiveDateTime
 /// 支持: "YYYY-MM-DD HH:MM", "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DD"
+///       "YYYY/MM/DD ..."、无空格 "YYYY-MM-DDHH:MM"、无年份 "MM-DD HH:MM"
 fn parse_datetime(time_str: &str) -> Option<NaiveDateTime> {
+    // 去除尾部 ':'（行程 OCR 可能产出 "04-22 21:" 格式）
+    let cleaned = time_str.trim().trim_end_matches(':').trim().to_string();
+
     let formats = [
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
         "%Y-%m-%d",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
+        "%Y-%m-%d%H:%M:%S",  // 无空格 如 "2026-04-2408:48:00"
+        "%Y-%m-%d%H:%M",     // 无空格 如 "2026-04-2408:48"
     ];
     for fmt in formats {
-        if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, fmt) {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(&cleaned, fmt) {
             return Some(dt);
         }
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(time_str, fmt) {
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(&cleaned, fmt) {
             return d.and_hms_opt(0, 0, 0);
         }
     }
+
+    // Fallback: 无年份 MM-DD 格式，尝试拼接当年/去年
+    // 检测 "04-25 08:48" 或 "04-22 21" 等
+    if cleaned.len() >= 5
+        && cleaned.as_bytes().get(2) == Some(&b'-')
+        && cleaned[..2].chars().all(|c| c.is_ascii_digit())
+        && cleaned[3..5].chars().all(|c| c.is_ascii_digit())
+    {
+        let current_year = chrono::Local::now().year();
+        for year in [current_year, current_year - 1] {
+            let with_year = format!("{}-{}", year, cleaned);
+            for fmt in &formats {
+                if let Ok(dt) = NaiveDateTime::parse_from_str(&with_year, fmt) {
+                    return Some(dt);
+                }
+                if let Ok(d) = chrono::NaiveDate::parse_from_str(&with_year, fmt) {
+                    return d.and_hms_opt(0, 0, 0);
+                }
+            }
+        }
+    }
+
     None
 }
 
