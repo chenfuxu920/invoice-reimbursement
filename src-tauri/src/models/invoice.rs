@@ -34,6 +34,9 @@ pub struct Invoice {
     pub itinerary_file: Option<String>, // 关联的行程单文件（仅市内交通）
     pub remarks: String,              // 备注栏内容
     pub hotel_detail: Option<HotelDetail>, // 住宿详情（仅住宿发票）
+    // NEW: 票据出发/到达城市（仅 Train/Flight 类发票有值）
+    pub departure_city: Option<String>,
+    pub arrival_city: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +115,8 @@ mod tests {
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         };
         assert_eq!(invoice.id, "test-id");
         assert_eq!(invoice.invoice_number, "INV001");
@@ -143,6 +148,8 @@ mod tests {
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         };
         assert_eq!(invoice.itineraries.len(), 1);
         assert_eq!(invoice.itineraries[0].provider, "滴滴");

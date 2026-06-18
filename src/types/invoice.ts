@@ -30,6 +30,9 @@ export interface Invoice {
   category: InvoiceCategory
   source: InvoiceSource
   itineraries: Itinerary[]
+  // NEW
+  departureCity?: string
+  arrivalCity?: string
 }
 
 export const CATEGORY_LABELS: Record<InvoiceCategory, string> = {

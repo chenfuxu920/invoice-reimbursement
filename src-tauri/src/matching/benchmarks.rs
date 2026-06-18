@@ -65,6 +65,8 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         });
     }
     
@@ -249,6 +251,8 @@ mod performance_tests {
                 itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
+                departure_city: None,
+                arrival_city: None,
             });
         }
         
