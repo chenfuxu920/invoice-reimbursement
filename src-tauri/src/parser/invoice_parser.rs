@@ -255,6 +255,9 @@ pub fn parse_invoice_text(
         None
     };
 
+    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
+    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
         invoice_number,
@@ -268,8 +271,8 @@ pub fn parse_invoice_text(
         itinerary_file: None,
         remarks: regions.remarks.clone(),
         hotel_detail,
-        departure_city: None,
-        arrival_city: None,
+        departure_city,
+        arrival_city,
     })
 }
 
@@ -442,6 +445,15 @@ pub fn parse_structured_invoice_with_templates(
         .and_then(|f| DateExtractor::new().parse_to_date(&f))
         .unwrap_or_default();
 
+    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
+    let all_text: String = ocr_output
+        .blocks
+        .iter()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
         invoice_number: number_field.map(|f| f.value).unwrap_or_default(),
@@ -455,8 +467,8 @@ pub fn parse_structured_invoice_with_templates(
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
-        departure_city: None,
-        arrival_city: None,
+        departure_city,
+        arrival_city,
     })
 }
 
@@ -495,6 +507,15 @@ fn try_parse_with_template(
         }
     }
 
+    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
+    let all_text: String = ocr_output
+        .blocks
+        .iter()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
         invoice_number,
@@ -508,8 +529,8 @@ fn try_parse_with_template(
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
-        departure_city: None,
-        arrival_city: None,
+        departure_city,
+        arrival_city,
     })
 }
 
