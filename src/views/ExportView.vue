@@ -116,7 +116,7 @@ function extractTripFromTickets() {
   const tickets = matchStore.matches
     .filter(m => {
       const inv = m.invoice
-      return (inv.category === 'Train' || inv.category === 'Flight') && inv.arrivalCity && inv.date
+      return (inv.category === 'Train' || inv.category === 'Flight') && inv.arrival_city && inv.date
     })
     .map(m => m.invoice)
 
@@ -129,7 +129,7 @@ function extractTripFromTickets() {
   tickets.sort((a, b) => a.date.localeCompare(b.date))
 
   // 目的地 = 最早一张票的到达城市
-  const dest = tickets[0].arrivalCity
+  const dest = tickets[0].arrival_city
   if (!dest) {
     alert('票据数据异常：缺少到达城市')
     return
