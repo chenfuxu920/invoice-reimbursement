@@ -25,6 +25,16 @@
         </div>
       </div>
 
+      <!-- 从票据提取 -->
+      <div class="mb-4">
+        <button
+          @click="extractTripFromTickets"
+          class="px-4 py-2 rounded bg-green-500 text-white hover:bg-green-600 transition-colors text-sm"
+        >
+          🎫 从票据提取
+        </button>
+      </div>
+
       <!-- 报销信息表单 -->
       <ReimbursementForm @update="handleFormUpdate" class="mb-6" />
 
@@ -99,5 +109,30 @@ async function previewForm() {
     console.error('预览失败:', e)
     alert('预览失败: ' + e)
   }
+}
+
+function extractTripFromTickets() {
+  // 过滤 Train/Flight 类且有到达城市的发票
+  const tickets = matchStore.matches
+    .filter(m => {
+      const inv = m.invoice
+      return (inv.category === 'Train' || inv.category === 'Flight') && inv.arrivalCity
+    })
+    .map(m => m.invoice)
+
+  if (tickets.length === 0) {
+    alert('未找到可提取的火车票或机票')
+    return
+  }
+
+  // 按日期排序（字符串比较，格式为 "YYYY-MM-DD" 可直接比较）
+  tickets.sort((a, b) => a.date.localeCompare(b.date))
+
+  // 目的地 = 最早一张票的到达城市
+  formInfo.destination = tickets[0].arrivalCity!
+
+  // 日期范围 = min/max
+  formInfo.travelStart = tickets[0].date
+  formInfo.travelEnd = tickets[tickets.length - 1].date
 }
 </script>
