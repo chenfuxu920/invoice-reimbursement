@@ -96,23 +96,55 @@ fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<Stri
         return (None, None);
     }
 
-    let departure = if *category == InvoiceCategory::Train {
-        // 火车票：出发站/发站
-        let re = Regex::new(r"(?:出发站|发站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
-        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
-    } else {
-        // 机票：自/FROM
-        let re = Regex::new(r"(?:自|FROM)[：:]\s*(\S{2,10})").unwrap();
-        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
-    };
+    let mut departure: Option<String> = None;
+    let mut arrival: Option<String> = None;
 
-    let arrival = if *category == InvoiceCategory::Train {
-        let re = Regex::new(r"(?:到达站|到站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
-        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
+    if *category == InvoiceCategory::Train {
+        // 火车票：出发站/发站（带标签）
+        let re = Regex::new(r"(?:出发站|发站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
+        departure = re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        let re_arr = Regex::new(r"(?:到达站|到站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
+        arrival = re_arr.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+
+        // 火车票兜底：铁路电子客票无标签格式 "G878长沙南站 武汉站"
+        if departure.is_none() || arrival.is_none() {
+            let re_no_label = Regex::new(
+                r"[A-Z]+\d+\s*(\S{2,6}站)\s+(\S{2,6}站)"
+            ).unwrap();
+            if let Some(caps) = re_no_label.captures(text) {
+                if departure.is_none() {
+                    departure = Some(station_to_city(caps.get(1).unwrap().as_str()));
+                }
+                if arrival.is_none() {
+                    arrival = Some(station_to_city(caps.get(2).unwrap().as_str()));
+                }
+            }
+        }
     } else {
-        let re = Regex::new(r"(?:至|TO)[：:]\s*(\S{2,10})").unwrap();
-        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
-    };
+        // 机票：自/FROM, 至/TO
+        let re_dep = Regex::new(r"(?:自|FROM)[：:]\s*(\S{2,10})").unwrap();
+        departure = re_dep.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        let re_arr = Regex::new(r"(?:至|TO)[：:]\s*(\S{2,10})").unwrap();
+        arrival = re_arr.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+    }
+
+    // 兜底：飞猪等平台票据，备注中城市以 "城市-城市" 格式出现
+    // 例如: "2026/05/15 成都-长沙 3U8767 经济舱H"
+    if departure.is_none() || arrival.is_none() {
+        let re_route = Regex::new(
+            r"(\p{Unified_Ideograph}{2,4})[\s]*[-－—][\s]*(\p{Unified_Ideograph}{2,4})"
+        ).unwrap();
+        if let Some(caps) = re_route.captures(text) {
+            let raw_dep = caps.get(1).unwrap().as_str().trim();
+            let raw_arr = caps.get(2).unwrap().as_str().trim();
+            if departure.is_none() {
+                departure = Some(station_to_city(raw_dep));
+            }
+            if arrival.is_none() {
+                arrival = Some(station_to_city(raw_arr));
+            }
+        }
+    }
 
     (departure, arrival)
 }
