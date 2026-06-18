@@ -168,8 +168,8 @@ fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<
         }
     }
 
-    // 格式2: "2025年11月14日" — 铁路电子客票
-    let re_cn = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日").unwrap();
+    // 格式2: "2025年11月14日 15:22开" — 铁路电子客票（后跟发车时间，区别于开票日期）
+    let re_cn = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s+\d{1,2}:\d{2}").unwrap();
     if let Some(caps) = re_cn.captures(text) {
         let y: i32 = caps.get(1)?.as_str().parse().ok()?;
         let m: u32 = caps.get(2)?.as_str().parse().ok()?;

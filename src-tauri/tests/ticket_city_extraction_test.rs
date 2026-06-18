@@ -41,7 +41,8 @@ fn test_extract_cities_from_real_tickets() {
                         println!("  类别: {:?}", inv.category);
                         println!("  金额: {:.2}", inv.amount);
                         println!("  销售方: {}", inv.seller_name);
-                        println!("  日期: {}", inv.date);
+                        println!("  开票日期: {}", inv.date);
+                        println!("  出行日期: {:?}", inv.travel_date);
                         println!("  出发城市: {:?}", inv.departure_city);
                         println!("  到达城市: {:?}", inv.arrival_city);
 
