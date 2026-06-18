@@ -27,6 +27,7 @@ export interface Invoice {
   seller_name: string
   item_name: string
   date: string
+  travel_date?: string
   category: InvoiceCategory
   source: InvoiceSource
   itineraries: Itinerary[]

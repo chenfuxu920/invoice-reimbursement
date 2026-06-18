@@ -59,6 +59,7 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
             seller_name: seller.to_string(),
             item_name: item.to_string(),
             date: NaiveDate::from_ymd_opt(2025, 1, ((i % 28) + 1) as u32).unwrap(),
+            travel_date: None,
             category,
             source: InvoiceSource::Link(format!("http://example.com/invoice/{}", i)),
             itineraries,
@@ -239,6 +240,7 @@ mod performance_tests {
                 seller_name: "滴滴出行".to_string(),
                 item_name: "市内交通".to_string(),
                 date: NaiveDate::from_ymd_opt(2025, 1, ((i % 28) + 1) as u32).unwrap(),
+                travel_date: None,
                 category: InvoiceCategory::CityTransport,
                 source: InvoiceSource::Link(format!("http://example.com/invoice/{}", i)),
                 itineraries: vec![Itinerary {

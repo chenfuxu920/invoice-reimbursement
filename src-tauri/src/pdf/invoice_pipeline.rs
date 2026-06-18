@@ -190,6 +190,7 @@ pub fn pair_invoices_with_itineraries(
                 seller_name: "市内交通".to_string(),
                 item_name: "市内交通".to_string(),
                 date: chrono::NaiveDate::default(),
+                travel_date: None,
                 category: InvoiceCategory::CityTransport,
                 source: InvoiceSource::Pdf(doc.file_name.clone()),
                 itineraries: doc.itineraries,

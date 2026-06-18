@@ -17,6 +17,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         seller_name: "测试商家".to_string(),
         item_name: "测试项目".to_string(),
         date: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+        travel_date: None,
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],

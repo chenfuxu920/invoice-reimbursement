@@ -17,6 +17,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         seller_name: "测试商家".to_string(),
         item_name: "测试项目".to_string(),
         date: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+        travel_date: None,
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],
@@ -36,6 +37,7 @@ fn make_city_transport_invoice(id: &str, amount: f64) -> Invoice {
         seller_name: "滴滴出行".to_string(),
         item_name: "市内交通".to_string(),
         date: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+        travel_date: None,
         category: InvoiceCategory::CityTransport,
         source: InvoiceSource::Photo("taxi.jpg".to_string()),
         itineraries: vec![Itinerary {

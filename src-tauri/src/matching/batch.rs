@@ -393,6 +393,7 @@ mod tests {
             seller_name: "Test Seller".to_string(),
             item_name: "Test Item".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            travel_date: None,
             category,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries: vec![],
@@ -412,6 +413,7 @@ mod tests {
             seller_name: "滴滴出行".to_string(),
             item_name: "市内交通".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries: vec![Itinerary {
@@ -594,6 +596,7 @@ mod tests {
             seller_name: "滴滴出行".to_string(),
             item_name: "市内交通".to_string(),
             date: NaiveDate::parse_from_str(&itin_time[..10], "%Y-%m-%d").unwrap(),
+            travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries: vec![Itinerary {

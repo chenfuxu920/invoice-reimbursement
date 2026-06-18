@@ -174,6 +174,7 @@ mod tests {
             seller_name: "Test Seller".to_string(),
             item_name: "Test Item".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::Other,
             source: InvoiceSource::Link("http://example.com".to_string()),
             itineraries: vec![],

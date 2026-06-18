@@ -28,6 +28,7 @@ pub struct Invoice {
     pub seller_name: String,          // 销售方名称
     pub item_name: String,            // 项目名称
     pub date: NaiveDate,              // 开票日期
+    pub travel_date: Option<NaiveDate>,  // 票面实际出行日期（仅 Train/Flight 类发票有值）
     pub category: InvoiceCategory,    // 自动识别的类别
     pub source: InvoiceSource,        // 来源
     pub itineraries: Vec<Itinerary>,  // 行程（打车场景）
@@ -109,6 +110,7 @@ mod tests {
             seller_name: "测试公司".to_string(),
             item_name: "交通服务".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 6, 15).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
@@ -142,6 +144,7 @@ mod tests {
             seller_name: "滴滴出行".to_string(),
             item_name: "网约车".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 6, 15).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Photo("taxi.jpg".to_string()),
             itineraries: vec![itin.clone()],

@@ -764,6 +764,7 @@ mod tests {
                     seller_name: "铁路局".to_string(),
                     item_name: "火车票".to_string(),
                     date: NaiveDate::from_ymd_opt(2025, 8, 4).unwrap(),
+                    travel_date: None,
                     category: InvoiceCategory::Train,
                     source: InvoiceSource::Pdf("train.pdf".to_string()),
                     itineraries: vec![],
@@ -794,6 +795,7 @@ mod tests {
                     seller_name: "滴滴出行".to_string(),
                     item_name: "网约车".to_string(),
                     date: NaiveDate::from_ymd_opt(2025, 8, 5).unwrap(),
+                    travel_date: None,
                     category: InvoiceCategory::CityTransport,
                     source: InvoiceSource::Photo("didi.jpg".to_string()),
                     itineraries: vec![
@@ -839,6 +841,7 @@ mod tests {
                     seller_name: "上海大酒店".to_string(),
                     item_name: "住宿费".to_string(),
                     date: NaiveDate::from_ymd_opt(2025, 8, 5).unwrap(),
+                    travel_date: None,
                     category: InvoiceCategory::Hotel,
                     source: InvoiceSource::Pdf("hotel.pdf".to_string()),
                     itineraries: vec![],
