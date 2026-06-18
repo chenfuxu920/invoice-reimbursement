@@ -116,7 +116,7 @@ function extractTripFromTickets() {
   const tickets = matchStore.matches
     .filter(m => {
       const inv = m.invoice
-      return (inv.category === 'Train' || inv.category === 'Flight') && inv.arrival_city && inv.date
+      return (inv.category === 'Train' || inv.category === 'Flight') && inv.arrival_city && inv.travel_date
     })
     .map(m => m.invoice)
 
@@ -125,8 +125,8 @@ function extractTripFromTickets() {
     return
   }
 
-  // 按日期排序（字符串比较，格式为 "YYYY-MM-DD" 可直接比较）
-  tickets.sort((a, b) => a.date.localeCompare(b.date))
+  // 按出行日期排序（字符串比较，格式为 "YYYY-MM-DD" 可直接比较）
+  tickets.sort((a, b) => a.travel_date!.localeCompare(b.travel_date!))
 
   // 目的地 = 最早一张票的到达城市
   const dest = tickets[0].arrival_city
@@ -137,7 +137,7 @@ function extractTripFromTickets() {
   formInfo.destination = dest
 
   // 日期范围 = min/max
-  formInfo.travelStart = tickets[0].date
-  formInfo.travelEnd = tickets[tickets.length - 1].date
+  formInfo.travelStart = tickets[0].travel_date!
+  formInfo.travelEnd = tickets[tickets.length - 1].travel_date!
 }
 </script>

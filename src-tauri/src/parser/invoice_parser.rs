@@ -149,6 +149,54 @@ fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<Stri
     (departure, arrival)
 }
 
+/// 从票据 OCR 文本中提取票面实际出行日期（非开票日期）
+fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<NaiveDate> {
+    if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
+        return None;
+    }
+
+    // 格式1: "2026/05/15" — 飞猪等平台备注中的日期
+    let re_slash = Regex::new(r"(\d{4})/(\d{1,2})/(\d{1,2})").unwrap();
+    if let Some(caps) = re_slash.captures(text) {
+        let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+        let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+        if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+            if date.year() >= 2020 && date.year() <= 2100 {
+                return Some(date);
+            }
+        }
+    }
+
+    // 格式2: "2025年11月14日" — 铁路电子客票
+    let re_cn = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日").unwrap();
+    if let Some(caps) = re_cn.captures(text) {
+        let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+        let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+        if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+            if date.year() >= 2020 && date.year() <= 2100 {
+                return Some(date);
+            }
+        }
+    }
+
+    // 格式3: "2025-11-14" — ISO 日期
+    let re_iso = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap();
+    if let Some(caps) = re_iso.captures(text) {
+        let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+        let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+        if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+            if date.year() >= 2020 && date.year() <= 2100 {
+                return Some(date);
+            }
+        }
+    }
+
+    None
+}
+
 /// 站名/机场名归一化为城市名
 fn station_to_city(raw: &str) -> String {
     let mut s = raw.trim().to_string();
@@ -289,6 +337,7 @@ pub fn parse_invoice_text(
 
     // 提取票据出发/到达城市（仅 Train/Flight 类发票）
     let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category);
 
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
@@ -297,7 +346,7 @@ pub fn parse_invoice_text(
         seller_name,
         item_name,
         date,
-        travel_date: None,
+        travel_date,
         category,
         source,
         itineraries: vec![],
@@ -486,6 +535,7 @@ pub fn parse_structured_invoice_with_templates(
         .collect::<Vec<_>>()
         .join("\n");
     let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category);
 
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
@@ -494,7 +544,7 @@ pub fn parse_structured_invoice_with_templates(
         seller_name: seller_field.map(|f| f.value).unwrap_or_default(),
         item_name: item_field.map(|f| f.value).unwrap_or_default(),
         date,
-        travel_date: None,
+        travel_date,
         category,
         source,
         itineraries: vec![],
@@ -549,6 +599,7 @@ fn try_parse_with_template(
         .collect::<Vec<_>>()
         .join("\n");
     let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category);
 
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
@@ -557,7 +608,7 @@ fn try_parse_with_template(
         seller_name,
         item_name: String::new(),
         date,
-        travel_date: None,
+        travel_date,
         category,
         source: source.clone(),
         itineraries: vec![],
