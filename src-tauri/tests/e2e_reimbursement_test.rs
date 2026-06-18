@@ -52,6 +52,8 @@ fn make_hotel_match(
         source: PaymentSource::Wechat,
         category: "住宿".to_string(),
         payment_method: String::new(),
+        original_amount: 0.0,
+        refund_amount: 0.0,
     };
     MatchResult {
         invoice_id: id.to_string(),
@@ -91,6 +93,8 @@ fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller
         source: PaymentSource::Wechat,
         category: "交通".to_string(),
         payment_method: String::new(),
+        original_amount: 0.0,
+        refund_amount: 0.0,
     };
     MatchResult {
         invoice_id: id.to_string(),

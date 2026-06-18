@@ -39,6 +39,8 @@ fn make_payment(id: &str, amount: f64, merchant: &str) -> PaymentRecord {
         source: PaymentSource::Wechat,
         category: "交通".to_string(),
         payment_method: String::new(),
+        original_amount: 0.0,
+        refund_amount: 0.0,
     }
 }
 
