@@ -622,6 +622,8 @@ mod tests {
                     itinerary_file: None,
                     remarks: "D1234 北京→上海".to_string(),
                     hotel_detail: None,
+                    departure_city: None,
+                    arrival_city: None,
                 },
                 payment_ids: vec!["pay-train".to_string()],
                 payments: vec![PaymentRecord {
@@ -672,6 +674,8 @@ mod tests {
                     itinerary_file: None,
                     remarks: String::new(),
                     hotel_detail: None,
+                    departure_city: None,
+                    arrival_city: None,
                 },
                 payment_ids: vec!["pay-didi".to_string()],
                 payments: vec![PaymentRecord {
@@ -712,6 +716,8 @@ mod tests {
                         nights: 6,
                         nightly_rate: 703.77,
                     }),
+                    departure_city: None,
+                    arrival_city: None,
                 },
                 payment_ids: vec!["pay-hotel".to_string()],
                 payments: vec![PaymentRecord {
@@ -747,6 +753,8 @@ mod tests {
                     itinerary_file: None,
                     remarks: "无匹配发票".to_string(),
                     hotel_detail: None,
+                    departure_city: None,
+                    arrival_city: None,
                 },
                 payment_ids: vec![],
                 payments: vec![],

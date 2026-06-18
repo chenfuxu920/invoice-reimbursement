@@ -49,6 +49,8 @@ mod tests {
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         }
     }
 
@@ -143,6 +145,8 @@ mod tests {
                 itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
+                departure_city: None,
+                arrival_city: None,
             },
             Invoice {
                 id: "2".to_string(),
@@ -157,6 +161,8 @@ mod tests {
                 itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
+                departure_city: None,
+                arrival_city: None,
             },
         ];
         let dupes = deduplicate_invoices(&mut invoices);

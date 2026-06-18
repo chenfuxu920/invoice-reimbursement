@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
-import { listen } from '@tauri-apps/api/event'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 
 defineProps<{ loading?: boolean }>()
 const emit = defineEmits<{ (e: 'files-selected', paths: string[]): void }>()
@@ -31,10 +31,10 @@ const isDragging = ref(false)
 let unlisten: (() => void) | null = null
 
 onMounted(async () => {
-  unlisten = await listen<string[]>('tauri://file-drop', (event) => {
-    isDragging.value = false
-    if (event.payload.length > 0) {
-      emit('files-selected', event.payload)
+  unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === 'drop' && event.payload.paths.length > 0) {
+      isDragging.value = false
+      emit('files-selected', event.payload.paths)
     }
   })
 })

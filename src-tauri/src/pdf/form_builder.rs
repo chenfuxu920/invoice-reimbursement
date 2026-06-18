@@ -213,6 +213,8 @@ mod tests {
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         }
     }
 
@@ -235,6 +237,8 @@ mod tests {
                 nights,
                 nightly_rate: amount / nights as f64,
             }),
+            departure_city: None,
+            arrival_city: None,
         }
     }
 

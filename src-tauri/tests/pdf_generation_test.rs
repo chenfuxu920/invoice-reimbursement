@@ -23,6 +23,8 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
+        departure_city: None,
+        arrival_city: None,
     }
 }
 

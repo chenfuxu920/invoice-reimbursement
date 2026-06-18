@@ -287,6 +287,8 @@ mod tests {
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         }
     }
 

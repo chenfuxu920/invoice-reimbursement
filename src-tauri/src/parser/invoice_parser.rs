@@ -171,6 +171,8 @@ pub fn parse_invoice_text(
         itinerary_file: None,
         remarks: regions.remarks.clone(),
         hotel_detail,
+        departure_city: None,
+        arrival_city: None,
     })
 }
 
@@ -356,6 +358,8 @@ pub fn parse_structured_invoice_with_templates(
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
+        departure_city: None,
+        arrival_city: None,
     })
 }
 
@@ -407,6 +411,8 @@ fn try_parse_with_template(
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
+        departure_city: None,
+        arrival_city: None,
     })
 }
 

@@ -23,7 +23,6 @@
       :class="isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
       @dragover.prevent="isDragging = true"
       @dragleave="isDragging = false"
-      @drop.prevent="handleDrop"
       @click="openFilePicker"
     >
       <p class="text-gray-500">拖拽账单文件到此处，或点击选择 Excel 文件</p>
@@ -37,18 +36,33 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 
 type BillType = 'wechat' | 'alipay'
 
 const billType = ref<BillType>('wechat')
 const isDragging = ref(false)
 const loading = ref(false)
+let unlisten: (() => void) | null = null
 
 const emit = defineEmits<{
-  (e: 'import', filePath: string, type: BillType): void
+  (e: 'import', paths: string[], type: BillType): void
 }>()
+
+onMounted(async () => {
+  unlisten = await getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === 'drop' && event.payload.paths.length > 0) {
+      isDragging.value = false
+      emit('import', event.payload.paths, billType.value)
+    }
+  })
+})
+
+onUnmounted(() => {
+  if (unlisten) unlisten()
+})
 
 async function openFilePicker() {
   const selected = await open({
@@ -59,16 +73,7 @@ async function openFilePicker() {
     }]
   })
   if (selected) {
-    emit('import', selected, billType.value)
-  }
-}
-
-function handleDrop(e: DragEvent) {
-  isDragging.value = false
-  const files = e.dataTransfer?.files
-  if (files && files.length > 0) {
-    const path = (files[0] as any).path || files[0].name
-    emit('import', path, billType.value)
+    emit('import', [selected], billType.value)
   }
 }
 </script>

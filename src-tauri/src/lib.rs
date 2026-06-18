@@ -289,6 +289,40 @@ fn collect_files_recursive(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     files
 }
 
+// 从混合路径列表中解析出所有支持的文件（展开目录、过滤扩展名）
+// extensions 为空时默认使用发票相关扩展名
+#[tauri::command]
+fn collect_files(paths: Vec<String>, extensions: Option<Vec<String>>) -> Vec<String> {
+    let default_exts = vec!["pdf".into(), "jpg".into(), "jpeg".into(), "png".into()];
+    let exts = extensions.unwrap_or(default_exts);
+    let mut result = Vec::new();
+
+    for raw in &paths {
+        let p = std::path::Path::new(raw);
+        if p.is_dir() {
+            for f in collect_files_recursive(p) {
+                let ext = f.extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if exts.iter().any(|e| e == &ext) {
+                    result.push(f.to_string_lossy().to_string());
+                }
+            }
+        } else if p.is_file() {
+            let ext = p.extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if exts.iter().any(|e| e == &ext) {
+                result.push(raw.clone());
+            }
+        }
+    }
+
+    result
+}
+
 // 全局导入命令：选择文件夹后递归处理所有文件
 #[tauri::command]
 async fn batch_global_import(
@@ -537,6 +571,7 @@ pub fn run() {
             generate_reimbursement_html,
             render_reimbursement_html,
             generate_reimbursement_xlsx,
+            collect_files,
             batch_global_import,
             render_pdf_preview,
             open_file_with_system,

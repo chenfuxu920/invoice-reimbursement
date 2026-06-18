@@ -196,6 +196,8 @@ pub fn pair_invoices_with_itineraries(
                 itinerary_file: Some(doc.file_name.clone()),
                 remarks: String::new(),
                 hotel_detail: None,
+                departure_city: None,
+                arrival_city: None,
             });
         }
     }
