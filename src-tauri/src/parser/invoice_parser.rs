@@ -90,6 +90,103 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
     regions
 }
 
+/// 从 OCR 文本中提取出发/到达城市（仅 Train/Flight 类发票）
+fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<String>, Option<String>) {
+    if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
+        return (None, None);
+    }
+
+    let departure = if *category == InvoiceCategory::Train {
+        // 火车票：出发站/发站
+        let re = Regex::new(r"(?:出发站|发站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
+        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
+    } else {
+        // 机票：自/FROM
+        let re = Regex::new(r"(?:自|FROM)[：:]\s*(\S{2,10})").unwrap();
+        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
+    };
+
+    let arrival = if *category == InvoiceCategory::Train {
+        let re = Regex::new(r"(?:到达站|到站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
+        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
+    } else {
+        let re = Regex::new(r"(?:至|TO)[：:]\s*(\S{2,10})").unwrap();
+        re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()))
+    };
+
+    (departure, arrival)
+}
+
+/// 站名/机场名归一化为城市名
+fn station_to_city(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+
+    // 去除常见后缀（按序处理，长的先匹配）
+    for suffix in &["国际机场", "机场", "东站", "西站", "南站", "北站", "站"] {
+        if s.ends_with(suffix) {
+            s = s[..s.len() - suffix.len()].to_string();
+            break;
+        }
+    }
+
+    // 去除机场三字码（如 PEK / SHA）
+    let re_code = Regex::new(r"\s*[A-Z]{3}$").unwrap();
+    s = re_code.replace(&s, "").to_string();
+
+    // 兜底映射表（已知片区/镇/区 → 城市）
+    let mapping: std::collections::HashMap<&str, &str> = [
+        ("虹桥", "上海"), ("宝安", "深圳"), ("江北", "重庆"),
+        ("流亭", "青岛"), ("龙嘉", "长春"), ("太平", "哈尔滨"),
+        ("遥墙", "济南"), ("周水子", "大连"), ("双流", "成都"),
+        ("天河", "武汉"), ("黄花", "长沙"), ("咸阳", "西安"),
+        ("滨海", "天津"), ("长水", "昆明"), ("萧山", "杭州"),
+    ].iter().cloned().collect();
+
+    // 直接映射匹配
+    if let Some(city) = mapping.get(s.as_str()) {
+        return city.to_string();
+    }
+
+    // 检查是否以映射表 key 结尾（如 "上海虹桥" → "虹桥" → "上海"）
+    for (key, city) in &mapping {
+        if s.ends_with(key) {
+            return city.to_string();
+        }
+    }
+
+    // 已知主要城市前缀（2字）
+    let major_cities = ["北京", "上海", "广州", "深圳", "成都", "杭州", "南京",
+                        "武汉", "天津", "重庆", "西安", "长沙", "昆明", "青岛",
+                        "大连", "厦门", "哈尔滨", "长春", "济南", "沈阳"];
+
+    // 去除方向后缀后检查是否为已知城市（如 "北京南" → "北京"）
+    for dir in &["东", "南", "西", "北"] {
+        if s.ends_with(dir) && s.len() > dir.len() {
+            let candidate = &s[..s.len() - dir.len()];
+            if major_cities.contains(&candidate) {
+                return candidate.to_string();
+            }
+        }
+    }
+
+    // 检查是否以已知城市开头 + 剩余部分（如 "成都双流" → "成都" + "双流"、"北京首都" → "北京" + "首都"）
+    for city in &major_cities {
+        if s.starts_with(city) && s.len() > city.len() {
+            let rest = &s[city.len()..];
+            if mapping.contains_key(rest) || ["东", "南", "西", "北"].contains(&rest) || rest.len() >= 2 {
+                return city.to_string();
+            }
+        }
+    }
+
+    // 如果已经是纯城市名（2-4 字），直接返回
+    if s.chars().count() >= 2 && s.chars().count() <= 4 {
+        return s;
+    }
+
+    raw.trim().to_string()
+}
+
 pub fn parse_invoice_text(
     texts: &[OcrTextItem],
     source: InvoiceSource,
@@ -1013,5 +1110,42 @@ mod tests {
         let invoice = result.unwrap();
         assert!((invoice.amount - 1045.24).abs() < 0.01);
         assert_eq!(invoice.category, InvoiceCategory::Hotel);
+    }
+
+    #[test]
+    fn test_extract_ticket_cities_train() {
+        let text = "出发站：北京南站\n到达站：上海虹桥站\n票价：553.00";
+        let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Train);
+        assert_eq!(dep.as_deref(), Some("北京"));
+        assert_eq!(arr.as_deref(), Some("上海"));
+    }
+
+    #[test]
+    fn test_extract_ticket_cities_flight() {
+        let text = "自：北京首都国际机场\n至：上海浦东国际机场\n航班号：CA1234";
+        let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Flight);
+        assert_eq!(dep.as_deref(), Some("北京"));
+        assert_eq!(arr.as_deref(), Some("上海"));
+    }
+
+    #[test]
+    fn test_extract_ticket_cities_no_keyword() {
+        let text = "这是普通的住宿发票";
+        let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Hotel);
+        assert!(dep.is_none());
+        assert!(arr.is_none());
+    }
+
+    #[test]
+    fn test_station_to_city_suffix_strip() {
+        assert_eq!(station_to_city("上海虹桥站"), "上海");
+        assert_eq!(station_to_city("广州南站"), "广州");
+        assert_eq!(station_to_city("成都双流国际机场"), "成都");
+    }
+
+    #[test]
+    fn test_station_to_city_mapping() {
+        assert_eq!(station_to_city("虹桥"), "上海");
+        assert_eq!(station_to_city("宝安"), "深圳");
     }
 }
