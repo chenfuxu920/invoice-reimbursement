@@ -43,7 +43,8 @@
       "models/*.onnx",
       "models/*.mnn",
       "models/*.txt",
-      "pdfium.dll"
+      "pdfium.dll",
+      "builtin_templates/*.json"
     ],
     "category": "Business",
     "shortDescription": "发票识别与报销管理助手",
