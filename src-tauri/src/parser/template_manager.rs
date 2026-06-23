@@ -172,7 +172,7 @@ impl TemplateManager {
         Ok(results)
     }
 
-    fn extract_field(&self, text: &str, field_def: &FieldDefinition) -> Result<Option<ExtractedValue>, String> {
+    pub fn extract_field(&self, text: &str, field_def: &FieldDefinition) -> Result<Option<ExtractedValue>, String> {
         for strategy in &field_def.strategies {
             let result = match strategy.strategy_type.as_str() {
                 "regex" => self.apply_regex_strategy(text, strategy)?,

@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod matching;
 pub mod models;
 pub mod ocr;
@@ -27,7 +28,7 @@ use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
 
 // 应用状态
-struct AppState {
+pub struct AppState {
     ocr_engine: AsyncMutex<Option<OcrEngine>>,
 }
 
@@ -575,6 +576,14 @@ pub fn run() {
             batch_global_import,
             render_pdf_preview,
             open_file_with_system,
+            commands::template_commands::list_templates,
+            commands::template_commands::get_template,
+            commands::template_commands::save_template,
+            commands::template_commands::delete_template,
+            commands::template_commands::toggle_template,
+            commands::template_commands::test_template,
+            commands::template_commands::ocr_for_annotation,
+            commands::template_commands::reload_templates,
         ])
         .setup(|app| {
             // 初始化 PDFium（从资源目录加载 pdfium.dll 用于 PDF 渲染）
