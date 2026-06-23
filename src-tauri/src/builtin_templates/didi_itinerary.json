@@ -1,0 +1,31 @@
+{
+  "template_id": "didi_itinerary",
+  "name": "滴滴行程单",
+  "enabled": true,
+  "priority": 20,
+  "keywords": ["滴滴", "行程单"],
+  "category": "CityTransport",
+  "category_keywords": null,
+  "fields": [
+    {
+      "name": "amount",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "合计\\s*([\\d,]+\\.?\\d*)\\s*元",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "[￥¥]\\s*([\\d,]+\\.?\\d*)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.7
+        }
+      ]
+    }
+  ]
+}

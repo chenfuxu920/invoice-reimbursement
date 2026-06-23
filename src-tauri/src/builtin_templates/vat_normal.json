@@ -1,0 +1,132 @@
+{
+  "template_id": "vat_normal",
+  "name": "增值税普通发票",
+  "enabled": true,
+  "priority": 10,
+  "keywords": ["增值税普通发票"],
+  "category": "Other",
+  "category_keywords": {
+    "Hotel": ["住宿服务", "酒店", "宾馆", "住宿", "招待所", "民宿"],
+    "Meal": ["餐饮服务", "餐饮", "饭店", "食品", "餐厅", "饭馆"],
+    "CityTransport": ["运输服务", "客运服务", "滴滴", "网约车", "高德", "t3", "曹操", "出租"],
+    "Flight": ["航空运输服务", "旅客运输服务", "航空", "机票", "机场", "航班"],
+    "Train": ["火车", "高铁", "铁路", "客运站"],
+    "TicketChange": ["退票", "改签", "保险"]
+  },
+  "fields": [
+    {
+      "name": "amount",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(?:价税合计|合计金额|总金额|金额|实付金额)[：:]?[￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "[￥¥]\\s*([\\d,]+\\.?\\d*)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.7
+        }
+      ]
+    },
+    {
+      "name": "seller_name",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "销售方[：:]\\s*名称[：:]\\s*(\\S+)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.95
+        },
+        {
+          "type": "regex",
+          "pattern": "名称[：:]\\s*(\\S+)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.85
+        },
+        {
+          "type": "regex",
+          "pattern": "销售方[：:]\\s*(\\S+)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.8
+        },
+        {
+          "type": "regex",
+          "pattern": "收款单位[：:]\\s*(\\S+)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "name": "date",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "(\\d{4})-(\\d{2})-(\\d{2})",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.85
+        }
+      ]
+    },
+    {
+      "name": "invoice_number",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(?:发票号码|发票代码|No|号码)[：:]?\\s*(\\d+)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "(\\d{8,20})\\s*(?:发票号码|发票代码|号码)[：:]?",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "name": "item_name",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(?:项目名称|货物或应税劳务|商品名称|服务名称)[：:]\\s*(\\S+)",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.85
+        },
+        {
+          "type": "regex",
+          "pattern": "\\*(.+?)\\*",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.7
+        }
+      ]
+    }
+  ]
+}

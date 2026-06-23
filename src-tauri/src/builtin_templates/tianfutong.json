@@ -1,0 +1,24 @@
+{
+  "template_id": "tianfutong_itinerary",
+  "name": "天府通行程单",
+  "enabled": true,
+  "priority": 20,
+  "keywords": ["天府通"],
+  "category": "CityTransport",
+  "category_keywords": null,
+  "fields": [
+    {
+      "name": "amount",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "合计\\s*([\\d,]+\\.?\\d*)\\s*元",
+          "section_keyword": null,
+          "field_keyword": null,
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}
