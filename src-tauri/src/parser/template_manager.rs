@@ -1,25 +1,37 @@
 use crate::ocr::structured_output::OcrStructuredOutput;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvoiceTemplate {
     pub template_id: String,
     pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub priority: i32,
     pub keywords: Vec<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub category_keywords: Option<HashMap<String, Vec<String>>>,
     pub fields: Vec<FieldDefinition>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldDefinition {
     pub name: String,
     pub required: bool,
     pub strategies: Vec<FieldStrategy>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldStrategy {
     #[serde(rename = "type")]
     pub strategy_type: String,
@@ -318,7 +330,11 @@ mod tests {
         let template = InvoiceTemplate {
             template_id: "vat_invoice".to_string(),
             name: "增值税发票".to_string(),
+            enabled: true,
+            priority: 0,
             keywords: vec!["增值税".to_string(), "发票".to_string()],
+            category: None,
+            category_keywords: None,
             fields: vec![],
         };
         
@@ -338,7 +354,11 @@ mod tests {
         let template = InvoiceTemplate {
             template_id: "flight".to_string(),
             name: "机票".to_string(),
+            enabled: true,
+            priority: 0,
             keywords: vec!["航空".to_string(), "机票".to_string()],
+            category: None,
+            category_keywords: None,
             fields: vec![],
         };
         
@@ -407,7 +427,11 @@ mod tests {
         let template = InvoiceTemplate {
             template_id: "test".to_string(),
             name: "测试".to_string(),
+            enabled: true,
+            priority: 0,
             keywords: vec!["测试".to_string()],
+            category: None,
+            category_keywords: None,
             fields: vec![
                 FieldDefinition {
                     name: "amount".to_string(),
@@ -438,7 +462,11 @@ mod tests {
         let template = InvoiceTemplate {
             template_id: "test".to_string(),
             name: "测试".to_string(),
+            enabled: true,
+            priority: 0,
             keywords: vec![],
+            category: None,
+            category_keywords: None,
             fields: vec![
                 FieldDefinition {
                     name: "amount".to_string(),
@@ -487,5 +515,69 @@ mod tests {
     fn test_graceful_degradation() {
         let manager = TemplateManager::from_config_dir("/nonexistent/path").unwrap();
         assert!(manager.templates().is_empty());
+    }
+
+    #[test]
+    fn test_extended_template_fields() {
+        let json = r#"{
+            "template_id": "test_ext",
+            "name": "测试扩展字段",
+            "enabled": true,
+            "priority": 10,
+            "keywords": ["测试"],
+            "category": "Meal",
+            "category_keywords": {
+                "餐饮": ["餐饮", "餐费"],
+                "住宿": ["住宿", "房费"]
+            },
+            "fields": []
+        }"#;
+
+        let template: InvoiceTemplate = serde_json::from_str(json).unwrap();
+        assert_eq!(template.priority, 10);
+        assert!(template.enabled);
+        assert_eq!(template.category.as_deref(), Some("Meal"));
+        assert!(template.category_keywords.is_some());
+        let ck = template.category_keywords.unwrap();
+        assert_eq!(ck.get("餐饮").unwrap(), &vec!["餐饮".to_string(), "餐费".to_string()]);
+    }
+
+    #[test]
+    fn test_extended_template_defaults() {
+        // 旧格式（无新字段）应能正常反序列化，使用默认值
+        let json = r#"{
+            "template_id": "test_old",
+            "name": "旧格式模板",
+            "keywords": ["测试"],
+            "fields": []
+        }"#;
+
+        let template: InvoiceTemplate = serde_json::from_str(json).unwrap();
+        assert!(template.enabled); // 默认 true
+        assert_eq!(template.priority, 0); // 默认 0
+        assert!(template.category.is_none()); // 默认 None
+        assert!(template.category_keywords.is_none()); // 默认 None
+    }
+
+    #[test]
+    fn test_template_serialization_roundtrip() {
+        let template = InvoiceTemplate {
+            template_id: "roundtrip".to_string(),
+            name: "往返测试".to_string(),
+            enabled: true,
+            priority: 5,
+            keywords: vec!["测试".to_string()],
+            category: Some("Hotel".to_string()),
+            category_keywords: Some(HashMap::from([
+                ("住宿".to_string(), vec!["住宿".to_string(), "宾馆".to_string()]),
+            ])),
+            fields: vec![],
+        };
+
+        let json = serde_json::to_string(&template).unwrap();
+        let parsed: InvoiceTemplate = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.template_id, "roundtrip");
+        assert_eq!(parsed.priority, 5);
+        assert_eq!(parsed.category.as_deref(), Some("Hotel"));
     }
 }

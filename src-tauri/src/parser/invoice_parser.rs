@@ -1161,7 +1161,11 @@ mod tests {
         let template = InvoiceTemplate {
             template_id: "test_template".to_string(),
             name: "测试模板".to_string(),
+            enabled: true,
+            priority: 0,
             keywords: vec!["测试发票".to_string()],
+            category: None,
+            category_keywords: None,
             fields: vec![
                 FieldDefinition {
                     name: "amount".to_string(),
