@@ -41,6 +41,12 @@ pub struct FieldStrategy {
     pub confidence: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum TemplateSource {
+    Builtin,
+    User,
+}
+
 #[derive(Debug, Clone)]
 pub struct ExtractedValue {
     pub field_name: String,
@@ -51,31 +57,49 @@ pub struct ExtractedValue {
 
 pub struct TemplateManager {
     templates: HashMap<String, InvoiceTemplate>,
+    sources: HashMap<String, TemplateSource>,
 }
 
 impl TemplateManager {
     pub fn new() -> Self {
         Self {
             templates: HashMap::new(),
+            sources: HashMap::new(),
         }
     }
 
+    /// 从内置+用户双目录加载模板，用户模板同 id 覆盖内置
+    pub fn from_dual_dirs<P: AsRef<Path>, Q: AsRef<Path>>(
+        builtin_dir: P,
+        user_dir: Q,
+    ) -> Result<Self, String> {
+        let mut manager = Self::new();
+        manager.load_dir(builtin_dir, TemplateSource::Builtin)?;
+        manager.load_dir(user_dir, TemplateSource::User)?; // User 后加载，覆盖同 id
+        Ok(manager)
+    }
+
+    /// 兼容旧接口：单目录加载（标记为 Builtin）
     pub fn from_config_dir<P: AsRef<Path>>(dir: P) -> Result<Self, String> {
-        let mut templates = HashMap::new();
-        
+        let mut manager = Self::new();
+        manager.load_dir(dir, TemplateSource::Builtin)?;
+        Ok(manager)
+    }
+
+    fn load_dir<P: AsRef<Path>>(&mut self, dir: P, source: TemplateSource) -> Result<(), String> {
         let dir_path = dir.as_ref();
         if !dir_path.exists() {
-            return Ok(Self { templates });
+            return Ok(());
         }
-
         let entries = std::fs::read_dir(dir_path).map_err(|e| e.to_string())?;
-        
         for entry in entries {
             let path = entry.map_err(|e| e.to_string())?.path();
             if path.extension().map_or(false, |ext| ext == "json") {
                 match Self::load_template(&path) {
                     Ok(template) => {
-                        templates.insert(template.template_id.clone(), template);
+                        let id = template.template_id.clone();
+                        self.templates.insert(id.clone(), template);
+                        self.sources.insert(id, source);
                     }
                     Err(e) => {
                         eprintln!("Warning: Failed to load template {:?}: {}", path, e);
@@ -83,8 +107,7 @@ impl TemplateManager {
                 }
             }
         }
-        
-        Ok(Self { templates })
+        Ok(())
     }
 
     fn load_template<P: AsRef<Path>>(path: P) -> Result<InvoiceTemplate, String> {
@@ -103,16 +126,23 @@ impl TemplateManager {
         self.templates.get(template_id)
     }
 
+    pub fn template_source(&self, template_id: &str) -> TemplateSource {
+        self.sources.get(template_id).copied().unwrap_or(TemplateSource::Builtin)
+    }
+
     pub fn match_template(&self, ocr: &OcrStructuredOutput) -> Option<&InvoiceTemplate> {
         let all_text = ocr.blocks.iter()
             .map(|b| b.text.as_str())
             .collect::<Vec<_>>()
             .join(" ");
-        
-        self.templates.values()
-            .find(|t| {
-                t.keywords.iter().all(|k| all_text.contains(k))
-            })
+
+        // 过滤 enabled，按 priority 降序排序
+        let mut candidates: Vec<&InvoiceTemplate> = self.templates.values()
+            .filter(|t| t.enabled)
+            .filter(|t| t.keywords.iter().all(|k| all_text.contains(k)))
+            .collect();
+        candidates.sort_by(|a, b| b.priority.cmp(&a.priority));
+        candidates.first().copied()
     }
 
     pub fn extract_with_template(
@@ -237,10 +267,40 @@ impl TemplateManager {
     pub fn reload_from_config_dir<P: AsRef<Path>>(&mut self, dir: P) -> Result<(), String> {
         let new_manager = Self::from_config_dir(dir)?;
         self.templates = new_manager.templates;
+        self.sources = new_manager.sources;
         Ok(())
     }
 
+    pub fn reload_from_dual_dirs<P: AsRef<Path>, Q: AsRef<Path>>(
+        &mut self,
+        builtin_dir: P,
+        user_dir: Q,
+    ) -> Result<(), String> {
+        let new_manager = Self::from_dual_dirs(builtin_dir, user_dir)?;
+        self.templates = new_manager.templates;
+        self.sources = new_manager.sources;
+        Ok(())
+    }
+
+    /// 用模板的分类关键词判断分类，回退到模板 category 默认值
+    pub fn classify_by_template(template: &InvoiceTemplate, text: &str) -> Option<String> {
+        if let Some(ref ck) = template.category_keywords {
+            let text_lower = text.to_lowercase();
+            // 按 category_keywords 的 key 顺序检查（HashMap 无序，需收集排序保证确定性）
+            let mut keys: Vec<&String> = ck.keys().collect();
+            keys.sort();
+            for category in keys {
+                let keywords = ck.get(category).unwrap();
+                if keywords.iter().any(|k| text_lower.contains(&k.to_lowercase())) {
+                    return Some(category.clone());
+                }
+            }
+        }
+        template.category.clone()
+    }
+
     pub fn add_template(&mut self, template: InvoiceTemplate) {
+        self.sources.insert(template.template_id.clone(), TemplateSource::User);
         self.templates.insert(template.template_id.clone(), template);
     }
 
@@ -579,5 +639,201 @@ mod tests {
         assert_eq!(parsed.template_id, "roundtrip");
         assert_eq!(parsed.priority, 5);
         assert_eq!(parsed.category.as_deref(), Some("Hotel"));
+    }
+
+    #[test]
+    fn test_dual_dir_loading_user_overrides_builtin() {
+        let builtin_dir = TempDir::new().unwrap();
+        let user_dir = TempDir::new().unwrap();
+
+        // 内置模板
+        let builtin_json = r#"{
+            "template_id": "shared_id",
+            "name": "内置版本",
+            "keywords": ["测试"],
+            "fields": []
+        }"#;
+        fs::write(builtin_dir.path().join("builtin.json"), builtin_json).unwrap();
+
+        // 用户模板（同 id，覆盖内置）
+        let user_json = r#"{
+            "template_id": "shared_id",
+            "name": "用户版本",
+            "keywords": ["测试"],
+            "fields": []
+        }"#;
+        fs::write(user_dir.path().join("user.json"), user_json).unwrap();
+
+        let manager = TemplateManager::from_dual_dirs(builtin_dir.path(), user_dir.path()).unwrap();
+        let t = manager.get_template("shared_id").unwrap();
+        assert_eq!(t.name, "用户版本");
+        assert_eq!(manager.template_source("shared_id"), TemplateSource::User);
+    }
+
+    #[test]
+    fn test_dual_dir_loading_builtin_only() {
+        let builtin_dir = TempDir::new().unwrap();
+        let user_dir = TempDir::new().unwrap();
+
+        let builtin_json = r#"{
+            "template_id": "builtin_only",
+            "name": "内置模板",
+            "keywords": ["测试"],
+            "fields": []
+        }"#;
+        fs::write(builtin_dir.path().join("b.json"), builtin_json).unwrap();
+
+        let manager = TemplateManager::from_dual_dirs(builtin_dir.path(), user_dir.path()).unwrap();
+        assert_eq!(manager.template_source("builtin_only"), TemplateSource::Builtin);
+    }
+
+    #[test]
+    fn test_corrupted_user_template_skipped() {
+        let builtin_dir = TempDir::new().unwrap();
+        let user_dir = TempDir::new().unwrap();
+
+        // 正常的用户模板
+        fs::write(user_dir.path().join("good.json"), r#"{
+            "template_id": "good",
+            "name": "好的",
+            "keywords": ["测试"],
+            "fields": []
+        }"#).unwrap();
+
+        // 损坏的用户模板
+        fs::write(user_dir.path().join("bad.json"), "{ invalid json }").unwrap();
+
+        let manager = TemplateManager::from_dual_dirs(builtin_dir.path(), user_dir.path()).unwrap();
+        assert!(manager.get_template("good").is_some());
+        assert!(manager.get_template("bad").is_none());
+    }
+
+    #[test]
+    fn test_match_template_by_priority() {
+        let mut manager = TemplateManager::new();
+
+        // 两个模板都能匹配同一段文本
+        manager.add_template(InvoiceTemplate {
+            template_id: "low_prio".to_string(),
+            name: "低优先级".to_string(),
+            enabled: true,
+            priority: 1,
+            keywords: vec!["发票".to_string()],
+            category: None,
+            category_keywords: None,
+            fields: vec![],
+        });
+        manager.add_template(InvoiceTemplate {
+            template_id: "high_prio".to_string(),
+            name: "高优先级".to_string(),
+            enabled: true,
+            priority: 10,
+            keywords: vec!["发票".to_string()],
+            category: None,
+            category_keywords: None,
+            fields: vec![],
+        });
+
+        let ocr = create_ocr_output(vec!["这是一张发票"]);
+        let matched = manager.match_template(&ocr).unwrap();
+        assert_eq!(matched.template_id, "high_prio");
+    }
+
+    #[test]
+    fn test_match_template_skips_disabled() {
+        let mut manager = TemplateManager::new();
+
+        manager.add_template(InvoiceTemplate {
+            template_id: "disabled".to_string(),
+            name: "已禁用".to_string(),
+            enabled: false,
+            priority: 100,
+            keywords: vec!["发票".to_string()],
+            category: None,
+            category_keywords: None,
+            fields: vec![],
+        });
+        manager.add_template(InvoiceTemplate {
+            template_id: "enabled".to_string(),
+            name: "已启用".to_string(),
+            enabled: true,
+            priority: 1,
+            keywords: vec!["发票".to_string()],
+            category: None,
+            category_keywords: None,
+            fields: vec![],
+        });
+
+        let ocr = create_ocr_output(vec!["这是一张发票"]);
+        let matched = manager.match_template(&ocr).unwrap();
+        assert_eq!(matched.template_id, "enabled");
+    }
+
+    #[test]
+    fn test_classify_by_template_category_keywords() {
+        let template = InvoiceTemplate {
+            template_id: "test".to_string(),
+            name: "测试".to_string(),
+            enabled: true,
+            priority: 0,
+            keywords: vec![],
+            category: Some("Other".to_string()),
+            category_keywords: Some(HashMap::from([
+                ("Meal".to_string(), vec!["餐饮".to_string(), "餐费".to_string()]),
+                ("Hotel".to_string(), vec!["住宿".to_string(), "宾馆".to_string()]),
+            ])),
+            fields: vec![],
+        };
+
+        assert_eq!(
+            TemplateManager::classify_by_template(&template, "这是一笔餐饮费用"),
+            Some("Meal".to_string())
+        );
+        assert_eq!(
+            TemplateManager::classify_by_template(&template, "宾馆住宿费"),
+            Some("Hotel".to_string())
+        );
+        assert_eq!(
+            TemplateManager::classify_by_template(&template, "无关文本"),
+            Some("Other".to_string()) // 回退到 category 默认值
+        );
+    }
+
+    #[test]
+    fn test_classify_by_template_no_keywords_returns_category() {
+        let template = InvoiceTemplate {
+            template_id: "test".to_string(),
+            name: "测试".to_string(),
+            enabled: true,
+            priority: 0,
+            keywords: vec![],
+            category: Some("CityTransport".to_string()),
+            category_keywords: None,
+            fields: vec![],
+        };
+
+        assert_eq!(
+            TemplateManager::classify_by_template(&template, "任意文本"),
+            Some("CityTransport".to_string())
+        );
+    }
+
+    #[test]
+    fn test_classify_by_template_no_category_returns_none() {
+        let template = InvoiceTemplate {
+            template_id: "test".to_string(),
+            name: "测试".to_string(),
+            enabled: true,
+            priority: 0,
+            keywords: vec![],
+            category: None,
+            category_keywords: None,
+            fields: vec![],
+        };
+
+        assert_eq!(
+            TemplateManager::classify_by_template(&template, "任意文本"),
+            None
+        );
     }
 }
