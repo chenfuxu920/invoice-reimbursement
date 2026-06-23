@@ -1362,4 +1362,95 @@ mod tests {
         // 应回退到硬编码逻辑
         assert!((invoice.amount - 200.0).abs() < 0.001);
     }
+
+    #[test]
+    fn test_regression_template_vs_hardcoded_same_result() {
+        use std::collections::HashMap;
+        use crate::parser::template_manager::{FieldDefinition, FieldStrategy};
+
+        // 模拟一张增值税普通发票的 OCR 文本
+        let blocks = vec![
+            OcrTextBlock {
+                text: "增值税普通发票".to_string(),
+                confidence: 0.95,
+                bbox: BoundingBox { x: 0.0, y: 0.0, width: 200.0, height: 20.0 },
+                line_index: 0,
+                block_type: TextBlockType::Other,
+            },
+            OcrTextBlock {
+                text: "价税合计：¥1,234.56".to_string(),
+                confidence: 0.95,
+                bbox: BoundingBox { x: 0.0, y: 100.0, width: 200.0, height: 20.0 },
+                line_index: 5,
+                block_type: TextBlockType::KeyValue,
+            },
+            OcrTextBlock {
+                text: "名称：测试酒店".to_string(),
+                confidence: 0.95,
+                bbox: BoundingBox { x: 0.0, y: 150.0, width: 200.0, height: 20.0 },
+                line_index: 7,
+                block_type: TextBlockType::KeyValue,
+            },
+            OcrTextBlock {
+                text: "2024年05月20日".to_string(),
+                confidence: 0.95,
+                bbox: BoundingBox { x: 0.0, y: 200.0, width: 200.0, height: 20.0 },
+                line_index: 9,
+                block_type: TextBlockType::KeyValue,
+            },
+        ];
+        let ocr = OcrStructuredOutput { blocks, layout: PageLayout::default() };
+        let source = InvoiceSource::Pdf("test.pdf".to_string());
+
+        // 无模板：走硬编码
+        let hardcoded = parse_structured_invoice_with_templates(&ocr, source.clone(), None).unwrap();
+
+        // 有模板（等价正则）：走模板
+        let template = InvoiceTemplate {
+            template_id: "regression_test".to_string(),
+            name: "回归测试".to_string(),
+            enabled: true,
+            priority: 10,
+            keywords: vec!["增值税普通发票".to_string()],
+            category: Some("Other".to_string()),
+            category_keywords: Some(HashMap::from([
+                ("Hotel".to_string(), vec!["酒店".to_string()]),
+            ])),
+            fields: vec![
+                FieldDefinition {
+                    name: "amount".to_string(),
+                    required: true,
+                    strategies: vec![FieldStrategy {
+                        strategy_type: "regex".to_string(),
+                        pattern: Some("价税合计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)".to_string()),
+                        section_keyword: None,
+                        field_keyword: None,
+                        confidence: 0.9,
+                    }],
+                },
+                FieldDefinition {
+                    name: "seller_name".to_string(),
+                    required: false,
+                    strategies: vec![FieldStrategy {
+                        strategy_type: "regex".to_string(),
+                        pattern: Some("名称[：:]\\s*(\\S+)".to_string()),
+                        section_keyword: None,
+                        field_keyword: None,
+                        confidence: 0.85,
+                    }],
+                },
+            ],
+        };
+        let mut manager = TemplateManager::new();
+        manager.add_template(template);
+        let templated = parse_structured_invoice_with_templates(&ocr, source, Some(&manager)).unwrap();
+
+        // 金额应一致
+        assert!((hardcoded.amount - templated.amount).abs() < 0.001,
+            "金额不一致: 硬编码={} 模板={}", hardcoded.amount, templated.amount);
+        assert!((hardcoded.amount - 1234.56).abs() < 0.001);
+
+        // 销售方应一致
+        assert!(!templated.seller_name.is_empty(), "模板模式销售方不应为空");
+    }
 }
