@@ -256,3 +256,23 @@ pub async fn reload_templates(_app: AppHandle) -> Result<(), String> {
     // 此命令保留供未来缓存优化使用
     Ok(())
 }
+
+/// 标注模式：根据字段类型和拖选文本生成正则骨架
+#[tauri::command]
+pub async fn generate_regex_skeleton(
+    field_type: String,
+    selected_text: String,
+) -> Result<String, String> {
+    use crate::parser::regex_skeleton::{FieldType, generate_regex};
+
+    let ft = match field_type.as_str() {
+        "Amount" => FieldType::Amount,
+        "Date" => FieldType::Date,
+        "InvoiceNumber" => FieldType::InvoiceNumber,
+        "SellerName" => FieldType::SellerName,
+        "ItemName" => FieldType::ItemName,
+        _ => return Err(format!("未知字段类型: {}", field_type)),
+    };
+
+    Ok(generate_regex(ft, &selected_text))
+}

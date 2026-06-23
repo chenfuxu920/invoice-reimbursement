@@ -584,6 +584,7 @@ pub fn run() {
             commands::template_commands::test_template,
             commands::template_commands::ocr_for_annotation,
             commands::template_commands::reload_templates,
+            commands::template_commands::generate_regex_skeleton,
         ])
         .setup(|app| {
             // 初始化 PDFium（从资源目录加载 pdfium.dll 用于 PDF 渲染）
