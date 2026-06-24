@@ -2,6 +2,7 @@ use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary}
 use crate::ocr::OcrEngine;
 use crate::parser::invoice_parser::parse_invoice_text;
 use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback};
+use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 use std::path::{Path, PathBuf};
 
@@ -18,6 +19,8 @@ pub struct ItineraryDoc {
 pub struct ParseResult {
     pub invoices: Vec<Invoice>,
     pub errors: Vec<(String, String)>,
+    /// 批次内去重命中的重复发票号列表
+    pub duplicates: Vec<String>,
 }
 
 /// 解析单个发票 PDF：先尝试文字提取，失败或缺销售方信息则 OCR（多页）
@@ -111,7 +114,7 @@ pub fn parse_all_from_dir(
             .filter(|e| e.path().extension().map_or(false, |ext| ext == "pdf"))
             .map(|e| e.path())
             .collect(),
-        Err(_) => return ParseResult { invoices, errors },
+        Err(_) => return ParseResult { invoices, errors, duplicates: Vec::new() },
     };
 
     for path in &pdf_files {
@@ -131,7 +134,10 @@ pub fn parse_all_from_dir(
     // 配对：将行程单与 CityTransport 发票关联
     pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 0.01);
 
-    ParseResult { invoices, errors }
+    // 批次内按发票号去重
+    let duplicates = deduplicate_invoices(&mut invoices);
+
+    ParseResult { invoices, errors, duplicates }
 }
 
 /// 批量识别文件列表（发票+行程单），自动匹配行程单到发票
@@ -160,7 +166,10 @@ pub fn parse_all_from_files(
 
     pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 0.01);
 
-    ParseResult { invoices, errors }
+    // 批次内按发票号去重
+    let duplicates = deduplicate_invoices(&mut invoices);
+
+    ParseResult { invoices, errors, duplicates }
 }
 
 /// 将行程明细配对到对应的发票上（按总额匹配）

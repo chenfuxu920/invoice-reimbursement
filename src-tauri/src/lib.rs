@@ -272,6 +272,8 @@ struct GlobalImportResult {
     invoices: Vec<Invoice>,
     payments: Vec<PaymentRecord>,
     errors: Vec<[String; 2]>,
+    /// 批次内去重命中的重复发票号列表
+    duplicates: Vec<String>,
 }
 
 // 递归遍历目录收集所有文件
@@ -383,15 +385,22 @@ async fn batch_global_import(
     }
 
     // PDF 复用已有的 batch 解析逻辑（含发票→行程单→配对）
+    let mut pdf_duplicates = Vec::new();
     if !pdf_files.is_empty() {
         let result = invoice_pipeline::parse_all_from_files(&pdf_files, engine);
         invoices.extend(result.invoices);
+        pdf_duplicates = result.duplicates;
         for (name, err) in result.errors {
             errors.push([name, err]);
         }
     }
 
-    Ok(GlobalImportResult { invoices, payments, errors })
+    // 对合并后的全部发票（图片+PDF）再做一次批次内去重，
+    // 覆盖图片之间、图片与 PDF 之间的重复
+    let mut duplicates = pdf_duplicates;
+    duplicates.extend(parser::dedup::deduplicate_invoices(&mut invoices));
+
+    Ok(GlobalImportResult { invoices, payments, errors, duplicates })
 }
 
 // 生成对照单 HTML 命令
