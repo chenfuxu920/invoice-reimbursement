@@ -16,8 +16,8 @@
         <template v-for="p in payments" :key="p.id">
           <tr class="border-b hover:bg-gray-50 cursor-pointer" @click="toggle(p.id)">
             <td class="px-3 py-2 text-gray-400 transition-transform" :class="{ 'rotate-180': expandedId === p.id }">▾</td>
-            <td class="px-3 py-2">{{ p.transaction_time }}</td>
-            <td class="px-3 py-2">{{ p.merchant_name }}</td>
+            <td class="px-3 py-2">{{ p.transaction_time || '-' }}</td>
+            <td class="px-3 py-2">{{ p.merchant_name || '-' }}</td>
             <td class="px-3 py-2 text-right font-medium">
               ¥{{ p.amount.toFixed(2) }}
               <span v-if="p.refund_amount > 0 || p.discount > 0" class="text-xs text-gray-400 font-normal">
