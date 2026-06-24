@@ -27,9 +27,13 @@ export interface Invoice {
   seller_name: string
   item_name: string
   date: string
+  travel_date?: string
   category: InvoiceCategory
   source: InvoiceSource
   itineraries: Itinerary[]
+  // NEW
+  departure_city?: string
+  arrival_city?: string
 }
 
 export const CATEGORY_LABELS: Record<InvoiceCategory, string> = {

@@ -43,12 +43,15 @@ mod tests {
             seller_name: String::new(),
             item_name: String::new(),
             date: NaiveDate::default(),
+            travel_date: None,
             category: InvoiceCategory::Other,
             source: InvoiceSource::Pdf(String::new()),
             itineraries: vec![],
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         }
     }
 

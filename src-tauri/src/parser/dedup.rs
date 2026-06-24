@@ -43,12 +43,15 @@ mod tests {
             seller_name: seller.to_string(),
             item_name: String::new(),
             date: NaiveDate::from_ymd_opt(2025, 8, 5).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::Train,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         }
     }
 
@@ -137,12 +140,15 @@ mod tests {
                 seller_name: "A".to_string(),
                 item_name: String::new(),
                 date: NaiveDate::from_ymd_opt(2025, 1, 1).unwrap(),
+                travel_date: None,
                 category: InvoiceCategory::Train,
                 source: InvoiceSource::Pdf("test.pdf".to_string()),
                 itineraries: vec![],
                 itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
+                departure_city: None,
+                arrival_city: None,
             },
             Invoice {
                 id: "2".to_string(),
@@ -151,12 +157,15 @@ mod tests {
                 seller_name: "A".to_string(),
                 item_name: String::new(),
                 date: NaiveDate::from_ymd_opt(2025, 2, 1).unwrap(),
+                travel_date: None,
                 category: InvoiceCategory::Train,
                 source: InvoiceSource::Pdf("test.pdf".to_string()),
                 itineraries: vec![],
                 itinerary_file: None,
                 remarks: String::new(),
                 hotel_detail: None,
+                departure_city: None,
+                arrival_city: None,
             },
         ];
         let dupes = deduplicate_invoices(&mut invoices);

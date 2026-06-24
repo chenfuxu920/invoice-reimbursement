@@ -28,12 +28,16 @@ pub struct Invoice {
     pub seller_name: String,          // 销售方名称
     pub item_name: String,            // 项目名称
     pub date: NaiveDate,              // 开票日期
+    pub travel_date: Option<NaiveDate>,  // 票面实际出行日期（仅 Train/Flight 类发票有值）
     pub category: InvoiceCategory,    // 自动识别的类别
     pub source: InvoiceSource,        // 来源
     pub itineraries: Vec<Itinerary>,  // 行程（打车场景）
     pub itinerary_file: Option<String>, // 关联的行程单文件（仅市内交通）
     pub remarks: String,              // 备注栏内容
     pub hotel_detail: Option<HotelDetail>, // 住宿详情（仅住宿发票）
+    // NEW: 票据出发/到达城市（仅 Train/Flight 类发票有值）
+    pub departure_city: Option<String>,
+    pub arrival_city: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,12 +110,15 @@ mod tests {
             seller_name: "测试公司".to_string(),
             item_name: "交通服务".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 6, 15).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         };
         assert_eq!(invoice.id, "test-id");
         assert_eq!(invoice.invoice_number, "INV001");
@@ -137,12 +144,15 @@ mod tests {
             seller_name: "滴滴出行".to_string(),
             item_name: "网约车".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 6, 15).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Photo("taxi.jpg".to_string()),
             itineraries: vec![itin.clone()],
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         };
         assert_eq!(invoice.itineraries.len(), 1);
         assert_eq!(invoice.itineraries[0].provider, "滴滴");

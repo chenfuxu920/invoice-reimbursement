@@ -36,6 +36,7 @@
 import { computed, ref } from 'vue'
 import { useInvoiceStore } from '../stores/invoice'
 import { usePaymentStore } from '../stores/payment'
+import { useMatchStore } from '../stores/match'
 import InvoiceDropZone from '../components/InvoiceDropZone.vue'
 import InvoiceCard from '../components/InvoiceCard.vue'
 import BillImporter from '../components/BillImporter.vue'
@@ -45,6 +46,7 @@ import { invoke } from '@tauri-apps/api/core'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
+const matchStore = useMatchStore()
 
 const globalLoading = ref(false)
 const billLoading = ref(false)
@@ -59,34 +61,50 @@ const loadingMessage = computed(() => {
 })
 
 async function handleInvoiceFiles(paths: string[]) {
-  const pdfs = paths.filter(p => p.toLowerCase().endsWith('.pdf'))
-  if (pdfs.length === 0) {
-    for (const path of paths) {
+  // 先通过 Rust 展开所有路径（目录递归收集、文件直接保留，过滤支持的类型）
+  const resolved: string[] = await invoke('collect_files', { paths, extensions: ['pdf', 'jpg', 'jpeg', 'png'] })
+  if (resolved.length === 0) return
+
+  const pdfs = resolved.filter(p => p.toLowerCase().endsWith('.pdf'))
+  const images = resolved.filter(p => !p.toLowerCase().endsWith('.pdf'))
+
+  invoiceStore.loading = true
+  try {
+    // 批量处理图片
+    for (const path of images) {
       try { await invoiceStore.addInvoice(path, 'image') }
       catch (e) { console.error('添加发票失败:', e) }
     }
-    return
-  }
-  try {
-    const result: { invoices: any[], errors: [string, string][] } = await invoke('batch_recognize', { filePaths: pdfs })
-    for (const inv of result.invoices) {
-      invoiceStore.invoices.push(inv)
-    }
-    for (const [name, err] of result.errors) {
-      console.error(`文件 ${name} 识别失败:`, err)
+    // 批量处理 PDF
+    if (pdfs.length > 0) {
+      const result: { invoices: any[], errors: [string, string][] } = await invoke('batch_recognize', { filePaths: pdfs })
+      for (const inv of result.invoices) {
+        invoiceStore.invoices.push(inv)
+      }
+      for (const [name, err] of result.errors) {
+        console.error(`文件 ${name} 识别失败:`, err)
+      }
     }
   } catch (e) {
     console.error('批量识别失败:', e)
+  } finally {
+    invoiceStore.loading = false
   }
 }
 
-async function handleBillImport(filePath: string, type: 'wechat' | 'alipay') {
+async function handleBillImport(paths: string[], type: 'wechat' | 'alipay') {
+  // 先展开目录，过滤账单文件类型
+  const resolved: string[] = await invoke('collect_files', { paths, extensions: ['xlsx', 'xls', 'csv'] })
+  if (resolved.length === 0) return
+
   billLoading.value = true
   try {
-    if (type === 'wechat') {
-      await paymentStore.importWechatBill(filePath)
-    } else {
-      await paymentStore.importAlipayBill(filePath)
+    for (const filePath of resolved) {
+      if (type === 'wechat') {
+        await paymentStore.importWechatBill(filePath)
+      } else {
+        await paymentStore.importAlipayBill(filePath)
+      }
     }
   } catch (e) {
     console.error('导入账单失败:', e)
@@ -146,5 +164,6 @@ async function handleGlobalImport() {
 function handleClearAll() {
   invoiceStore.clearInvoices()
   paymentStore.clearPayments()
+  matchStore.clearMatches()
 }
 </script>

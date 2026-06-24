@@ -207,12 +207,15 @@ mod tests {
             seller_name: "Test Seller".to_string(),
             item_name: "Test Item".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 8, 4).unwrap(),
+            travel_date: None,
             category,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
             itinerary_file: None,
             remarks: String::new(),
             hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
         }
     }
 
@@ -224,6 +227,7 @@ mod tests {
             seller_name: "Test Hotel".to_string(),
             item_name: "*住宿服务*住宿费".to_string(),
             date: NaiveDate::from_ymd_opt(2025, 8, 4).unwrap(),
+            travel_date: None,
             category: InvoiceCategory::Hotel,
             source: InvoiceSource::Pdf("test.pdf".to_string()),
             itineraries: vec![],
@@ -235,6 +239,8 @@ mod tests {
                 nights,
                 nightly_rate: amount / nights as f64,
             }),
+            departure_city: None,
+            arrival_city: None,
         }
     }
 

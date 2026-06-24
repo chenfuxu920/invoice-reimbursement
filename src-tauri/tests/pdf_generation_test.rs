@@ -17,12 +17,15 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         seller_name: "测试商家".to_string(),
         item_name: "测试项目".to_string(),
         date: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
+        travel_date: None,
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
+        departure_city: None,
+        arrival_city: None,
     }
 }
 
@@ -37,6 +40,8 @@ fn make_payment(id: &str, amount: f64, merchant: &str) -> PaymentRecord {
         source: PaymentSource::Wechat,
         category: "交通".to_string(),
         payment_method: String::new(),
+        original_amount: 0.0,
+        refund_amount: 0.0,
     }
 }
 

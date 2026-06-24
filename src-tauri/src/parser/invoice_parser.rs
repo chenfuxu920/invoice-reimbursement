@@ -90,6 +90,183 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
     regions
 }
 
+/// 从 OCR 文本中提取出发/到达城市（仅 Train/Flight 类发票）
+fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<String>, Option<String>) {
+    if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
+        return (None, None);
+    }
+
+    let mut departure: Option<String> = None;
+    let mut arrival: Option<String> = None;
+
+    if *category == InvoiceCategory::Train {
+        // 火车票：出发站/发站（带标签）
+        let re = Regex::new(r"(?:出发站|发站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
+        departure = re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        let re_arr = Regex::new(r"(?:到达站|到站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
+        arrival = re_arr.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+
+        // 火车票兜底：铁路电子客票无标签格式 "G878长沙南站 武汉站"
+        if departure.is_none() || arrival.is_none() {
+            let re_no_label = Regex::new(
+                r"[A-Z]+\d+\s*(\S{2,6}站)\s+(\S{2,6}站)"
+            ).unwrap();
+            if let Some(caps) = re_no_label.captures(text) {
+                if departure.is_none() {
+                    departure = Some(station_to_city(caps.get(1).unwrap().as_str()));
+                }
+                if arrival.is_none() {
+                    arrival = Some(station_to_city(caps.get(2).unwrap().as_str()));
+                }
+            }
+        }
+    } else {
+        // 机票：自/FROM, 至/TO
+        let re_dep = Regex::new(r"(?:自|FROM)[：:]\s*(\S{2,10})").unwrap();
+        departure = re_dep.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        let re_arr = Regex::new(r"(?:至|TO)[：:]\s*(\S{2,10})").unwrap();
+        arrival = re_arr.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+    }
+
+    // 兜底：飞猪等平台票据，备注中城市以 "城市-城市" 格式出现
+    // 例如: "2026/05/15 成都-长沙 3U8767 经济舱H"
+    if departure.is_none() || arrival.is_none() {
+        let re_route = Regex::new(
+            r"(\p{Unified_Ideograph}{2,4})[\s]*[-－—][\s]*(\p{Unified_Ideograph}{2,4})"
+        ).unwrap();
+        if let Some(caps) = re_route.captures(text) {
+            let raw_dep = caps.get(1).unwrap().as_str().trim();
+            let raw_arr = caps.get(2).unwrap().as_str().trim();
+            if departure.is_none() {
+                departure = Some(station_to_city(raw_dep));
+            }
+            if arrival.is_none() {
+                arrival = Some(station_to_city(raw_arr));
+            }
+        }
+    }
+
+    (departure, arrival)
+}
+
+/// 从票据 OCR 文本中提取票面实际出行日期（非开票日期）
+fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<NaiveDate> {
+    if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
+        return None;
+    }
+
+    // 格式1: "2026/05/15" — 飞猪等平台备注中的日期
+    let re_slash = Regex::new(r"(\d{4})/(\d{1,2})/(\d{1,2})").unwrap();
+    if let Some(caps) = re_slash.captures(text) {
+        let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+        let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+        if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+            if date.year() >= 2020 && date.year() <= 2100 {
+                return Some(date);
+            }
+        }
+    }
+
+    // 格式2: "2025年11月14日 15:22开" — 铁路电子客票（后跟发车时间，区别于开票日期）
+    let re_cn = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s+\d{1,2}:\d{2}").unwrap();
+    if let Some(caps) = re_cn.captures(text) {
+        let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+        let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+        if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+            if date.year() >= 2020 && date.year() <= 2100 {
+                return Some(date);
+            }
+        }
+    }
+
+    // 格式3: "2025-11-14" — ISO 日期
+    let re_iso = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").unwrap();
+    if let Some(caps) = re_iso.captures(text) {
+        let y: i32 = caps.get(1)?.as_str().parse().ok()?;
+        let m: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let d: u32 = caps.get(3)?.as_str().parse().ok()?;
+        if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+            if date.year() >= 2020 && date.year() <= 2100 {
+                return Some(date);
+            }
+        }
+    }
+
+    None
+}
+
+/// 站名/机场名归一化为城市名
+fn station_to_city(raw: &str) -> String {
+    let mut s = raw.trim().to_string();
+
+    // 去除常见后缀（按序处理，长的先匹配）
+    for suffix in &["国际机场", "机场", "东站", "西站", "南站", "北站", "站"] {
+        if s.ends_with(suffix) {
+            s = s[..s.len() - suffix.len()].to_string();
+            break;
+        }
+    }
+
+    // 去除机场三字码（如 PEK / SHA）
+    let re_code = Regex::new(r"\s*[A-Z]{3}$").unwrap();
+    s = re_code.replace(&s, "").to_string();
+
+    // 兜底映射表（已知片区/镇/区 → 城市）
+    let mapping: std::collections::HashMap<&str, &str> = [
+        ("虹桥", "上海"), ("宝安", "深圳"), ("江北", "重庆"),
+        ("流亭", "青岛"), ("龙嘉", "长春"), ("太平", "哈尔滨"),
+        ("遥墙", "济南"), ("周水子", "大连"), ("双流", "成都"),
+        ("天河", "武汉"), ("黄花", "长沙"), ("咸阳", "西安"),
+        ("滨海", "天津"), ("长水", "昆明"), ("萧山", "杭州"),
+    ].iter().cloned().collect();
+
+    // 直接映射匹配
+    if let Some(city) = mapping.get(s.as_str()) {
+        return city.to_string();
+    }
+
+    // 检查是否以映射表 key 结尾（如 "上海虹桥" → "虹桥" → "上海"）
+    for (key, city) in &mapping {
+        if s.ends_with(key) {
+            return city.to_string();
+        }
+    }
+
+    // 已知主要城市前缀（2字）
+    let major_cities = ["北京", "上海", "广州", "深圳", "成都", "杭州", "南京",
+                        "武汉", "天津", "重庆", "西安", "长沙", "昆明", "青岛",
+                        "大连", "厦门", "哈尔滨", "长春", "济南", "沈阳"];
+
+    // 去除方向后缀后检查是否为已知城市（如 "北京南" → "北京"）
+    for dir in &["东", "南", "西", "北"] {
+        if s.ends_with(dir) && s.len() > dir.len() {
+            let candidate = &s[..s.len() - dir.len()];
+            if major_cities.contains(&candidate) {
+                return candidate.to_string();
+            }
+        }
+    }
+
+    // 检查是否以已知城市开头 + 剩余部分（如 "成都双流" → "成都" + "双流"、"北京首都" → "北京" + "首都"）
+    for city in &major_cities {
+        if s.starts_with(city) && s.len() > city.len() {
+            let rest = &s[city.len()..];
+            if mapping.contains_key(rest) || ["东", "南", "西", "北"].contains(&rest) || rest.len() >= 2 {
+                return city.to_string();
+            }
+        }
+    }
+
+    // 如果已经是纯城市名（2-4 字），直接返回
+    if s.chars().count() >= 2 && s.chars().count() <= 4 {
+        return s;
+    }
+
+    raw.trim().to_string()
+}
+
 pub fn parse_invoice_text(
     texts: &[OcrTextItem],
     source: InvoiceSource,
@@ -158,6 +335,10 @@ pub fn parse_invoice_text(
         None
     };
 
+    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
+    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category);
+
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
         invoice_number,
@@ -165,12 +346,15 @@ pub fn parse_invoice_text(
         seller_name,
         item_name,
         date,
+        travel_date,
         category,
         source,
         itineraries: vec![],
         itinerary_file: None,
         remarks: regions.remarks.clone(),
         hotel_detail,
+        departure_city,
+        arrival_city,
     })
 }
 
@@ -343,6 +527,16 @@ pub fn parse_structured_invoice_with_templates(
         .and_then(|f| DateExtractor::new().parse_to_date(&f))
         .unwrap_or_default();
 
+    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
+    let all_text: String = ocr_output
+        .blocks
+        .iter()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category);
+
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
         invoice_number: number_field.map(|f| f.value).unwrap_or_default(),
@@ -350,12 +544,15 @@ pub fn parse_structured_invoice_with_templates(
         seller_name: seller_field.map(|f| f.value).unwrap_or_default(),
         item_name: item_field.map(|f| f.value).unwrap_or_default(),
         date,
+        travel_date,
         category,
         source,
         itineraries: vec![],
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
+        departure_city,
+        arrival_city,
     })
 }
 
@@ -394,6 +591,16 @@ fn try_parse_with_template(
         }
     }
 
+    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
+    let all_text: String = ocr_output
+        .blocks
+        .iter()
+        .map(|b| b.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category);
+
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
         invoice_number,
@@ -401,12 +608,15 @@ fn try_parse_with_template(
         seller_name,
         item_name: String::new(),
         date,
+        travel_date,
         category,
         source: source.clone(),
         itineraries: vec![],
         itinerary_file: None,
         remarks: String::new(),
         hotel_detail: None,
+        departure_city,
+        arrival_city,
     })
 }
 
@@ -1007,5 +1217,42 @@ mod tests {
         let invoice = result.unwrap();
         assert!((invoice.amount - 1045.24).abs() < 0.01);
         assert_eq!(invoice.category, InvoiceCategory::Hotel);
+    }
+
+    #[test]
+    fn test_extract_ticket_cities_train() {
+        let text = "出发站：北京南站\n到达站：上海虹桥站\n票价：553.00";
+        let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Train);
+        assert_eq!(dep.as_deref(), Some("北京"));
+        assert_eq!(arr.as_deref(), Some("上海"));
+    }
+
+    #[test]
+    fn test_extract_ticket_cities_flight() {
+        let text = "自：北京首都国际机场\n至：上海浦东国际机场\n航班号：CA1234";
+        let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Flight);
+        assert_eq!(dep.as_deref(), Some("北京"));
+        assert_eq!(arr.as_deref(), Some("上海"));
+    }
+
+    #[test]
+    fn test_extract_ticket_cities_no_keyword() {
+        let text = "这是普通的住宿发票";
+        let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Hotel);
+        assert!(dep.is_none());
+        assert!(arr.is_none());
+    }
+
+    #[test]
+    fn test_station_to_city_suffix_strip() {
+        assert_eq!(station_to_city("上海虹桥站"), "上海");
+        assert_eq!(station_to_city("广州南站"), "广州");
+        assert_eq!(station_to_city("成都双流国际机场"), "成都");
+    }
+
+    #[test]
+    fn test_station_to_city_mapping() {
+        assert_eq!(station_to_city("虹桥"), "上海");
+        assert_eq!(station_to_city("宝安"), "深圳");
     }
 }

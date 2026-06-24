@@ -20,7 +20,7 @@ Copy-Item "$releaseDir/invoice-reimbursement.exe" $portableDir
 Copy-Item "$releaseDir/pdfium.dll" $portableDir -ErrorAction SilentlyContinue
 Copy-Item -Recurse "$releaseDir/models" $portableDir -ErrorAction SilentlyContinue
 
-$exeName = Get-ChildItem "$bundleDir/*-setup.exe" | Select-Object -First 1
+$exeName = Get-ChildItem "$bundleDir/*-setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($exeName) {
     $baseName = $exeName.Name -replace '_\d+\.\d+\.\d+_x64-setup\.exe$', ''
     Rename-Item "$portableDir/invoice-reimbursement.exe" "$baseName.exe" -Force
