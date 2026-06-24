@@ -15,9 +15,13 @@ if (!version) {
 
 const cargoPath = resolve(root, 'src-tauri', 'Cargo.toml')
 let cargo = readFileSync(cargoPath, 'utf8')
-cargo = cargo.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`)
-writeFileSync(cargoPath, cargo)
-console.log(`Cargo.toml version -> ${version}`)
+const newCargo = cargo.replace(/^version\s*=\s*"[^"]*"/m, `version = "${version}"`)
+if (newCargo !== cargo) {
+  writeFileSync(cargoPath, newCargo)
+  console.log(`Cargo.toml version -> ${version}`)
+} else {
+  console.log(`Cargo.toml version already ${version}, skip`)
+}
 
 const tauriPath = resolve(root, 'src-tauri', 'tauri.conf.json')
 let tauri = readFileSync(tauriPath, 'utf8')
@@ -31,7 +35,12 @@ if (tauriObj.app?.windows) {
     }
   }
 }
-writeFileSync(tauriPath, JSON.stringify(tauriObj, null, 2) + '\n')
-console.log(`tauri.conf.json version -> ${version}`)
+const newTauri = JSON.stringify(tauriObj, null, 2) + '\n'
+if (newTauri !== tauri) {
+  writeFileSync(tauriPath, newTauri)
+  console.log(`tauri.conf.json version -> ${version}`)
+} else {
+  console.log(`tauri.conf.json version already ${version}, skip`)
+}
 
 console.log(`\n版本已同步至 ${version}`)
