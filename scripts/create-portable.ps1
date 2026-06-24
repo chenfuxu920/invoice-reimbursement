@@ -20,10 +20,19 @@ Copy-Item "$releaseDir/invoice-reimbursement.exe" $portableDir
 Copy-Item "$releaseDir/pdfium.dll" $portableDir -ErrorAction SilentlyContinue
 Copy-Item -Recurse "$releaseDir/models" $portableDir -ErrorAction SilentlyContinue
 
-$exeName = Get-ChildItem "$bundleDir/*-setup.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$exeName = Get-ChildItem "$bundleDir/*-setup.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($exeName) {
     $baseName = $exeName.Name -replace '_\d+\.\d+\.\d+_x64-setup\.exe$', ''
     Rename-Item "$portableDir/invoice-reimbursement.exe" "$baseName.exe" -Force
+
+    # 清理旧安装包，只保留最新一个
+    $allInstallers = Get-ChildItem "$bundleDir/*-setup.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+    if ($allInstallers -and @($allInstallers).Count -gt 1) {
+        $allInstallers | Select-Object -Skip 1 | ForEach-Object {
+            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+            Write-Host "Removed old installer: $($_.Name)"
+        }
+    }
 }
 
 Write-Host "Portable version created at: $portableDir"

@@ -45,3 +45,11 @@ export const CATEGORY_LABELS: Record<InvoiceCategory, string> = {
   Meal: '餐饮费',
   Other: '其他',
 }
+
+/// 解析失败的文件条目，用于导入界面错误区展示与手动填写入口
+export interface ParseError {
+  id: string
+  filePath: string
+  fileName: string
+  message: string
+}
