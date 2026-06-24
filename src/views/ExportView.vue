@@ -36,7 +36,7 @@
       </div>
 
       <!-- 报销信息表单 -->
-      <ReimbursementForm @update="handleFormUpdate" class="mb-6" />
+      <ReimbursementForm :model-value="formInfo" @update="handleFormUpdate" class="mb-6" />
 
       <!-- 预览 -->
       <div class="flex gap-3 mb-6">

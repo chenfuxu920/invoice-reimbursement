@@ -29,14 +29,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
-
-const form = reactive({
-  destination: '',
-  travelStart: '',
-  travelEnd: '',
-  hotelLevel: '其他人员',
-})
+import { reactive, watch, nextTick } from 'vue'
 
 interface FormState {
   destination: string
@@ -45,9 +38,33 @@ interface FormState {
   hotelLevel: string
 }
 
+const props = defineProps<{
+  modelValue?: FormState
+}>()
+
 const emit = defineEmits<{
   (e: 'update', form: FormState): void
 }>()
 
-watch(form, (val) => emit('update', val), { deep: true })
+const form = reactive<FormState>({
+  destination: '',
+  travelStart: '',
+  travelEnd: '',
+  hotelLevel: '其他人员',
+})
+
+// 父→子同步（如「从票据提取」按钮批量更新）；flag 防止与下方 form watch 形成回环
+let syncing = false
+watch(() => props.modelValue, (val) => {
+  if (!val || syncing) return
+  syncing = true
+  Object.assign(form, val)
+  nextTick(() => { syncing = false })
+}, { deep: true })
+
+// 子→父同步（用户手动编辑输入框）
+watch(form, (val) => {
+  if (syncing) return
+  emit('update', val)
+}, { deep: true })
 </script>
