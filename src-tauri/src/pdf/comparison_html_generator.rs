@@ -7,6 +7,8 @@ use crate::models::match_result::MatchResult;
 
 enum OutputBlock {
     Invoice { img: String, payment: String },
+    /// 手动添加的空发票：无源图片，留白页用于粘贴纸质票据
+    BlankInvoice { payment: String },
     Itinerary {
         imgs: Vec<String>,
         rows: Vec<(usize, f64, String)>,
@@ -35,22 +37,21 @@ pub fn generate_comparison_html(
     let mut itin_idx = 0usize;
 
     for result in match_results {
-        if let InvoiceSource::Pdf(pdf_path) = &result.invoice.source {
-            let img_path = super::image_embedder::render_pdf_page_to_png(
-                pdf_path, 0, output_dir, dpi,
-            )?;
-            let rel = img_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        match &result.invoice.source {
+            InvoiceSource::Manual => {
+                let payment_text = build_payment_text(result);
+                blocks.push(OutputBlock::BlankInvoice { payment: payment_text });
+            }
+            InvoiceSource::Pdf(pdf_path) => {
+                let img_path = super::image_embedder::render_pdf_page_to_png(
+                    pdf_path, 0, output_dir, dpi,
+                )?;
+                let rel = img_path.file_name().unwrap_or_default().to_string_lossy().to_string();
 
-            let has_itinerary = matches!(result.invoice.category, InvoiceCategory::CityTransport) && !result.invoice.itineraries.is_empty();
-            let payment_text = if has_itinerary {
-                String::new()
-            } else if result.payments.len() == 1 {
-                format!("支付单号：{}", result.payments[0].transaction_id)
-            } else {
-                let ids: Vec<&str> = result.payments.iter().map(|p| p.transaction_id.as_str()).collect();
-                format!("支付单号：{}", ids.join("，"))
-            };
-            blocks.push(OutputBlock::Invoice { img: rel, payment: payment_text });
+                let payment_text = build_payment_text(result);
+                blocks.push(OutputBlock::Invoice { img: rel, payment: payment_text });
+            }
+            _ => {}
         }
 
         if matches!(result.invoice.category, InvoiceCategory::CityTransport) {
@@ -85,6 +86,21 @@ pub fn generate_comparison_html(
 
 fn normalize_path(s: &str) -> String {
     s.replace('/', "\\")
+}
+
+/// 构造支付单号文本。市内交通且有行程明细时返回空（由行程表格单独展示）。
+fn build_payment_text(result: &MatchResult) -> String {
+    let has_itinerary = matches!(result.invoice.category, InvoiceCategory::CityTransport)
+        && !result.invoice.itineraries.is_empty();
+    if has_itinerary || result.payments.is_empty() {
+        return String::new();
+    }
+    if result.payments.len() == 1 {
+        format!("支付单号：{}", result.payments[0].transaction_id)
+    } else {
+        let ids: Vec<&str> = result.payments.iter().map(|p| p.transaction_id.as_str()).collect();
+        format!("支付单号：{}", ids.join("，"))
+    }
 }
 
 fn find_itinerary_pdfs(
@@ -131,6 +147,8 @@ fn build_html(blocks: &[OutputBlock]) -> String {
     html.push_str("\n  .pay-table th { border: 1px solid #000; padding: 8px 10px; background: #e8e8e8; font-weight: bold; text-align: center; }");
     html.push_str("\n  .pay-table td { border: 1px solid #000; padding: 6px 10px; text-align: center; }");
     html.push_str("\n  .col-seq { width: 15%; } .col-amt { width: 25%; } .col-pay { width: 60%; font-family: \"Consolas\", monospace; }");
+    html.push_str("\n  .blank-page { justify-content: space-between; padding: 12mm; }");
+    html.push_str("\n  .paste-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; border: 2px dashed #999; color: #999; font-size: 18px; letter-spacing: 2px; margin-bottom: 8px; }");
     html.push_str("\n  @media print { body { background: #fff; } .page { margin: 0; } }");
     html.push_str("\n</style>\n</head>\n<body>\n");
 
@@ -147,6 +165,16 @@ fn build_html(blocks: &[OutputBlock]) -> String {
                     html.push_str("</div>");
                 }
                 html.push_str("\n  </div>\n</div>\n");
+            }
+            OutputBlock::BlankInvoice { payment } => {
+                let show_payment = !payment.is_empty();
+                html.push_str("<div class=\"page blank-page\">\n  <div class=\"paste-placeholder\">（此处粘贴纸质票据）</div>\n");
+                if show_payment {
+                    html.push_str("  <div class=\"payment-bar\">");
+                    html.push_str(&payment);
+                    html.push_str("</div>\n");
+                }
+                html.push_str("</div>\n");
             }
             OutputBlock::Itinerary { imgs, rows } => {
                 for img_rel in imgs {

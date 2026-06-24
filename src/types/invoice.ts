@@ -8,8 +8,8 @@ export type InvoiceCategory =
   | 'Other'
 
 export interface InvoiceSource {
-  type: 'Photo' | 'Pdf' | 'Link'
-  path: string
+  type: 'Photo' | 'Pdf' | 'Link' | 'Manual'
+  path?: string
 }
 
 export interface Itinerary {

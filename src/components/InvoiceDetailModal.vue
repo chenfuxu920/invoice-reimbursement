@@ -107,6 +107,7 @@ const sourceTypeLabel = computed(() => {
   if (t === 'Photo') return '拍照/图片'
   if (t === 'Pdf') return 'PDF 文件'
   if (t === 'Link') return '外部链接'
+  if (t === 'Manual') return '手动添加'
   return t
 })
 const canOpenFile = computed(() => {
@@ -118,6 +119,11 @@ watch(() => props.visible, async (v) => {
   if (!v || !props.invoice) return
   previewImages.value.forEach(u => URL.revokeObjectURL(u))
   previewImages.value = []
+  // 手动添加的空发票无源文件，跳过预览
+  if (!props.invoice.source.path) {
+    loadingPreview.value = false
+    return
+  }
   loadingPreview.value = true
   loadError.value = false
   try {
@@ -134,7 +140,7 @@ watch(() => props.visible, async (v) => {
 })
 
 async function handleOpenFile() {
-  if (!props.invoice) return
+  if (!props.invoice || !props.invoice.source.path) return
   try {
     await invoke('open_file_with_system', { filePath: props.invoice.source.path })
   } catch (e) {

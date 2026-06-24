@@ -88,10 +88,8 @@ async function exportComparisonImagePdf() {
         if (invoiceDir) break
       }
     }
-    if (!invoiceDir) {
-      alert('未找到发票 PDF 文件路径，请确认发票是通过文件导入的')
-      return
-    }
+    // invoiceDir 可能为空（例如全部为手动添加的空发票），此时行程单查找会自动跳过，
+    // 不再阻断生成——对照单仍可正常输出空发票留白页。
 
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({

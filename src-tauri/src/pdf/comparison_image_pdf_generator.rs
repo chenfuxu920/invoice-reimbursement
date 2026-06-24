@@ -14,12 +14,45 @@ enum PdfBlock {
         payment: String,
         over_std: Option<String>,
     },
+    /// 手动添加的空发票：无源图片，页面留白用于粘贴纸质票据，下方显示支付单号
+    BlankInvoice {
+        payment: String,
+    },
     ItineraryPage {
         img: PathBuf,
     },
     ItineraryTable {
         rows: Vec<(usize, f64, String)>,
     },
+}
+
+/// 根据匹配结果构造支付单号文本。
+/// - 市内交通且有行程明细时返回空（由行程表格单独展示）
+/// - 单笔支付：微信单号：xxx / 支付宝单号：xxx
+/// - 多笔支付：以逗号连接
+fn build_payment_text(result: &MatchResult) -> String {
+    let has_table = matches!(result.invoice.category, InvoiceCategory::CityTransport)
+        && !result.invoice.itineraries.is_empty();
+    if has_table || result.payments.is_empty() {
+        return String::new();
+    }
+    fn prefix_for(src: &crate::models::payment::PaymentSource) -> &'static str {
+        match src {
+            crate::models::payment::PaymentSource::Wechat => "微信单号：",
+            crate::models::payment::PaymentSource::Alipay => "支付宝单号：",
+        }
+    }
+    if result.payments.len() == 1 {
+        let p = &result.payments[0];
+        format!("{}{}", prefix_for(&p.source), p.transaction_id)
+    } else {
+        result
+            .payments
+            .iter()
+            .map(|p| format!("{}{}", prefix_for(&p.source), p.transaction_id))
+            .collect::<Vec<_>>()
+            .join("，")
+    }
 }
 
 fn load_printpdf_font(doc: &PdfDocumentReference) -> Result<IndirectFontRef, Box<dyn Error>> {
@@ -61,64 +94,48 @@ pub fn generate_comparison_image_pdf(
     let mut blocks: Vec<PdfBlock> = Vec::new();
 
     for result in match_results {
-        if let InvoiceSource::Pdf(pdf_path) = &result.invoice.source {
-            let is_virtual = result.invoice.invoice_number.is_empty()
-                && matches!(result.invoice.category, InvoiceCategory::CityTransport)
-                && !result.invoice.itineraries.is_empty();
-            if !is_virtual {
-                let tmp = tmp_dir.to_string_lossy().to_string();
-                let img_path =
-                    super::image_embedder::render_pdf_page_to_png(pdf_path, 0, &tmp, dpi)?;
-
-                let nightly_rate_std = destination.and_then(|_| {
-                    if matches!(result.invoice.category, InvoiceCategory::Hotel) {
-                        destination.map(get_hotel_nightly_rate_std)
-                    } else {
-                        None
-                    }
+        match &result.invoice.source {
+            InvoiceSource::Manual => {
+                // 手动添加的空发票：无源图片，留白页用于粘贴纸质票据
+                blocks.push(PdfBlock::BlankInvoice {
+                    payment: build_payment_text(result),
                 });
-                let over_std = nightly_rate_std.and_then(|std| {
-                    result.invoice.hotel_detail.as_ref().map(|detail| {
-                        let standard_amount = std * detail.nights as f64;
-                        if result.invoice.amount > standard_amount + 0.01 {
-                            Some(format!("发票金额{:.2}，实报{:.2}", result.invoice.amount, standard_amount))
+            }
+            InvoiceSource::Pdf(pdf_path) => {
+                let is_virtual = result.invoice.invoice_number.is_empty()
+                    && matches!(result.invoice.category, InvoiceCategory::CityTransport)
+                    && !result.invoice.itineraries.is_empty();
+                if !is_virtual {
+                    let tmp = tmp_dir.to_string_lossy().to_string();
+                    let img_path =
+                        super::image_embedder::render_pdf_page_to_png(pdf_path, 0, &tmp, dpi)?;
+
+                    let nightly_rate_std = destination.and_then(|_| {
+                        if matches!(result.invoice.category, InvoiceCategory::Hotel) {
+                            destination.map(get_hotel_nightly_rate_std)
                         } else {
                             None
                         }
-                    }).flatten()
-                });
+                    });
+                    let over_std = nightly_rate_std.and_then(|std| {
+                        result.invoice.hotel_detail.as_ref().map(|detail| {
+                            let standard_amount = std * detail.nights as f64;
+                            if result.invoice.amount > standard_amount + 0.01 {
+                                Some(format!("发票金额{:.2}，实报{:.2}", result.invoice.amount, standard_amount))
+                            } else {
+                                None
+                            }
+                        }).flatten()
+                    });
 
-                let has_table = matches!(result.invoice.category, InvoiceCategory::CityTransport)
-                    && !result.invoice.itineraries.is_empty();
-                let payment_text = if has_table {
-                    String::new()
-                } else if result.payments.len() == 1 {
-                    let p = &result.payments[0];
-                    let prefix = match p.source {
-                        crate::models::payment::PaymentSource::Wechat => "\u{5fae}\u{4fe1}\u{5355}\u{53f7}\u{ff1a}",
-                        crate::models::payment::PaymentSource::Alipay => "\u{652f}\u{4ed8}\u{5b9d}\u{5355}\u{53f7}\u{ff1a}",
-                    };
-                    format!("{}{}", prefix, p.transaction_id)
-                } else {
-                    result
-                        .payments
-                        .iter()
-                        .map(|p| {
-                            let prefix = match p.source {
-                                crate::models::payment::PaymentSource::Wechat => "\u{5fae}\u{4fe1}\u{5355}\u{53f7}\u{ff1a}",
-                                crate::models::payment::PaymentSource::Alipay => "\u{652f}\u{4ed8}\u{5b9d}\u{5355}\u{53f7}\u{ff1a}",
-                            };
-                            format!("{}{}", prefix, p.transaction_id)
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\u{ff0c}")
-                };
-                blocks.push(PdfBlock::Invoice {
-                    img: img_path,
-                    payment: payment_text,
-                    over_std,
-                });
+                    blocks.push(PdfBlock::Invoice {
+                        img: img_path,
+                        payment: build_payment_text(result),
+                        over_std,
+                    });
+                }
             }
+            _ => {}
         }
 
         if matches!(result.invoice.category, InvoiceCategory::CityTransport)
@@ -241,6 +258,51 @@ pub fn generate_comparison_image_pdf(
                         let cx = (page_w.0 - text_w_mm) / 2.0;
                         layer.use_text(payment.as_str(), font_size, Mm(cx), Mm(6.0), font);
                     }
+                }
+            }
+            PdfBlock::BlankInvoice { payment } => {
+                use printpdf::path::*;
+                use printpdf::Point;
+
+                let margin = 8.0;
+                let bottom_text_h = 20.0;
+                let rect_left = Mm(margin);
+                let rect_right = Mm(page_w.0 - margin);
+                let rect_top = Mm(page_h.0 - margin);
+                let rect_bottom = Mm(bottom_text_h + margin);
+
+                // 浅灰虚框：标识"此处粘贴纸质票据"区域
+                let gray = Color::Rgb(Rgb::new(0.7, 0.7, 0.7, None));
+                layer.set_outline_color(gray);
+                layer.set_outline_thickness(0.5);
+                let points = vec![
+                    (Point::new(rect_left, rect_top), false),
+                    (Point::new(rect_right, rect_top), false),
+                    (Point::new(rect_right, rect_bottom), false),
+                    (Point::new(rect_left, rect_bottom), false),
+                ];
+                let poly = Polygon {
+                    rings: vec![points],
+                    mode: PaintMode::Stroke,
+                    winding_order: WindingOrder::NonZero,
+                };
+                layer.add_polygon(poly);
+
+                // 居中提示文字
+                let hint = "（此处粘贴纸质票据）";
+                let font_size = 16.0;
+                // CJK 字符约 1em 宽
+                let text_w_mm = hint.chars().count() as f32 * font_size * (25.4 / 72.0);
+                let cx = (page_w.0 - text_w_mm) / 2.0;
+                let cy = (rect_top.0 + rect_bottom.0) / 2.0;
+                layer.use_text(hint, font_size, Mm(cx), Mm(cy), font);
+
+                // 底部支付单号
+                if !payment.is_empty() {
+                    let pfont = 14.0;
+                    let pw = payment.chars().count() as f32 * pfont * (25.4 / 72.0) * 0.55;
+                    let pcx = (page_w.0 - pw) / 2.0;
+                    layer.use_text(payment.as_str(), pfont, Mm(pcx), Mm(6.0), font);
                 }
             }
             PdfBlock::ItineraryPage { img } => {

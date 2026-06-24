@@ -16,7 +16,13 @@
     </div>
 
     <div class="mb-8">
-      <h3 class="text-lg font-medium mb-3">发票上传</h3>
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-lg font-medium">发票上传</h3>
+        <button @click="blankVisible = true"
+                class="px-3 py-1.5 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors text-sm font-medium">
+          ＋ 手动添加空发票
+        </button>
+      </div>
       <InvoiceDropZone :loading="invoiceStore.loading" @files-selected="handleInvoiceFiles" />
       <div v-if="invoiceStore.invoices.length" class="mt-4 grid gap-3">
         <InvoiceCard v-for="inv in invoiceStore.invoices" :key="inv.id" :invoice="inv"
@@ -55,6 +61,7 @@
     <InvoiceDetailModal :visible="detailVisible" :invoice="selectedInvoice" @close="detailVisible = false" />
     <ManualInvoiceEntryModal :visible="manualVisible" :file-path="manualEntryFile" :error-id="manualEntryErrorId"
                              @close="manualVisible = false" @save="handleManualSave" />
+    <BlankInvoiceEntryModal :visible="blankVisible" @close="blankVisible = false" @save="handleBlankSave" />
   </div>
 </template>
 
@@ -70,6 +77,7 @@ import PaymentTable from '../components/PaymentTable.vue'
 import LoadingOverlay from '../components/LoadingOverlay.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import ManualInvoiceEntryModal from '../components/ManualInvoiceEntryModal.vue'
+import BlankInvoiceEntryModal from '../components/BlankInvoiceEntryModal.vue'
 import type { Invoice, ParseError } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -83,6 +91,7 @@ const selectedInvoice = ref<Invoice | null>(null)
 const manualVisible = ref(false)
 const manualEntryFile = ref('')
 const manualEntryErrorId = ref('')
+const blankVisible = ref(false)
 const retryingIds = ref<string[]>([])
 
 const globalLoading = ref(false)
@@ -253,6 +262,11 @@ function handleManualSave(invoice: Invoice, errorId: string) {
   invoiceStore.addManualInvoice(invoice)
   invoiceStore.removeParseError(errorId)
   manualVisible.value = false
+}
+
+function handleBlankSave(invoice: Invoice) {
+  invoiceStore.addManualInvoice(invoice)
+  blankVisible.value = false
 }
 
 async function retryParseError(err: ParseError) {

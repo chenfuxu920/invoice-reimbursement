@@ -58,6 +58,7 @@ const expanded = ref(false)
 
 const sourceFileName = computed(() => {
   const p = props.invoice.source.path
+  if (!p) return '手动添加'
   const parts = p.replace(/\\/g, '/').split('/')
   return parts[parts.length - 1] || p
 })

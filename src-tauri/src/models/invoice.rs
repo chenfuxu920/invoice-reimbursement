@@ -18,6 +18,7 @@ pub enum InvoiceSource {
     Photo(String),       // 照片路径
     Pdf(String),         // PDF路径
     Link(String),        // 发票链接
+    Manual,              // 手动添加的空发票（无源文件，用于粘贴纸质票据）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +84,7 @@ mod tests {
         let photo = InvoiceSource::Photo("img.jpg".to_string());
         let pdf = InvoiceSource::Pdf("doc.pdf".to_string());
         let link = InvoiceSource::Link("http://example.com".to_string());
+        let manual = InvoiceSource::Manual;
 
         if let InvoiceSource::Photo(p) = photo {
             assert_eq!(p, "img.jpg");
@@ -99,6 +101,17 @@ mod tests {
         } else {
             panic!("Expected Link variant");
         }
+        assert!(matches!(manual, InvoiceSource::Manual));
+    }
+
+    #[test]
+    fn test_manual_source_serialize_no_path() {
+        // Manual 是无数据的单元变体，序列化后不应包含 path 字段
+        let src = InvoiceSource::Manual;
+        let json = serde_json::to_string(&src).unwrap();
+        assert_eq!(json, r#"{"type":"Manual"}"#);
+        let de: InvoiceSource = serde_json::from_str(&json).unwrap();
+        assert!(matches!(de, InvoiceSource::Manual));
     }
 
     #[test]
