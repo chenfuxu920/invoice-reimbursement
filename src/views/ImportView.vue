@@ -35,7 +35,10 @@
             </div>
             <div class="flex gap-2 shrink-0 ml-2">
               <button @click="openManualEntry(err)" class="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600">手动填写</button>
-              <button @click="retryParseError(err)" class="text-xs px-2 py-1 rounded border hover:bg-gray-50">重试</button>
+              <button @click="retryParseError(err)" :disabled="retryingIds.includes(err.id)"
+                      class="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                {{ retryingIds.includes(err.id) ? '重试中...' : '重试' }}
+              </button>
               <button @click="invoiceStore.removeParseError(err.id)" class="text-xs px-2 py-1 rounded text-gray-400 hover:text-red-500">✕</button>
             </div>
           </div>
@@ -80,6 +83,7 @@ const selectedInvoice = ref<Invoice | null>(null)
 const manualVisible = ref(false)
 const manualEntryFile = ref('')
 const manualEntryErrorId = ref('')
+const retryingIds = ref<string[]>([])
 
 const globalLoading = ref(false)
 const billLoading = ref(false)
@@ -252,11 +256,18 @@ function handleManualSave(invoice: Invoice, errorId: string) {
 }
 
 async function retryParseError(err: ParseError) {
+  if (retryingIds.value.includes(err.id)) return
+  retryingIds.value.push(err.id)
   const isImage = /\.(jpg|jpeg|png)$/i.test(err.filePath)
   try {
     if (isImage) {
       const added = await invoiceStore.addInvoice(err.filePath, 'image')
-      if (added) invoiceStore.removeParseError(err.id)
+      if (added) {
+        invoiceStore.removeParseError(err.id)
+      } else {
+        alert('该发票已存在，无需重复导入')
+        invoiceStore.removeParseError(err.id)
+      }
     } else {
       const result: { invoices: any[], errors: [string, string][], duplicates: string[] } =
         await invoke('batch_recognize', { filePaths: [err.filePath] })
@@ -270,6 +281,8 @@ async function retryParseError(err: ParseError) {
   } catch (e) {
     console.error('重试解析失败:', e)
     alert('重试失败: ' + e)
+  } finally {
+    retryingIds.value = retryingIds.value.filter(id => id !== err.id)
   }
 }
 </script>
