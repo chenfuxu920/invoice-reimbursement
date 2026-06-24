@@ -90,8 +90,9 @@
       </div>
 
       <div class="p-4 border-t flex justify-end gap-2 shrink-0">
+        <p v-if="saveError" class="flex-1 text-sm text-red-500 self-center">{{ saveError }}</p>
         <button @click="$emit('close')" class="px-4 py-2 rounded border hover:bg-gray-50 text-sm">取消</button>
-        <button @click="handleSave" :disabled="!form.amount" class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 text-sm">保存</button>
+        <button @click="handleSave" :disabled="!isFormValid" class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 text-sm">保存</button>
       </div>
     </div>
   </div>
@@ -113,6 +114,11 @@ const previewImages = ref<string[]>([])
 const loadingPreview = ref(false)
 const loadError = ref(false)
 const showItinerary = ref(false)
+const saveError = ref('')
+
+const isFormValid = computed(() => {
+  return form.amount > 0 && !isNaN(form.amount) && form.invoice_number.trim() !== ''
+})
 
 const categoryOptions = computed(() =>
   (Object.keys(CATEGORY_LABELS) as InvoiceCategory[]).map(v => ({ value: v, label: CATEGORY_LABELS[v] }))
@@ -139,6 +145,11 @@ function addItinerary() {
 }
 
 function handleSave() {
+  if (!isFormValid.value) {
+    saveError.value = '请填写发票号与有效金额'
+    return
+  }
+  saveError.value = ''
   const invoice: Invoice = {
     id: 'manual-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
     invoice_number: form.invoice_number,
@@ -148,18 +159,29 @@ function handleSave() {
     date: form.date,
     category: form.category,
     source: { type: form.source.type, path: props.filePath },
-    itineraries: form.itineraries.filter(it => it.date_time || it.provider || it.pickup || it.dropoff || it.amount),
+    itineraries: form.itineraries.filter(it =>
+      it.date_time || it.provider || it.pickup || it.dropoff || (!isNaN(it.amount) && it.amount > 0)
+    ),
   }
   emit('save', invoice, props.errorId)
 }
 
 watch(() => props.visible, async (v) => {
   if (!v || !props.filePath) return
-  previewImages.value.forEach(u => URL.revokeObjectURL(u))
+  // data URLs，无需手动清理
   previewImages.value = []
   loadingPreview.value = true
   loadError.value = false
+  saveError.value = ''
   form.source.path = props.filePath
+  form.invoice_number = ''
+  form.amount = 0
+  form.seller_name = ''
+  form.item_name = ''
+  form.date = new Date().toISOString().slice(0, 10)
+  form.category = 'Other'
+  form.itineraries = []
+  showItinerary.value = false
   try {
     const paths: string[] = await invoke('render_pdf_preview', { filePath: props.filePath })
     previewImages.value = paths
