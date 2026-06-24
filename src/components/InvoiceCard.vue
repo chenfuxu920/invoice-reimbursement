@@ -7,7 +7,7 @@
           {{ getCategoryIcon(invoice.category) }} {{ getCategoryStyle(invoice.category).label }}
         </span>
         <!-- 标题/金额区：可点击打开详情弹窗（stop 防止触发整卡展开） -->
-        <div class="mt-2 cursor-pointer hover:text-blue-600 transition-colors"
+        <div class="mt-2 cursor-pointer"
              @click.stop="$emit('view-detail', invoice)">
           <p class="text-lg font-bold">¥{{ invoice.amount.toFixed(2) }}</p>
           <p class="text-sm text-gray-500 hover:text-blue-600">{{ invoice.seller_name || '未知销售方' }}</p>
