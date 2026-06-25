@@ -338,8 +338,17 @@ pub fn parse_invoice_text(
     // 提取票据出发/到达城市（仅 Train/Flight 类发票）
     let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
     let travel_date = extract_ticket_travel_date(&all_text, &category);
+
+    // 通行费发票"备注"二字常为竖排印刷，OCR 识别不到导致 remarks 区域为空。
+    // 此时通过坐标从价税合计下方恢复备注文本。
+    let effective_remarks = if category == InvoiceCategory::Toll && regions.remarks.is_empty() {
+        extract_toll_remarks_by_coords(texts)
+    } else {
+        regions.remarks.clone()
+    };
+
     let toll_travel_time = if category == InvoiceCategory::Toll {
-        extract_toll_travel_time(&regions.remarks)
+        extract_toll_travel_time(&effective_remarks)
     } else {
         None
     };
@@ -356,7 +365,7 @@ pub fn parse_invoice_text(
         source,
         itineraries: vec![],
         itinerary_file: None,
-        remarks: regions.remarks.clone(),
+        remarks: effective_remarks,
         hotel_detail,
         departure_city,
         arrival_city,
@@ -804,10 +813,12 @@ pub fn classify_from_full_text(
 /// 支持格式："YYYY-MM-DD HH:MM:SS" 或 "YYYY-MM-DD"。
 /// 取第一个匹配的日期时间字符串。
 pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> {
-    // 优先匹配 "YYYY-MM-DD HH:MM:SS"
-    let re_datetime = regex::Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})").ok()?;
+    // 优先匹配 "YYYY-MM-DD HH:MM:SS"，日期与时间之间空格可选
+    // OCR 常将日期和时间粘连，如 "2026-05-2510:06:04"
+    let re_datetime = regex::Regex::new(r"(\d{4}-\d{2}-\d{2})\s*(\d{2}:\d{2}:\d{2})").ok()?;
     if let Some(caps) = re_datetime.captures(remarks) {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&caps[1], "%Y-%m-%d %H:%M:%S") {
+        let combined = format!("{} {}", &caps[1], &caps[2]);
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&combined, "%Y-%m-%d %H:%M:%S") {
             return Some(dt);
         }
     }
@@ -885,6 +896,77 @@ fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
         }
     }
     best_name
+}
+
+/// 从 box_coords 提取顶部 Y 坐标（points[0].y）
+fn box_top_y(coords: &Option<serde_json::Value>) -> Option<f64> {
+    coords.as_ref()?
+        .get("points")?
+        .as_array()?
+        .first()?
+        .get("y")?
+        .as_f64()
+}
+
+/// 从 box_coords 提取底部 Y 坐标（points[2].y）
+fn box_bottom_y(coords: &Option<serde_json::Value>) -> Option<f64> {
+    coords.as_ref()?
+        .get("points")?
+        .as_array()?
+        .get(2)?
+        .get("y")?
+        .as_f64()
+}
+
+/// 通行费发票"备注"二字常为竖排印刷，OCR 识别不到，
+/// 导致 split_into_regions 无法切换到 remarks 区域。
+/// 此函数通过坐标从"价税合计"下方、"开票人"上方恢复备注文本。
+fn extract_toll_remarks_by_coords(texts: &[OcrTextItem]) -> String {
+    // 找价税合计行的底部 Y（备注在其下方）
+    let total_bottom_y = texts.iter()
+        .filter(|t| t.text.contains("价税合计"))
+        .filter_map(|t| box_bottom_y(&t.box_coords))
+        .max_by(|a, b| a.partial_cmp(b).unwrap());
+
+    let total_bottom_y = match total_bottom_y {
+        Some(y) => y,
+        None => return String::new(),
+    };
+
+    // 找开票人行的顶部 Y（备注在其上方，若存在）
+    let drawer_top_y = texts.iter()
+        .filter(|t| t.text.contains("开票人"))
+        .filter_map(|t| box_top_y(&t.box_coords))
+        .min_by(|a, b| a.partial_cmp(b).unwrap());
+
+    // 收集价税合计下方、开票人上方（若有）的文本，按 Y 坐标排序
+    let mut parts: Vec<(f64, String)> = Vec::new();
+    for item in texts {
+        let y = match box_top_y(&item.box_coords) {
+            Some(y) => y,
+            None => continue,
+        };
+        if y <= total_bottom_y {
+            continue;
+        }
+        if let Some(drawer_y) = drawer_top_y {
+            if y >= drawer_y {
+                continue;
+            }
+        }
+        let text = item.text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        // 排除页脚噪声
+        if text.contains("localhost") || text == "1/1" {
+            continue;
+        }
+        parts.push((y, text.to_string()));
+    }
+
+    parts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    parts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(" ")
 }
 
 fn extract_item_name(text: &str) -> String {
@@ -1519,5 +1601,105 @@ mod tests {
         let t = time.unwrap();
         assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
         assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+    }
+
+    /// Bug: OCR 将日期和时间粘连（无空格），如 "2026-05-2510:06:04"
+    #[test]
+    fn test_extract_toll_travel_time_no_space_between_date_time() {
+        let remarks = "湘ADG5926 湖南新港站入湖南黄花站出2026-05-2510:06:04（不可用于增值税进项抵扣）";
+        let time = extract_toll_travel_time(remarks);
+        assert!(time.is_some(), "should extract time even without space");
+        let t = time.unwrap();
+        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
+    }
+
+    /// Bug: 通行费发票"备注"二字竖排印刷，OCR 识别不到，
+    /// 导致 split_into_regions 无法切换到 remarks 区域，备注内容丢失。
+    /// 应通过坐标从价税合计下方恢复备注。
+    #[test]
+    fn test_parse_toll_invoice_remarks_recovered_by_coords() {
+        let texts = vec![
+            OcrTextItem {
+                text: "发票号码：2643700002859951".to_string(),
+                confidence: 0.99,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":1177,"y":131},{"x":1524,"y":131},{"x":1524,"y":176},{"x":1177,"y":176}]
+                })),
+            },
+            OcrTextItem {
+                text: "开票日期：2026年06月07日".to_string(),
+                confidence: 1.0,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":1177,"y":199},{"x":1456,"y":199},{"x":1456,"y":237},{"x":1177,"y":237}]
+                })),
+            },
+            OcrTextItem {
+                text: "名称：中国人民解放军国防科技大学".to_string(),
+                confidence: 1.0,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":170,"y":321},{"x":552,"y":321},{"x":552,"y":376},{"x":170,"y":376}]
+                })),
+            },
+            OcrTextItem {
+                text: "名称：湖南省高速公路集团有限公司".to_string(),
+                confidence: 1.0,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":882,"y":326},{"x":1251,"y":326},{"x":1251,"y":371},{"x":882,"y":371}]
+                })),
+            },
+            OcrTextItem {
+                text: "*生产生活服务*通行费".to_string(),
+                confidence: 1.0,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":131,"y":521},{"x":376,"y":521},{"x":376,"y":566},{"x":131,"y":566}]
+                })),
+            },
+            OcrTextItem {
+                text: "价税合计（大写）".to_string(),
+                confidence: 0.98,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":202,"y":769},{"x":388,"y":769},{"x":388,"y":816},{"x":202,"y":816}]
+                })),
+            },
+            OcrTextItem {
+                text: "￥12.00".to_string(),
+                confidence: 0.92,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":1192,"y":769},{"x":1286,"y":769},{"x":1286,"y":819},{"x":1192,"y":819}]
+                })),
+            },
+            // 备注行：无"备注"关键词，在价税合计下方
+            OcrTextItem {
+                text: "湘ADG5926 湖南新港站入湖南黄花站出2026-05-2510:06:04（不可用于增值税进项抵扣）".to_string(),
+                confidence: 0.97,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":172,"y":838},{"x":1097,"y":838},{"x":1097,"y":883},{"x":172,"y":883}]
+                })),
+            },
+            OcrTextItem {
+                text: "开票人：刘婷婷".to_string(),
+                confidence: 1.0,
+                box_coords: Some(serde_json::json!({
+                    "points":[{"x":114,"y":989},{"x":293,"y":989},{"x":293,"y":1034},{"x":114,"y":1034}]
+                })),
+            },
+        ];
+        let result = parse_invoice_text(&texts, InvoiceSource::Pdf("toll.pdf".to_string()));
+        assert!(result.is_ok());
+        let inv = result.unwrap();
+        assert_eq!(inv.category, InvoiceCategory::Toll);
+        assert!(
+            inv.remarks.contains("湘ADG5926"),
+            "remarks should contain plate number, got: '{}'",
+            inv.remarks
+        );
+        assert!(
+            inv.toll_travel_time.is_some(),
+            "toll_travel_time should be extracted from recovered remarks"
+        );
+        let t = inv.toll_travel_time.unwrap();
+        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
     }
 }
