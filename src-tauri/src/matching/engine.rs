@@ -42,13 +42,24 @@ impl MatchEngine {
     }
 
     /// One-to-one matching: find the single payment closest to the invoice amount
-    /// within the tolerance. 当多笔支付都落在金额容差内时，优先选时间与发票日期
-    /// 最近的；天数差相同时再按金额差决胜。
+    /// within the tolerance. 当多笔支付都落在金额容差内时，优先选时间与发票
+    /// "实际交易时间"最近的；天数差相同时再按金额差决胜。
+    ///
+    /// 参考日期优先级（预付费场景下开票日期 ≠ 交易时间）：
+    /// 1. travel_date（火车票/机票出行日期）
+    /// 2. toll_travel_time 的日期（高速费通行时间）
+    /// 3. hotel_detail.check_in（住宿入住日期）
+    /// 4. invoice.date（开票日期，回退）
     pub fn match_one_to_one(
         &self,
         invoice: &Invoice,
         payments: &[PaymentRecord],
     ) -> Option<MatchResult> {
+        let ref_date = invoice.travel_date
+            .or_else(|| invoice.toll_travel_time.map(|t| t.date()))
+            .or_else(|| invoice.hotel_detail.as_ref().and_then(|h| h.check_in))
+            .unwrap_or(invoice.date);
+
         // (days_diff, amount_diff, payment)
         let mut best: Option<(i64, f64, &PaymentRecord)> = None;
         for payment in payments {
@@ -59,7 +70,7 @@ impl MatchEngine {
                 continue;
             }
             let days_diff = parse_payment_date(&payment.transaction_time)
-                .map(|pd| (invoice.date - pd).num_days().abs())
+                .map(|pd| (ref_date - pd).num_days().abs())
                 .unwrap_or(i64::MAX);
             let is_better = match best {
                 None => true,
@@ -541,6 +552,94 @@ mod tests {
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
         // 同一天，按金额差选 p2
         assert_eq!(result.payment_ids[0], "p2");
+    }
+
+    #[test]
+    fn test_one_to_one_uses_travel_date_for_train() {
+        let engine = MatchEngine::default();
+        // 火车票：开票日期 1/10（提前购票），出行日期 1/15
+        // 支付1：1/10 附近（开票日期），支付2：1/15 附近（出行日期）
+        // 应优先匹配出行日期附近的支付
+        let mut invoice = make_invoice_at("inv1", 100.00, "2025-01-10");
+        invoice.category = InvoiceCategory::Train;
+        invoice.travel_date = Some(NaiveDate::from_ymd_opt(2025, 1, 15).unwrap());
+        let payments = vec![
+            make_payment_at("p_invoice", 100.00, "2025-01-10 12:00"),
+            make_payment_at("p_travel", 100.00, "2025-01-15 08:00"),
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert_eq!(result.payment_ids[0], "p_travel");
+    }
+
+    #[test]
+    fn test_one_to_one_uses_travel_date_for_flight() {
+        let engine = MatchEngine::default();
+        // 机票：开票日期 1/12，出行日期 1/20
+        let mut invoice = make_invoice_at("inv1", 800.00, "2025-01-12");
+        invoice.category = InvoiceCategory::Flight;
+        invoice.travel_date = Some(NaiveDate::from_ymd_opt(2025, 1, 20).unwrap());
+        let payments = vec![
+            make_payment_at("p_invoice", 800.00, "2025-01-12 14:00"),
+            make_payment_at("p_travel", 800.00, "2025-01-20 06:00"),
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert_eq!(result.payment_ids[0], "p_travel");
+    }
+
+    #[test]
+    fn test_one_to_one_uses_check_in_for_hotel() {
+        let engine = MatchEngine::default();
+        // 住宿：开票日期 1/18（退房时开票），入住日期 1/15
+        // 支付在入住时产生（预付），应匹配入住日期附近
+        let mut invoice = make_invoice_at("inv1", 300.00, "2025-01-18");
+        invoice.category = InvoiceCategory::Hotel;
+        invoice.hotel_detail = Some(crate::models::invoice::HotelDetail {
+            check_in: Some(NaiveDate::from_ymd_opt(2025, 1, 15).unwrap()),
+            check_out: Some(NaiveDate::from_ymd_opt(2025, 1, 18).unwrap()),
+            nights: 3,
+            nightly_rate: 100.0,
+        });
+        let payments = vec![
+            make_payment_at("p_invoice", 300.00, "2025-01-18 10:00"),  // 退房开票日期附近
+            make_payment_at("p_checkin", 300.00, "2025-01-15 14:00"),  // 入住日期附近
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert_eq!(result.payment_ids[0], "p_checkin");
+    }
+
+    #[test]
+    fn test_one_to_one_uses_toll_travel_time() {
+        let engine = MatchEngine::default();
+        // 高速费：开票日期 1/20（ETC延迟），通行时间 1/15 09:30
+        let mut invoice = make_invoice_at("inv1", 10.00, "2025-01-20");
+        invoice.category = InvoiceCategory::Toll;
+        invoice.toll_travel_time = Some(
+            chrono::NaiveDateTime::parse_from_str("2025-01-15 09:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
+        );
+        let payments = vec![
+            make_payment_at("p_invoice", 10.00, "2025-01-20 12:00"),
+            make_payment_at("p_travel", 10.00, "2025-01-15 09:35"),
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert_eq!(result.payment_ids[0], "p_travel");
+    }
+
+    #[test]
+    fn test_one_to_one_falls_back_to_invoice_date_when_no_travel_date() {
+        let engine = MatchEngine::default();
+        // 无 travel_date / toll_travel_time / hotel_detail 时，回退开票日期
+        let invoice = make_invoice_at("inv1", 100.00, "2025-01-15");
+        let payments = vec![
+            make_payment_at("p1", 100.00, "2025-01-15 12:00"),
+            make_payment_at("p2", 100.00, "2025-01-20 12:00"),
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        assert_eq!(result.payment_ids[0], "p1");
     }
 }
 

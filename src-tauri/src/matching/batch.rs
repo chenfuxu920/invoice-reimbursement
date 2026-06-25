@@ -39,7 +39,7 @@ pub fn batch_match(
     let mut used_payment_ids: Vec<String> = Vec::new();
 
     // === 第一阶段：高速费单独匹配（最先，避免支付被行程占据）===
-    // 高速费用通行时间（toll_travel_time）匹配，而非开票日期（ETC延迟开票）
+    // match_one_to_one 内部已统一用 toll_travel_time 匹配（见 engine.rs）
     let mut pending_tolls: Vec<Invoice> = Vec::new();  // 单独匹配失败，待关联行程
     for toll in &toll_invoices {
         let available: Vec<PaymentRecord> = payments
@@ -47,16 +47,7 @@ pub fn batch_match(
             .filter(|p| !used_payment_ids.contains(&p.id))
             .cloned()
             .collect();
-        // 用通行时间替换开票日期，使 match_one_to_one 按通行时间匹配
-        let mut toll_for_match = toll.clone();
-        if let Some(tt) = toll.toll_travel_time {
-            toll_for_match.date = tt.date();
-        }
-        if let Some(mr) = engine.match_one_to_one(&toll_for_match, &available) {
-            // MatchResult 中用原始发票（保留原始开票日期）
-            let mut mr = mr;
-            mr.invoice = toll.clone();
-            mr.invoice_id = toll.id.clone();
+        if let Some(mr) = engine.match_one_to_one(toll, &available) {
             for pid in &mr.payment_ids {
                 used_payment_ids.push(pid.clone());
             }
