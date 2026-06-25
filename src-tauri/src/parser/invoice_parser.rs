@@ -338,6 +338,11 @@ pub fn parse_invoice_text(
     // 提取票据出发/到达城市（仅 Train/Flight 类发票）
     let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
     let travel_date = extract_ticket_travel_date(&all_text, &category);
+    let toll_travel_time = if category == InvoiceCategory::Toll {
+        extract_toll_travel_time(&regions.remarks)
+    } else {
+        None
+    };
 
     Ok(Invoice {
         id: Uuid::new_v4().to_string(),
@@ -355,7 +360,7 @@ pub fn parse_invoice_text(
         hotel_detail,
         departure_city,
         arrival_city,
-        toll_travel_time: None,
+        toll_travel_time,
     })
 }
 
@@ -749,6 +754,7 @@ pub fn classify_from_full_text(
         InvoiceType::RideHailingInvoice | InvoiceType::RideHailingItinerary => {
             return InvoiceCategory::CityTransport
         }
+        InvoiceType::TollInvoice => return InvoiceCategory::Toll,
         _ => {}
     }
 
@@ -792,6 +798,27 @@ pub fn classify_from_full_text(
     }
 
     InvoiceCategory::Other
+}
+
+/// 从高速费发票备注中提取通行时间。
+/// 支持格式："YYYY-MM-DD HH:MM:SS" 或 "YYYY-MM-DD"。
+/// 取第一个匹配的日期时间字符串。
+pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> {
+    // 优先匹配 "YYYY-MM-DD HH:MM:SS"
+    let re_datetime = regex::Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})").ok()?;
+    if let Some(caps) = re_datetime.captures(remarks) {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&caps[1], "%Y-%m-%d %H:%M:%S") {
+            return Some(dt);
+        }
+    }
+    // 回退匹配 "YYYY-MM-DD"
+    let re_date = regex::Regex::new(r"(\d{4}-\d{2}-\d{2})").ok()?;
+    if let Some(caps) = re_date.captures(remarks) {
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(&caps[1], "%Y-%m-%d") {
+            return d.and_hms_opt(0, 0, 0);
+        }
+    }
+    None
 }
 
 fn extract_amount(text: &str) -> Result<f64, String> {
@@ -1455,5 +1482,42 @@ mod tests {
 
         // 销售方应一致
         assert!(!templated.seller_name.is_empty(), "模板模式销售方不应为空");
+    }
+
+    #[test]
+    fn test_extract_toll_travel_time_standard_format() {
+        let remarks = "湘ADG5926 湖南新港站入 湖南黄花站出 2026-05-25 10:06:04 （不可用于增值税进项抵扣）";
+        let time = extract_toll_travel_time(remarks);
+        assert!(time.is_some());
+        let t = time.unwrap();
+        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
+    }
+
+    #[test]
+    fn test_extract_toll_travel_time_second_example() {
+        let remarks = "川AB55365 四川天府机场T1T2站入 四川天府机场成都站出 2026-06-23 14:24:10 （不可用于增值税进项抵扣）";
+        let time = extract_toll_travel_time(remarks);
+        assert!(time.is_some());
+        let t = time.unwrap();
+        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 6, 23).unwrap());
+        assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(14, 24, 10).unwrap());
+    }
+
+    #[test]
+    fn test_extract_toll_travel_time_no_date() {
+        let remarks = "普通备注无时间";
+        let time = extract_toll_travel_time(remarks);
+        assert!(time.is_none());
+    }
+
+    #[test]
+    fn test_extract_toll_travel_time_date_only() {
+        let remarks = "通行时间 2026-05-25";
+        let time = extract_toll_travel_time(remarks);
+        assert!(time.is_some());
+        let t = time.unwrap();
+        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
     }
 }
