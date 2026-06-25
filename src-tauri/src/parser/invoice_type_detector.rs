@@ -11,6 +11,7 @@ pub enum InvoiceType {
     TrainInvoice,
     HotelStatement,
     TransitCardStatement,
+    TollInvoice,    // 高速通行费发票
     Other,
 }
 
@@ -35,6 +36,10 @@ impl InvoiceTypeDetector {
 
         if Self::is_flight_invoice(&all_text) {
             return InvoiceType::FlightInvoice;
+        }
+
+        if Self::is_toll_invoice(&all_text) {
+            return InvoiceType::TollInvoice;
         }
 
         if Self::is_vat_electronic_invoice(&all_text) {
@@ -93,6 +98,13 @@ impl InvoiceTypeDetector {
     fn is_ride_hailing_invoice(text: &str) -> bool {
         (text.contains("滴滴") || text.contains("高德") || text.contains("T3") || text.contains("曹操"))
             && !text.contains("行程单")
+    }
+
+    fn is_toll_invoice(text: &str) -> bool {
+        text.contains("通行费")
+            || text.contains("过路费")
+            || (text.contains("ETC") && text.contains("高速"))
+            || (text.contains("高速") && text.contains("电子发票"))
     }
 }
 
@@ -196,5 +208,30 @@ mod tests {
     fn test_flight_from_travel_platform() {
         let ocr = create_ocr_output(vec!["飞猪行程单", "航班信息"]);
         assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::FlightInvoice);
+    }
+
+    #[test]
+    fn test_detect_toll_invoice_by_keyword() {
+        let ocr = create_ocr_output(vec!["通行费", "增值税电子发票", "价税合计：10.00"]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TollInvoice);
+    }
+
+    #[test]
+    fn test_detect_toll_invoice_etc() {
+        let ocr = create_ocr_output(vec!["ETC通行费", "高速公路", "金额：15.50"]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TollInvoice);
+    }
+
+    #[test]
+    fn test_detect_toll_invoice_overpass_fee() {
+        let ocr = create_ocr_output(vec!["过路费", "电子发票"]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TollInvoice);
+    }
+
+    #[test]
+    fn test_detect_toll_priority_over_vat_electronic() {
+        // 同时含"增值税电子发票"和"通行费"，应优先识别为 Toll
+        let ocr = create_ocr_output(vec!["增值税电子发票", "通行费", "价税合计：10.00"]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TollInvoice);
     }
 }
