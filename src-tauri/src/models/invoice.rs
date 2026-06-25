@@ -34,7 +34,8 @@ pub struct Invoice {
     pub source: InvoiceSource,        // 来源
     pub itineraries: Vec<Itinerary>,  // 行程（打车场景）
     pub itinerary_file: Option<String>, // 关联的行程单文件（仅市内交通）
-    pub remarks: String,              // 备注栏内容
+    #[serde(default)]
+    pub remarks: String,              // 备注栏内容（前端手动创建的发票可能不含此字段，默认空串）
     pub hotel_detail: Option<HotelDetail>, // 住宿详情（仅住宿发票）
     // NEW: 票据出发/到达城市（仅 Train/Flight 类发票有值）
     pub departure_city: Option<String>,
@@ -112,6 +113,58 @@ mod tests {
         assert_eq!(json, r#"{"type":"Manual"}"#);
         let de: InvoiceSource = serde_json::from_str(&json).unwrap();
         assert!(matches!(de, InvoiceSource::Manual));
+    }
+
+    #[test]
+    fn test_deserialize_full_invoice_with_manual_source() {
+        // 模拟前端 invoke('auto_match', { invoices }) 发送的 JSON：
+        // 一张手动添加的空发票，source 为 {"type":"Manual"}（无 path 字段）
+        let json = r#"{
+            "id": "manual-blank-1",
+            "invoice_number": "",
+            "amount": 50.0,
+            "seller_name": "",
+            "item_name": "",
+            "date": "2026-06-25",
+            "travel_date": null,
+            "category": "Meal",
+            "source": {"type": "Manual"},
+            "itineraries": [],
+            "itinerary_file": null,
+            "remarks": "",
+            "hotel_detail": null,
+            "departure_city": null,
+            "arrival_city": null
+        }"#;
+        let inv: Invoice = serde_json::from_str(json).unwrap_or_else(|e| {
+            panic!("反序列化 Manual 发票失败，这正是 auto_match 无响应的根因: {}", e)
+        });
+        assert!(matches!(inv.source, InvoiceSource::Manual));
+        assert!((inv.amount - 50.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_deserialize_minimal_frontend_invoice() {
+        // 模拟前端 BlankInvoiceEntryModal 实际发送的最小 JSON：
+        // 缺少 remarks / itinerary_file / hotel_detail / departure_city / arrival_city
+        // （前端 Invoice 类型不包含这些字段）
+        let json = r#"{
+            "id": "manual-blank-1",
+            "invoice_number": "",
+            "amount": 50.0,
+            "seller_name": "",
+            "item_name": "",
+            "date": "2026-06-25",
+            "category": "Meal",
+            "source": {"type": "Manual"},
+            "itineraries": []
+        }"#;
+        let result: Result<Invoice, _> = serde_json::from_str(json);
+        if let Err(ref e) = result {
+            eprintln!("最小前端 Invoice 反序列化失败: {}", e);
+        }
+        let inv = result.expect("前端最小 Invoice 应能反序列化（缺少的字段需 serde default）");
+        assert!(matches!(inv.source, InvoiceSource::Manual));
     }
 
     #[test]

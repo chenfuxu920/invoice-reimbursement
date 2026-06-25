@@ -19,6 +19,10 @@ export const useMatchStore = defineStore('match', () => {
       matches.value = result.matched
       unmatchedInvoices.value = result.unmatched_invoices
       unmatchedPayments.value = result.unmatched_payments
+    } catch (e) {
+      // 后端反序列化/匹配失败时显式抛出，避免被静默吞掉（表现为"点击无反应"）
+      console.error('自动匹配失败:', e)
+      throw e
     } finally {
       loading.value = false
     }

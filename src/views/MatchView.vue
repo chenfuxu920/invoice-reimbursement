@@ -133,7 +133,11 @@ const showPaymentDetail = ref(false)
 const viewingPayments = ref<PaymentRecord[]>([])
 
 async function runAutoMatch() {
-  await matchStore.autoMatch(invoiceStore.invoices, paymentStore.payments)
+  try {
+    await matchStore.autoMatch(invoiceStore.invoices, paymentStore.payments)
+  } catch (e) {
+    alert('自动匹配失败: ' + e)
+  }
 }
 
 function handleAdjust(match: MatchResult) {
