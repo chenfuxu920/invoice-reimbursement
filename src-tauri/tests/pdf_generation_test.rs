@@ -26,6 +26,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
+                    toll_travel_time: None,
     }
 }
 

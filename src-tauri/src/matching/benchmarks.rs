@@ -37,6 +37,7 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
             InvoiceCategory::Flight => 500.0 + (i as f64 % 2000.0),
             InvoiceCategory::Train => 100.0 + (i as f64 % 500.0),
             InvoiceCategory::TicketChange => 50.0 + (i as f64 % 200.0),
+            InvoiceCategory::Toll => 10.0 + (i as f64 % 50.0),
             InvoiceCategory::Other => 50.0 + (i as f64 % 200.0),
         };
         
@@ -68,6 +69,7 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
+                        toll_travel_time: None,
         });
     }
     
@@ -255,6 +257,7 @@ mod performance_tests {
                 hotel_detail: None,
                 departure_city: None,
                 arrival_city: None,
+                            toll_travel_time: None,
             });
         }
         

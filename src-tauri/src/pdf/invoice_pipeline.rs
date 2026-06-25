@@ -208,6 +208,7 @@ pub fn pair_invoices_with_itineraries(
                 hotel_detail: None,
                 departure_city: None,
                 arrival_city: None,
+                            toll_travel_time: None,
             });
         }
     }

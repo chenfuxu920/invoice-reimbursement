@@ -9,6 +9,7 @@ pub enum InvoiceCategory {
     CityTransport,  // 市内交通
     Hotel,          // 住宿费
     Meal,           // 餐饮费
+    Toll,           // 高速通行费
     Other,          // 其他
 }
 
@@ -40,6 +41,8 @@ pub struct Invoice {
     // NEW: 票据出发/到达城市（仅 Train/Flight 类发票有值）
     pub departure_city: Option<String>,
     pub arrival_city: Option<String>,
+    #[serde(default)]
+    pub toll_travel_time: Option<chrono::NaiveDateTime>,  // 通行时间（从备注提取，仅 Toll 类）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +188,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
+            toll_travel_time: None,
         };
         assert_eq!(invoice.id, "test-id");
         assert_eq!(invoice.invoice_number, "INV001");
@@ -219,6 +223,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
+            toll_travel_time: None,
         };
         assert_eq!(invoice.itineraries.len(), 1);
         assert_eq!(invoice.itineraries[0].provider, "滴滴");
@@ -226,10 +231,58 @@ mod tests {
     }
 
     #[test]
-    fn test_invoice_category_serialize_deserialize() {
+    fn test_invoice_category_serialize_deserialization() {
         let cat = InvoiceCategory::Hotel;
         let json = serde_json::to_string(&cat).unwrap();
         let deserialized: InvoiceCategory = serde_json::from_str(&json).unwrap();
         assert_eq!(cat, deserialized);
     }
+
+    #[test]
+    fn test_toll_category_exists() {
+        let toll = InvoiceCategory::Toll;
+        assert_eq!(toll, InvoiceCategory::Toll);
+        assert_ne!(toll, InvoiceCategory::Other);
+        assert_ne!(toll, InvoiceCategory::CityTransport);
+    }
+
+    #[test]
+    fn test_invoice_with_toll_travel_time() {
+        let invoice = Invoice {
+            id: "inv1".to_string(),
+            invoice_number: String::new(),
+            amount: 10.0,
+            seller_name: String::new(),
+            item_name: String::new(),
+            date: NaiveDate::from_ymd_opt(2026, 5, 25).unwrap(),
+            travel_date: None,
+            category: InvoiceCategory::Toll,
+            source: InvoiceSource::Manual,
+            itineraries: vec![],
+            itinerary_file: None,
+            remarks: String::new(),
+            hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
+            toll_travel_time: Some(
+                chrono::NaiveDateTime::parse_from_str("2026-05-25 10:06:04", "%Y-%m-%d %H:%M:%S").unwrap()
+            ),
+        };
+        assert!(invoice.toll_travel_time.is_some());
+        assert_eq!(invoice.category, InvoiceCategory::Toll);
+    }
+
+    #[test]
+    fn test_invoice_toll_travel_time_serde_default() {
+        // 旧数据无 toll_travel_time 字段，反序列化应默认 None
+        let json = r#"{
+            "id":"inv1","invoice_number":"","amount":10.0,"seller_name":"",
+            "item_name":"","date":"2026-05-25","travel_date":null,
+            "category":"Toll","source":{"type":"Manual"},
+            "itineraries":[],"itinerary_file":null,"remarks":"",
+            "hotel_detail":null,"departure_city":null,"arrival_city":null
+        }"#;
+        let invoice: Invoice = serde_json::from_str(json).unwrap();
+         assert!(invoice.toll_travel_time.is_none());
+     }
 }

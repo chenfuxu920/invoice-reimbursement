@@ -604,6 +604,7 @@ fn category_label(cat: &InvoiceCategory) -> &str {
         InvoiceCategory::Flight => "飞机票",
         InvoiceCategory::TicketChange => "订（退、改签）票及交通保险费",
         InvoiceCategory::CityTransport => "市内交通费",
+        InvoiceCategory::Toll => "市内交通费",
         InvoiceCategory::Hotel => "住宿费",
         InvoiceCategory::Meal => "餐补/伙食补助",
         InvoiceCategory::Other => "其他",
@@ -772,6 +773,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
+                                toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-train".to_string()],
                 payments: vec![PaymentRecord {
@@ -819,6 +821,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
+                                toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-didi".to_string()],
                 payments: vec![PaymentRecord {
@@ -851,6 +854,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
+                                toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-hotel".to_string()],
                 payments: vec![PaymentRecord {

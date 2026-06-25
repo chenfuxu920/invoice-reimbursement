@@ -42,6 +42,7 @@ fn make_hotel_match(
         }),
         departure_city: None,
         arrival_city: None,
+                    toll_travel_time: None,
     };
     let payment = PaymentRecord {
         id: format!("pay-{}", id),
@@ -85,6 +86,7 @@ fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
+                    toll_travel_time: None,
     };
     let payment = PaymentRecord {
         id: format!("pay-{}", id),

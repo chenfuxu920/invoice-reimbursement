@@ -216,6 +216,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
+                        toll_travel_time: None,
         }
     }
 
@@ -241,6 +242,7 @@ mod tests {
             }),
             departure_city: None,
             arrival_city: None,
+                        toll_travel_time: None,
         }
     }
 

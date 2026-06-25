@@ -355,6 +355,7 @@ pub fn parse_invoice_text(
         hotel_detail,
         departure_city,
         arrival_city,
+        toll_travel_time: None,
     })
 }
 
@@ -553,6 +554,7 @@ pub fn parse_structured_invoice_with_templates(
         hotel_detail: None,
         departure_city,
         arrival_city,
+        toll_travel_time: None,
     })
 }
 
@@ -633,6 +635,7 @@ fn try_parse_with_template(
         hotel_detail: None,
         departure_city,
         arrival_city,
+        toll_travel_time: None,
     })
 }
 
