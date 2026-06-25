@@ -637,6 +637,8 @@ mod tests {
                 confidence: 1.0,
                 amount_diff: 0.0,
                 itinerary_payment_pairs: vec![],
+                shared_payment_ids: vec![],
+                shared_from_invoice_id: None,
             },
             // City transport with 2 itineraries, 1 payment
             MatchResult {
@@ -692,6 +694,8 @@ mod tests {
                 confidence: 1.0,
                 amount_diff: 0.0,
                 itinerary_payment_pairs: vec![],
+                shared_payment_ids: vec![],
+                shared_from_invoice_id: None,
             },
             // Hotel invoice with details
             MatchResult {
@@ -737,6 +741,8 @@ mod tests {
                 confidence: 1.0,
                 amount_diff: 0.0,
                 itinerary_payment_pairs: vec![],
+                shared_payment_ids: vec![],
+                shared_from_invoice_id: None,
             },
             // Unmatched invoice
             MatchResult {
@@ -765,6 +771,8 @@ mod tests {
                 confidence: 0.0,
                 amount_diff: 100.0,
                 itinerary_payment_pairs: vec![],
+                shared_payment_ids: vec![],
+                shared_from_invoice_id: None,
             },
         ]
     }

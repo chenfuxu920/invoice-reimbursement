@@ -32,6 +32,12 @@ pub struct MatchResult {
     /// 行程-支付显式配对。非行程场景或旧数据为空，导出层回退按 payments 索引对应。
     #[serde(default)]
     pub itinerary_payment_pairs: Vec<ItineraryPaymentPair>,
+    /// 共享的支付ID（高速费 MatchResult 标记复用的支付）。
+    #[serde(default)]
+    pub shared_payment_ids: Vec<String>,
+    /// 共享来源发票ID（高速费 MatchResult 指向行程发票ID）。
+    #[serde(default)]
+    pub shared_from_invoice_id: Option<String>,
 }
 
 impl MatchResult {
@@ -101,6 +107,8 @@ mod tests {
             confidence: 1.0,
             amount_diff: 0.0,
             itinerary_payment_pairs: pairs,
+            shared_payment_ids: vec![],
+            shared_from_invoice_id: None,
         }
     }
 
@@ -130,5 +138,34 @@ mod tests {
     fn test_payment_for_itinerary_returns_none_when_out_of_range() {
         let result = make_result(vec![make_payment("p1")], vec![]);
         assert!(result.payment_for_itinerary(5).is_none());
+    }
+
+    #[test]
+    fn test_match_result_shared_fields_default_empty() {
+        let result = make_result(vec![make_payment("p1")], vec![]);
+        assert!(result.shared_payment_ids.is_empty());
+        assert!(result.shared_from_invoice_id.is_none());
+    }
+
+    #[test]
+    fn test_match_result_serde_default_shared_fields() {
+        // 旧数据无 shared 字段，反序列化应默认空
+        let json = r#"{
+            "invoice_id":"inv1","invoice":{"id":"inv1","invoice_number":"","amount":100.0,
+            "seller_name":"","item_name":"","date":"2025-01-01","travel_date":null,
+            "category":"Other","source":{"type":"Manual"},
+            "itineraries":[],"itinerary_file":null,"remarks":"",
+            "hotel_detail":null,"departure_city":null,"arrival_city":null,
+            "toll_travel_time":null},
+            "payment_ids":["p1"],"payments":[{"id":"p1","transaction_id":"TX-p1",
+            "transaction_time":"2025-01-01 12:00","amount":50.0,"original_amount":50.0,
+            "refund_amount":0.0,"discount":0.0,"merchant_name":"M",
+            "source":"Wechat","category":"","payment_method":""}],
+            "match_type":"ManualConfirmed","confidence":1.0,"amount_diff":0.0,
+            "itinerary_payment_pairs":[]
+        }"#;
+        let result: MatchResult = serde_json::from_str(json).unwrap();
+        assert!(result.shared_payment_ids.is_empty());
+        assert!(result.shared_from_invoice_id.is_none());
     }
 }

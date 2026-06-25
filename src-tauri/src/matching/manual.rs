@@ -22,6 +22,8 @@ pub fn create_manual_match(
         confidence: if diff == 0.0 { 1.0 } else { 0.8 },
         amount_diff: diff,
         itinerary_payment_pairs,
+        shared_payment_ids: vec![],
+        shared_from_invoice_id: None,
     }
 }
 

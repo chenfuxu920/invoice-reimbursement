@@ -66,6 +66,8 @@ fn make_hotel_match(
         confidence: 1.0,
         amount_diff: 0.0,
         itinerary_payment_pairs: vec![],
+        shared_payment_ids: vec![],
+        shared_from_invoice_id: None,
     }
 }
 
@@ -110,6 +112,8 @@ fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller
         confidence: 1.0,
         amount_diff: 0.0,
         itinerary_payment_pairs: vec![],
+        shared_payment_ids: vec![],
+        shared_from_invoice_id: None,
     }
 }
 

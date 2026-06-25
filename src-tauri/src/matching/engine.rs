@@ -80,6 +80,8 @@ impl MatchEngine {
             confidence: 1.0 - (diff / invoice.amount.max(0.01)),
             amount_diff: diff,
             itinerary_payment_pairs: vec![],
+            shared_payment_ids: vec![],
+            shared_from_invoice_id: None,
         })
     }
 
@@ -118,6 +120,8 @@ impl MatchEngine {
                 confidence: 1.0 - (diff / invoice.amount.max(0.01)),
                 amount_diff: diff,
                 itinerary_payment_pairs: vec![],
+                shared_payment_ids: vec![],
+                shared_from_invoice_id: None,
             });
         }
 

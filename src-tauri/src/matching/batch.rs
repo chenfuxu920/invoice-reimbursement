@@ -207,6 +207,8 @@ fn match_itinerary_to_payments(
         confidence: 1.0 - (diff / invoice.amount.max(0.01)),
         amount_diff: diff,
         itinerary_payment_pairs,
+        shared_payment_ids: vec![],
+        shared_from_invoice_id: None,
     })
 }
 
