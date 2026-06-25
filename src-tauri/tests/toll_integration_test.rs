@@ -107,9 +107,23 @@ fn test_e2e_toll_manual_shared_match() {
 }
 
 #[test]
-fn test_e2e_toll_without_trip_unmatched() {
+fn test_e2e_toll_without_trip_independent_match() {
+    // 无行程，但高速费有单独支付，应单独匹配成功
     let toll = make_toll_invoice("toll1", 10.0, "2025-01-15 09:30:00");
     let payment = make_payment("p1", 10.0, "2025-01-15 09:35");
+
+    let result = batch_match(&[toll], &[payment], 1.0);
+
+    assert_eq!(result.matched.len(), 1);
+    assert_eq!(result.matched[0].invoice.id, "toll1");
+    assert!(result.matched[0].shared_from_invoice_id.is_none());
+}
+
+#[test]
+fn test_e2e_toll_no_match_goes_unmatched() {
+    // 高速费金额与支付不匹配，无行程可关联，应未匹配
+    let toll = make_toll_invoice("toll1", 10.0, "2025-01-15 09:30:00");
+    let payment = make_payment("p1", 99.0, "2025-01-15 09:35");
 
     let result = batch_match(&[toll], &[payment], 1.0);
 

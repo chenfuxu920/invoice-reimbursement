@@ -15,7 +15,8 @@
 </template>
 
 <script setup lang="ts">
-const version = __APP_VERSION__
+import pkg from "../package.json";
+const version = pkg.version;
 </script>
 
 <style scoped>

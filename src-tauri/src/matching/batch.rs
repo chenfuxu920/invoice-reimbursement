@@ -25,7 +25,7 @@ pub fn batch_match(
     let payments = &payments_sorted[..];
 
     // 分离 Toll 发票和其他发票
-    let mut toll_invoices: Vec<Invoice> = invoices.iter()
+    let toll_invoices: Vec<Invoice> = invoices.iter()
         .filter(|inv| inv.category == InvoiceCategory::Toll)
         .cloned()
         .collect();
@@ -38,19 +38,38 @@ pub fn batch_match(
     let mut unmatched_invoices = Vec::new();
     let mut used_payment_ids: Vec<String> = Vec::new();
 
-    // 自动关联 Toll 到 CityTransport：toll_id -> city_transport_id
-    let mut toll_links: HashMap<String, String> = HashMap::new();
+    // === 第一阶段：高速费单独匹配（最先，避免支付被行程占据）===
+    let mut pending_tolls: Vec<Invoice> = Vec::new();  // 单独匹配失败，待关联行程
+    for toll in &toll_invoices {
+        let available: Vec<PaymentRecord> = payments
+            .iter()
+            .filter(|p| !used_payment_ids.contains(&p.id))
+            .cloned()
+            .collect();
+        if let Some(mr) = engine.match_one_to_one(toll, &available) {
+            for pid in &mr.payment_ids {
+                used_payment_ids.push(pid.clone());
+            }
+            matched.push(mr);
+        } else {
+            pending_tolls.push(toll.clone());
+        }
+    }
+
+    // === 第二阶段：高速费关联行程组合匹配 ===
+    // 待关联 Toll 按通行时间找最近的 CityTransport，用组合金额匹配
     let city_transport_invoices: Vec<&Invoice> = non_toll_invoices.iter()
         .filter(|inv| inv.category == InvoiceCategory::CityTransport && !inv.itineraries.is_empty())
         .collect();
 
-    for toll in &toll_invoices {
+    // toll_id -> city_transport_id 关联
+    let mut toll_links: HashMap<String, String> = HashMap::new();
+    for toll in &pending_tolls {
         let toll_time = toll.toll_travel_time
             .or_else(|| toll.date.and_hms_opt(0, 0, 0));
         if let Some(tt) = toll_time {
-            // 找通行时间与首条行程时间差最小的 CityTransport（未被其他 Toll 关联的）
             let best = city_transport_invoices.iter()
-                .filter(|ct| !toll_links.values().any(|linked_id| linked_id == &ct.id))
+                .filter(|ct| !toll_links.values().any(|linked_id| linked_id.as_str() == ct.id.as_str()))
                 .min_by_key(|ct| {
                     ct.itineraries.first()
                         .and_then(|e| parse_datetime(&e.date_time))
@@ -63,42 +82,40 @@ pub fn batch_match(
         }
     }
 
-    // 匹配非 Toll 发票（含行程）
-    for invoice in &non_toll_invoices {
-        let available_payments: Vec<PaymentRecord> = payments
+    // 记录已被高速费组合匹配占用的行程ID
+    let mut trip_matched_by_toll: Vec<String> = Vec::new();
+
+    // 对每个有关联 Toll 的行程，用组合金额匹配
+    for ct in &city_transport_invoices {
+        let linked_tolls: Vec<&Invoice> = pending_tolls.iter()
+            .filter(|t| toll_links.get(&t.id).map(|id| id.as_str()) == Some(ct.id.as_str()))
+            .collect();
+        if linked_tolls.is_empty() {
+            continue;
+        }
+
+        let linked_toll_amount: f64 = linked_tolls.iter().map(|t| t.amount).sum();
+        let combined_amount = ct.amount + linked_toll_amount;
+
+        let available: Vec<PaymentRecord> = payments
             .iter()
             .filter(|p| !used_payment_ids.contains(&p.id))
             .cloned()
             .collect();
 
-        // 计算组合目标金额：行程金额 + 关联的 Toll 金额
-        let linked_toll_amount: f64 = toll_links.iter()
-            .filter(|(_, ct_id)| ct_id.as_str() == invoice.id.as_str())
-            .filter_map(|(toll_id, _)| {
-                toll_invoices.iter().find(|t| t.id == *toll_id).map(|t| t.amount)
-            })
-            .sum();
-        let combined_amount = invoice.amount + linked_toll_amount;
-
-        // 用组合金额构造临时发票用于匹配
-        let mut invoice_for_match = invoice.clone();
+        // 用组合金额构造临时发票
+        let mut invoice_for_match = (*ct).clone();
         invoice_for_match.amount = combined_amount;
 
-        let result = if invoice.category == InvoiceCategory::CityTransport
-            && !invoice.itineraries.is_empty()
-        {
-            if invoice.itineraries.len() > 1 {
-                match_itinerary_to_payments(&invoice_for_match, &available_payments, tolerance)
-                    .or_else(|| {
-                        let time_filtered = filter_payments_by_itinerary_time(&invoice_for_match, &available_payments);
-                        engine.match_one_to_many(&invoice_for_match, &time_filtered)
-                    })
-            } else {
-                let time_filtered = filter_payments_by_itinerary_time(&invoice_for_match, &available_payments);
-                engine.match_one_to_many(&invoice_for_match, &time_filtered)
-            }
+        let result = if ct.itineraries.len() > 1 {
+            match_itinerary_to_payments(&invoice_for_match, &available, tolerance)
+                .or_else(|| {
+                    let time_filtered = filter_payments_by_itinerary_time(&invoice_for_match, &available);
+                    engine.match_one_to_many(&invoice_for_match, &time_filtered)
+                })
         } else {
-            engine.match_one_to_one(&invoice_for_match, &available_payments)
+            let time_filtered = filter_payments_by_itinerary_time(&invoice_for_match, &available);
+            engine.match_one_to_many(&invoice_for_match, &time_filtered)
         };
 
         if let Some(match_result) = result {
@@ -109,112 +126,125 @@ pub fn batch_match(
                 used_payment_ids.push(pid.clone());
             }
 
-            // 行程发票 MatchResult 用原始发票（非组合金额）
+            // 行程发票 MatchResult（用原始金额）
             let total: f64 = matched_payments.iter().map(|p| p.amount).sum();
             let trip_result = MatchResult {
-                invoice_id: invoice.id.clone(),
-                invoice: invoice.clone(),
+                invoice_id: ct.id.clone(),
+                invoice: (*ct).clone(),
                 payment_ids: payment_ids.clone(),
                 payments: matched_payments.clone(),
                 match_type: match_result.match_type,
                 confidence: trip_confidence,
-                amount_diff: (invoice.amount - total).abs(),
+                amount_diff: (ct.amount - total).abs(),
                 itinerary_payment_pairs: match_result.itinerary_payment_pairs,
                 shared_payment_ids: vec![],
                 shared_from_invoice_id: None,
             };
             matched.push(trip_result);
+            trip_matched_by_toll.push(ct.id.clone());
 
-            // 为关联的 Toll 发票创建共享 MatchResult
-            let linked_toll_ids: Vec<String> = toll_links.iter()
-                .filter(|(_, ct_id)| ct_id.as_str() == invoice.id.as_str())
-                .map(|(toll_id, _)| toll_id.clone())
-                .collect();
-            for toll_id in &linked_toll_ids {
-                if let Some(toll) = toll_invoices.iter().find(|t| t.id == *toll_id) {
-                    let toll_match = MatchResult {
-                        invoice_id: toll.id.clone(),
-                        invoice: toll.clone(),
-                        payment_ids: payment_ids.clone(),
-                        payments: matched_payments.clone(),
-                        match_type: MatchType::OneToMany,
-                        confidence: trip_confidence,
-                        amount_diff: 0.0,  // 共享匹配，金额差由行程 MatchResult 承担
-                        itinerary_payment_pairs: vec![],
-                        shared_payment_ids: payment_ids.clone(),
-                        shared_from_invoice_id: Some(invoice.id.clone()),
-                    };
-                    matched.push(toll_match);
-                }
+            // 高速费共享 MatchResult（永远 OneToOne）
+            for toll in &linked_tolls {
+                let toll_match = MatchResult {
+                    invoice_id: toll.id.clone(),
+                    invoice: (*toll).clone(),
+                    payment_ids: payment_ids.clone(),
+                    payments: matched_payments.clone(),
+                    match_type: MatchType::OneToOne,
+                    confidence: trip_confidence,
+                    amount_diff: 0.0,
+                    itinerary_payment_pairs: vec![],
+                    shared_payment_ids: payment_ids.clone(),
+                    shared_from_invoice_id: Some(ct.id.clone()),
+                };
+                matched.push(toll_match);
             }
-            // 从 toll_invoices 移除已匹配的
-            toll_invoices.retain(|t| !linked_toll_ids.contains(&t.id));
         } else {
-            // 组合金额匹配失败：解除关联的 Toll，尝试重新关联到其他 CityTransport
-            let unlinked_toll_ids: Vec<String> = toll_links.iter()
-                .filter(|(_, ct_id)| ct_id.as_str() == invoice.id.as_str())
-                .map(|(toll_id, _)| toll_id.clone())
-                .collect();
-            for tid in &unlinked_toll_ids {
-                toll_links.remove(tid);
-                // 尝试重新关联到其他未占用的 CityTransport
-                if let Some(toll) = toll_invoices.iter().find(|t| t.id == *tid) {
-                    let toll_time = toll.toll_travel_time
-                        .or_else(|| toll.date.and_hms_opt(0, 0, 0));
-                    if let Some(tt) = toll_time {
-                        let best = city_transport_invoices.iter()
-                            .filter(|ct| ct.id != invoice.id)
-                            .filter(|ct| !toll_links.values().any(|linked_id| linked_id.as_str() == ct.id.as_str()))
-                            .min_by_key(|ct| {
-                                ct.itineraries.first()
-                                    .and_then(|e| parse_datetime(&e.date_time))
-                                    .map(|it| (it - tt).num_seconds().unsigned_abs())
-                                    .unwrap_or(u64::MAX)
-                            });
-                        if let Some(ct) = best {
-                            toll_links.insert(tid.clone(), ct.id.clone());
-                        }
+            // 组合匹配失败：解除关联，Toll 尝试其他行程
+            for toll in &linked_tolls {
+                toll_links.remove(&toll.id);
+                let toll_time = toll.toll_travel_time
+                    .or_else(|| toll.date.and_hms_opt(0, 0, 0));
+                if let Some(tt) = toll_time {
+                    let best = city_transport_invoices.iter()
+                        .filter(|other| other.id != ct.id)
+                        .filter(|other| !toll_links.values().any(|linked_id| linked_id.as_str() == other.id.as_str()))
+                        .filter(|other| !trip_matched_by_toll.contains(&other.id))
+                        .min_by_key(|other| {
+                            other.itineraries.first()
+                                .and_then(|e| parse_datetime(&e.date_time))
+                                .map(|it| (it - tt).num_seconds().unsigned_abs())
+                                .unwrap_or(u64::MAX)
+                        });
+                    if let Some(other) = best {
+                        toll_links.insert(toll.id.clone(), other.id.clone());
                     }
                 }
-            }
-
-            // 解除 Toll 后，用行程原始金额重试匹配
-            let retry_available: Vec<PaymentRecord> = payments
-                .iter()
-                .filter(|p| !used_payment_ids.contains(&p.id))
-                .cloned()
-                .collect();
-            let retry_result = if invoice.category == InvoiceCategory::CityTransport
-                && !invoice.itineraries.is_empty()
-            {
-                if invoice.itineraries.len() > 1 {
-                    match_itinerary_to_payments(invoice, &retry_available, tolerance)
-                        .or_else(|| {
-                            let time_filtered = filter_payments_by_itinerary_time(invoice, &retry_available);
-                            engine.match_one_to_many(invoice, &time_filtered)
-                        })
-                } else {
-                    let time_filtered = filter_payments_by_itinerary_time(invoice, &retry_available);
-                    engine.match_one_to_many(invoice, &time_filtered)
-                }
-            } else {
-                engine.match_one_to_one(invoice, &retry_available)
-            };
-
-            if let Some(retry_match) = retry_result {
-                for pid in &retry_match.payment_ids {
-                    used_payment_ids.push(pid.clone());
-                }
-                matched.push(retry_match);
-            } else {
-                unmatched_invoices.push(invoice.clone());
             }
         }
     }
 
-    // 未关联到任何行程的 Toll 发票 → 未匹配
-    for toll in &toll_invoices {
-        unmatched_invoices.push(toll.clone());
+    // 仍未匹配的 Toll → unmatched
+    let matched_toll_ids: Vec<String> = matched.iter()
+        .filter(|m| m.invoice.category == InvoiceCategory::Toll)
+        .map(|m| m.invoice.id.clone())
+        .collect();
+    for toll in &pending_tolls {
+        if !matched_toll_ids.contains(&toll.id) {
+            unmatched_invoices.push(toll.clone());
+        }
+    }
+
+    // === 第三阶段：剩余行程单独匹配 ===
+    for invoice in &non_toll_invoices {
+        // 跳过已被高速费组合匹配的行程
+        if trip_matched_by_toll.contains(&invoice.id) {
+            continue;
+        }
+
+        let available: Vec<PaymentRecord> = payments
+            .iter()
+            .filter(|p| !used_payment_ids.contains(&p.id))
+            .cloned()
+            .collect();
+
+        let result = if invoice.category == InvoiceCategory::CityTransport
+            && !invoice.itineraries.is_empty()
+        {
+            if invoice.itineraries.len() > 1 {
+                match_itinerary_to_payments(invoice, &available, tolerance)
+                    .or_else(|| {
+                        let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
+                        engine.match_one_to_many(invoice, &time_filtered)
+                    })
+            } else {
+                let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
+                engine.match_one_to_many(invoice, &time_filtered)
+            }
+        } else {
+            engine.match_one_to_one(invoice, &available)
+        };
+
+        if let Some(match_result) = result {
+            for pid in &match_result.payment_ids {
+                used_payment_ids.push(pid.clone());
+            }
+            matched.push(match_result);
+        } else {
+            // 行程匹配失败：尝试 toll_best 容差（支付 > 行程金额，差额可能是未开票高速费）
+            if invoice.category == InvoiceCategory::CityTransport && !invoice.itineraries.is_empty() {
+                if let Some(toll_match) = match_trip_with_toll_tolerance(invoice, &available, tolerance) {
+                    for pid in &toll_match.payment_ids {
+                        used_payment_ids.push(pid.clone());
+                    }
+                    matched.push(toll_match);
+                } else {
+                    unmatched_invoices.push(invoice.clone());
+                }
+            } else {
+                unmatched_invoices.push(invoice.clone());
+            }
+        }
     }
 
     let unmatched_payments: Vec<PaymentRecord> = payments
@@ -228,6 +258,52 @@ pub fn batch_match(
         unmatched_invoices,
         unmatched_payments,
     }
+}
+
+/// toll_best 容差匹配：行程金额 < 支付金额，差额可能是未开票的高速费。
+/// 复用 find_best_payment 的 toll_best 逻辑：差额 <= 行程金额且时间在同一天或次日凌晨。
+/// 仅用于 CityTransport 单行程场景的回退匹配。
+fn match_trip_with_toll_tolerance(
+    invoice: &Invoice,
+    payments: &[PaymentRecord],
+    _tolerance: f64,
+) -> Option<MatchResult> {
+    let entry = invoice.itineraries.first()?;
+    let itin_time = parse_datetime(&entry.date_time)?;
+
+    let mut best: Option<(f64, &PaymentRecord)> = None;
+    for pay in payments {
+        let pay_time = parse_datetime(&pay.transaction_time);
+        if let Some(pt) = &pay_time {
+            if pt < &itin_time {
+                continue;
+            }
+        }
+        // toll_best 条件：支付 > 行程金额，差额 <= 行程金额（支付不超过2倍）
+        let diff = pay.amount - entry.amount;
+        if diff > 0.0 && diff <= entry.amount {
+            if is_same_day_or_next_morning(&entry.date_time, &pay.transaction_time) {
+                match best {
+                    Some((best_diff, _)) if diff < best_diff => best = Some((diff, pay)),
+                    None => best = Some((diff, pay)),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    best.map(|(diff, pay)| MatchResult {
+        invoice_id: invoice.id.clone(),
+        invoice: invoice.clone(),
+        payment_ids: vec![pay.id.clone()],
+        payments: vec![pay.clone()],
+        match_type: MatchType::OneToOne,
+        confidence: 1.0 - (diff / invoice.amount.max(0.01)),
+        amount_diff: diff,
+        itinerary_payment_pairs: vec![],
+        shared_payment_ids: vec![],
+        shared_from_invoice_id: None,
+    })
 }
 
 /// 按行程时间范围过滤支付记录：支付时间必须在首条行程时间之后、且不超过12小时
@@ -996,16 +1072,16 @@ mod tests {
     }
 
     #[test]
-    fn test_toll_no_city_transport_goes_unmatched() {
-        // 没有行程发票，高速费无法关联，应未匹配
+    fn test_toll_no_city_transport_independent_match() {
+        // 没有行程发票，但高速费有单独支付，应单独匹配成功
         let toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
         let payment = make_payment_at("p1", 10.00, "2025-01-15 09:35");
 
         let result = batch_match(&[toll], &[payment], 1.00);
 
-        assert_eq!(result.matched.len(), 0);
-        assert_eq!(result.unmatched_invoices.len(), 1);
-        assert_eq!(result.unmatched_invoices[0].id, "toll1");
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].invoice.id, "toll1");
+        assert!(result.matched[0].shared_from_invoice_id.is_none());
     }
 
     #[test]
@@ -1105,5 +1181,119 @@ mod tests {
         assert!(toll_match.is_some(), "Toll 应重新关联到 inv2 并匹配");
         assert_eq!(toll_match.unwrap().shared_from_invoice_id, Some("inv2".to_string()));
         assert_eq!(toll_match.unwrap().payment_ids, vec!["p2".to_string()]);
+    }
+
+    #[test]
+    fn test_toll_independent_match_before_trip() {
+        // 高速费有单独支付，应先单独匹配，不关联行程
+        let mut inv = make_city_transport_invoice("inv1", 50.00);
+        inv.itineraries = vec![Itinerary {
+            date_time: "2025-01-15 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "A".to_string(),
+            dropoff: "B".to_string(),
+            amount: 50.00,
+        }];
+        let toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
+        let payments = vec![
+            make_payment_at("p_toll", 10.00, "2025-01-15 09:35"),  // 高速费单独支付
+            make_payment_at("p_trip", 50.00, "2025-01-15 09:10"),  // 行程单独支付
+        ];
+
+        let result = batch_match(&[inv, toll], &payments, 1.00);
+
+        // 两张发票都匹配成功，各自匹配自己的支付
+        assert_eq!(result.matched.len(), 2);
+        assert_eq!(result.unmatched_payments.len(), 0);
+
+        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+        // 高速费单独匹配，不共享
+        assert!(toll_match.shared_from_invoice_id.is_none());
+        assert_eq!(toll_match.payment_ids, vec!["p_toll".to_string()]);
+        // 高速费永远一对一
+        assert!(matches!(toll_match.match_type, MatchType::OneToOne));
+    }
+
+    #[test]
+    fn test_toll_combination_match_when_independent_fails() {
+        // 高速费无单独支付，应关联行程组合匹配
+        let mut inv = make_city_transport_invoice("inv1", 50.00);
+        inv.itineraries = vec![Itinerary {
+            date_time: "2025-01-15 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "A".to_string(),
+            dropoff: "B".to_string(),
+            amount: 50.00,
+        }];
+        let toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
+        // 只有一笔 60 元支付（行程+高速费组合）
+        let payment = make_payment_at("p1", 60.00, "2025-01-15 09:35");
+
+        let result = batch_match(&[inv, toll], &[payment], 1.00);
+
+        assert_eq!(result.matched.len(), 2);
+        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+        // 高速费组合匹配，共享行程支付
+        assert_eq!(toll_match.shared_from_invoice_id, Some("inv1".to_string()));
+        assert_eq!(toll_match.payment_ids, vec!["p1".to_string()]);
+        // 高速费永远一对一（即使共享也是 OneToOne）
+        assert!(matches!(toll_match.match_type, MatchType::OneToOne));
+    }
+
+    #[test]
+    fn test_toll_independent_match_does_not_block_trip() {
+        // 高速费先单独匹配占用自己的支付，行程再匹配自己的支付
+        let mut inv = make_city_transport_invoice("inv1", 50.00);
+        inv.itineraries = vec![Itinerary {
+            date_time: "2025-01-15 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "A".to_string(),
+            dropoff: "B".to_string(),
+            amount: 50.00,
+        }];
+        let toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
+        let payments = vec![
+            make_payment_at("p_toll", 10.00, "2025-01-15 09:35"),
+            make_payment_at("p_trip", 50.00, "2025-01-15 09:10"),
+        ];
+
+        let result = batch_match(&[inv, toll], &payments, 1.00);
+
+        let trip_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::CityTransport).unwrap();
+        assert_eq!(trip_match.payment_ids, vec!["p_trip".to_string()]);
+    }
+
+    #[test]
+    fn test_toll_no_match_goes_unmatched() {
+        // 高速费金额与任何支付都不匹配，且无行程可关联
+        let toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
+        let payment = make_payment_at("p1", 99.00, "2025-01-15 09:35");
+
+        let result = batch_match(&[toll], &[payment], 1.00);
+
+        assert_eq!(result.matched.len(), 0);
+        assert_eq!(result.unmatched_invoices.len(), 1);
+        assert_eq!(result.unmatched_invoices[0].id, "toll1");
+    }
+
+    #[test]
+    fn test_trip_tolerates_payment_more_than_invoice() {
+        // 行程 50 元，支付 60 元（多 10 元可能是未开票高速费），无高速费发票
+        // 行程仍应匹配（toll_best 容差：差额 <= 行程金额且时间相近）
+        let mut inv = make_city_transport_invoice("inv1", 50.00);
+        inv.itineraries = vec![Itinerary {
+            date_time: "2025-01-15 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "A".to_string(),
+            dropoff: "B".to_string(),
+            amount: 50.00,
+        }];
+        let payment = make_payment_at("p1", 60.00, "2025-01-15 09:10");
+
+        let result = batch_match(&[inv], &[payment], 1.00);
+
+        // 行程应匹配成功（容忍多出 10 元）
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].payment_ids, vec!["p1".to_string()]);
     }
 }
