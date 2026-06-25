@@ -34,6 +34,32 @@ pub fn unmatch_invoice(
     (match_result.invoice.clone(), match_result.payments.clone())
 }
 
+/// 手动创建共享匹配（高速费复用行程支付）
+/// shared_from_invoice_id：共享来源的行程发票ID
+pub fn create_manual_match_shared(
+    invoice: Invoice,
+    payments: Vec<PaymentRecord>,
+    itinerary_payment_pairs: Vec<ItineraryPaymentPair>,
+    shared_from_invoice_id: Option<String>,
+) -> MatchResult {
+    let total: f64 = payments.iter().map(|p| p.amount).sum();
+    let diff = (invoice.amount - total).abs();
+    let payment_ids: Vec<String> = payments.iter().map(|p| p.id.clone()).collect();
+
+    MatchResult {
+        invoice_id: invoice.id.clone(),
+        invoice,
+        payment_ids: payment_ids.clone(),
+        payments,
+        match_type: MatchType::ManualConfirmed,
+        confidence: if diff == 0.0 { 1.0 } else { 0.8 },
+        amount_diff: diff,
+        itinerary_payment_pairs,
+        shared_payment_ids: if shared_from_invoice_id.is_some() { payment_ids } else { vec![] },
+        shared_from_invoice_id,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,5 +121,20 @@ mod tests {
         let (inv, pays) = unmatch_invoice(&result);
         assert_eq!(inv.id, "inv1");
         assert_eq!(pays.len(), 1);
+    }
+
+    #[test]
+    fn test_manual_match_with_shared_payment() {
+        let invoice = make_invoice("toll1", 10.0);
+        let payments = vec![make_payment("pay1", 60.0)];
+        let result = create_manual_match_shared(
+            invoice,
+            payments,
+            vec![],
+            Some("inv_trip".to_string()),
+        );
+        assert_eq!(result.shared_from_invoice_id, Some("inv_trip".to_string()));
+        assert_eq!(result.shared_payment_ids, vec!["pay1".to_string()]);
+        assert!(matches!(result.match_type, MatchType::ManualConfirmed));
     }
 }
