@@ -259,7 +259,7 @@ fn test_manual_match_and_unmatch_flow() {
     ];
 
     // Step 1: Create manual match
-    let result = create_manual_match(invoice.clone(), payments.clone());
+    let result = create_manual_match(invoice.clone(), payments.clone(), vec![]);
     assert!(matches!(result.match_type, MatchType::ManualConfirmed));
     assert_eq!(result.invoice_id, "inv1");
     assert_eq!(result.payment_ids.len(), 2);
@@ -281,7 +281,7 @@ fn test_manual_match_amount_mismatch() {
         make_payment("pay1", 70.0, "酒店"),
     ];
 
-    let result = create_manual_match(invoice, payments);
+    let result = create_manual_match(invoice, payments, vec![]);
     assert!(matches!(result.match_type, MatchType::ManualConfirmed));
     // Amount diff = 30, confidence should be 0.8 (not exact match)
     assert!((result.confidence - 0.8).abs() < f64::EPSILON);

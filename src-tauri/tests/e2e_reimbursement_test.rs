@@ -64,6 +64,7 @@ fn make_hotel_match(
         match_type: MatchType::OneToOne,
         confidence: 1.0,
         amount_diff: 0.0,
+        itinerary_payment_pairs: vec![],
     }
 }
 
@@ -106,6 +107,7 @@ fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller
         match_type: MatchType::OneToOne,
         confidence: 1.0,
         amount_diff: 0.0,
+        itinerary_payment_pairs: vec![],
     }
 }
 

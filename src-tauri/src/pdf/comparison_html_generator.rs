@@ -68,7 +68,7 @@ pub fn generate_comparison_html(
             let mut rows: Vec<(usize, f64, String)> = Vec::new();
             for (i, itin) in result.invoice.itineraries.iter().enumerate() {
                 global_seq += 1;
-                let pay_id = result.payments.get(i)
+                let pay_id = result.payment_for_itinerary(i)
                     .map(|p| p.transaction_id.clone())
                     .unwrap_or_default();
                 rows.push((global_seq, itin.amount, pay_id));

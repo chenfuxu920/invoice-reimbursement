@@ -266,6 +266,7 @@ mod tests {
             match_type: MatchType::OneToOne,
             confidence: 1.0,
             amount_diff: 0.0,
+            itinerary_payment_pairs: vec![],
         }
     }
 

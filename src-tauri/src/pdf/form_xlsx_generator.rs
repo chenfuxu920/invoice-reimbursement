@@ -485,8 +485,7 @@ fn build_invoice_detail_sheet(
                 // 支付渠道 (first row only)
                 if i == 0 {
                     let source_label = result
-                        .payments
-                        .first()
+                        .payment_for_itinerary(0)
                         .map(|p| payment_source_label(&p.source))
                         .unwrap_or("");
                     ws.write_string_with_format(r, 5, source_label, &thin_center)?;
@@ -784,6 +783,7 @@ mod tests {
                 match_type: MatchType::OneToOne,
                 confidence: 1.0,
                 amount_diff: 0.0,
+                itinerary_payment_pairs: vec![],
             },
             // City transport with itineraries
             MatchResult {
@@ -830,6 +830,7 @@ mod tests {
                 match_type: MatchType::OneToOne,
                 confidence: 1.0,
                 amount_diff: 0.0,
+                itinerary_payment_pairs: vec![],
             },
             // Hotel invoice
             MatchResult {
@@ -861,6 +862,7 @@ mod tests {
                 match_type: MatchType::OneToOne,
                 confidence: 1.0,
                 amount_diff: 0.0,
+                itinerary_payment_pairs: vec![],
             },
         ]
     }

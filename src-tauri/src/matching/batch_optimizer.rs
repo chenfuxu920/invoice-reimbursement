@@ -90,6 +90,7 @@ impl BatchMatchOptimizer {
                     match_type: MatchType::OneToOne,
                     confidence: CANDIDATE_THRESHOLD,
                     amount_diff: 0.0,
+                    itinerary_payment_pairs: vec![],
                 });
             }
         }
@@ -140,6 +141,7 @@ impl BatchMatchOptimizer {
             confidence: best_score.total,
             amount_diff: (invoice.amount - best_payment.total_value()).abs()
                 .min((invoice.amount - best_payment.amount).abs()),
+            itinerary_payment_pairs: vec![],
         })
     }
 
@@ -175,6 +177,7 @@ impl BatchMatchOptimizer {
                 match_type: MatchType::OneToMany,
                 confidence: 1.0 - (target - total).abs().max(0.01) / target.max(0.01),
                 amount_diff: (target - total).abs(),
+                itinerary_payment_pairs: vec![],
             });
         }
 

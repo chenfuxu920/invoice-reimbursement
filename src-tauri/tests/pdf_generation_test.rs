@@ -119,6 +119,7 @@ fn test_generate_comparison_pdf() {
             match_type: MatchType::OneToOne,
             confidence: 1.0,
             amount_diff: 0.0,
+            itinerary_payment_pairs: vec![],
         },
         MatchResult {
             invoice_id: "inv2".to_string(),
@@ -128,6 +129,7 @@ fn test_generate_comparison_pdf() {
             match_type: MatchType::OneToOne,
             confidence: 0.95,
             amount_diff: 0.0,
+            itinerary_payment_pairs: vec![],
         },
     ];
 

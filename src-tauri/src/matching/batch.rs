@@ -1,5 +1,5 @@
 use crate::models::invoice::{Invoice, InvoiceCategory};
-use crate::models::match_result::{MatchResult, MatchType};
+use crate::models::match_result::{MatchResult, MatchType, ItineraryPaymentPair};
 use crate::models::payment::PaymentRecord;
 use super::engine::MatchEngine;
 use chrono::{Datelike, NaiveDateTime};
@@ -183,6 +183,15 @@ fn match_itinerary_to_payments(
     let total: f64 = matched_payments.iter().map(|p| p.amount).sum();
     let diff = (invoice.amount - total).abs();
     let payment_ids: Vec<String> = matched_payments.iter().map(|p| p.id.clone()).collect();
+    // 行程-支付显式配对：matched_payments 按行程顺序逐条匹配，故下标即行程索引
+    let itinerary_payment_pairs: Vec<ItineraryPaymentPair> = matched_payments
+        .iter()
+        .enumerate()
+        .map(|(idx, p)| ItineraryPaymentPair {
+            itinerary_index: idx,
+            payment_id: p.id.clone(),
+        })
+        .collect();
 
     Some(MatchResult {
         invoice_id: invoice.id.clone(),
@@ -192,6 +201,7 @@ fn match_itinerary_to_payments(
         match_type: MatchType::OneToMany,
         confidence: 1.0 - (diff / invoice.amount.max(0.01)),
         amount_diff: diff,
+        itinerary_payment_pairs,
     })
 }
 
@@ -694,5 +704,30 @@ mod tests {
 
         assert_eq!(result.matched.len(), 0);
         assert_eq!(result.unmatched_invoices.len(), 1);
+    }
+
+    #[test]
+    fn test_itinerary_payment_pairs_populated_for_multi_itinerary() {
+        // 2条行程的市内交通发票：行程1(09:00,30元) 行程2(14:00,40元)
+        let mut invoice = make_city_transport_invoice("inv1", 70.00);
+        invoice.itineraries = vec![
+            Itinerary { date_time: "2025-01-15 09:00".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 30.00 },
+            Itinerary { date_time: "2025-01-15 14:00".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.00 },
+        ];
+        // 支付顺序故意打乱：p1 对应行程2，p2 对应行程1
+        let payments = vec![
+            make_payment_at("p1", 40.00, "2025-01-15 14:05"),
+            make_payment_at("p2", 30.00, "2025-01-15 09:05"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+        assert_eq!(result.matched.len(), 1);
+        let m = &result.matched[0];
+        // pairs 应显式记录行程-支付配对，且按行程顺序
+        assert_eq!(m.itinerary_payment_pairs.len(), 2);
+        assert_eq!(m.itinerary_payment_pairs[0].itinerary_index, 0);
+        assert_eq!(m.itinerary_payment_pairs[0].payment_id, "p2");
+        assert_eq!(m.itinerary_payment_pairs[1].itinerary_index, 1);
+        assert_eq!(m.itinerary_payment_pairs[1].payment_id, "p1");
     }
 }

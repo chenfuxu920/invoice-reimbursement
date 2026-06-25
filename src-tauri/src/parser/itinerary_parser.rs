@@ -11,6 +11,14 @@ pub fn parse_itinerary_text(texts: &[OcrTextItem]) -> Vec<Itinerary> {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let mut itineraries = parse_itinerary_text_impl(&all_text);
+    if !itineraries.is_empty() {
+        enrich_itinerary_years(&mut itineraries, &all_text);
+    }
+    itineraries
+}
+
+fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
     let mut itineraries = Vec::new();
 
     // 格式1：OCR 输出，带 ¥ 符号  2025-08-05 09:30  滴滴出行  ¥35.00
@@ -19,7 +27,7 @@ pub fn parse_itinerary_text(texts: &[OcrTextItem]) -> Vec<Itinerary> {
     )
     .unwrap();
 
-    for cap in re.captures_iter(&all_text) {
+    for cap in re.captures_iter(all_text) {
         itineraries.push(Itinerary {
             date_time: cap[1].to_string(),
             provider: cap[2].trim().to_string(),
@@ -73,7 +81,7 @@ pub fn parse_itinerary_text(texts: &[OcrTextItem]) -> Vec<Itinerary> {
         || all_text.contains("电子行程单")
             && (all_text.contains("公交") || all_text.contains("地铁"))
     {
-        let tft_entries = parse_tianfutong_format(&all_text);
+        let tft_entries = parse_tianfutong_format(all_text);
         if !tft_entries.is_empty() {
             return tft_entries;
         }
@@ -84,7 +92,7 @@ pub fn parse_itinerary_text(texts: &[OcrTextItem]) -> Vec<Itinerary> {
     }
 
     // 格式4：回退，找 ¥ 金额
-    parse_fallback_format(&all_text)
+    parse_fallback_format(all_text)
 }
 
 /// 利用 OCR 坐标信息解析行程单表格（通用，不限于天府通）
@@ -115,6 +123,9 @@ pub fn parse_itinerary_with_coords_pages_and_fallback(
     if !all.is_empty() {
         if let Some(fb) = fallback_texts {
             cross_validate_amounts(&mut all, fb);
+            // 用 fallback 文本（含行程单顶部时间区间）补全无年份的行程 date_time
+            let fb_text: String = fb.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
+            enrich_itinerary_years(&mut all, &fb_text);
         }
         return all;
     }
@@ -691,6 +702,32 @@ fn collect_col_in_range_impl(
         .join(" ")
 }
 
+/// 从行程单全文提取年份（顶部时间区间优先，回退全文第一个 20XX）。
+/// 匹配 "2026年"、"2026-04-22"、"2026/04/22" 等格式中的年份。
+fn extract_year_from_text(all_text: &str) -> Option<i32> {
+    let re = Regex::new(r"20\d{2}").unwrap();
+    re.captures(all_text)
+        .and_then(|c| c[0].parse::<i32>().ok())
+        .filter(|y| *y >= 2020 && *y <= 2100)
+}
+
+/// 用全文提取的年份补全无年份的行程 date_time。
+/// "MM-DD ..." → "YYYY-MM-DD ..."；已有年份的不变。
+fn enrich_itinerary_years(entries: &mut [Itinerary], all_text: &str) {
+    let year = match extract_year_from_text(all_text) {
+        Some(y) => y,
+        None => return,
+    };
+    // 仅匹配以 "MM-DD" 开头（无年份）的 date_time。
+    // "YYYY-MM-DD" 因第3字符非 '-' 不会被误匹配。
+    let re_no_year = Regex::new(r"^(\d{2})-(\d{2})(.*)").unwrap();
+    for entry in entries.iter_mut() {
+        if let Some(cap) = re_no_year.captures(&entry.date_time) {
+            entry.date_time = format!("{}-{}-{}{}", year, &cap[1], &cap[2], &cap[3]);
+        }
+    }
+}
+
 fn cross_validate_amounts(entries: &mut [Itinerary], fallback_texts: &[OcrTextItem]) {
     let all_text: String = fallback_texts
         .iter()
@@ -1179,5 +1216,46 @@ mod tests {
     fn test_extract_coords_none() {
         let item = make_text_item("无坐标");
         assert!(extract_coords(&item.box_coords).is_none());
+    }
+
+    #[test]
+    fn test_enrich_year_from_header_period() {
+        // 行程单顶部"行程时间：2026年4月"，行程条目无年份 "04-22 21:30"
+        let mut entries = vec![
+            Itinerary { date_time: "04-22 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0 },
+            Itinerary { date_time: "04-25 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0 },
+        ];
+        let all_text = "滴滴出行行程单\n行程时间：2026年4月\n1 专车 04-22 21:30 成都 35.00\n2 专车 04-25 08:48 成都 40.00";
+        enrich_itinerary_years(&mut entries, all_text);
+        assert_eq!(entries[0].date_time, "2026-04-22 21:30");
+        assert_eq!(entries[1].date_time, "2026-04-25 08:48");
+    }
+
+    #[test]
+    fn test_enrich_year_skips_already_dated() {
+        let mut entries = vec![
+            Itinerary { date_time: "2026-04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0 },
+        ];
+        enrich_itinerary_years(&mut entries, "2026年4月");
+        assert_eq!(entries[0].date_time, "2026-04-22 21:30");
+    }
+
+    #[test]
+    fn test_enrich_year_no_year_in_text_keeps_original() {
+        let mut entries = vec![
+            Itinerary { date_time: "04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0 },
+        ];
+        enrich_itinerary_years(&mut entries, "滴滴行程单\n无年份信息");
+        assert_eq!(entries[0].date_time, "04-22 21:30");
+    }
+
+    #[test]
+    fn test_enrich_year_from_iso_date_in_text() {
+        // 顶部有 "2026-04-22 至 2026-04-25" 区间
+        let mut entries = vec![
+            Itinerary { date_time: "04-25 08:48".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0 },
+        ];
+        enrich_itinerary_years(&mut entries, "行程时间 2026-04-22 至 2026-04-25");
+        assert_eq!(entries[0].date_time, "2026-04-25 08:48");
     }
 }

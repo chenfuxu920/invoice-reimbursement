@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory } from '../types'
+import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory, ItineraryPaymentPair } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
 export const useMatchStore = defineStore('match', () => {
@@ -33,9 +33,17 @@ export const useMatchStore = defineStore('match', () => {
     }
   }
 
-  async function manualMatch(invoice: Invoice, payments: PaymentRecord[]) {
+  async function manualMatch(
+    invoice: Invoice,
+    payments: PaymentRecord[],
+    itineraryPaymentPairs: ItineraryPaymentPair[] = [],
+  ) {
     unmatchInvoice(invoice.id)
-    const matchResult: MatchResult = await invoke('manual_match', { invoice, payments })
+    const matchResult: MatchResult = await invoke('manual_match', {
+      invoice,
+      payments,
+      itineraryPaymentPairs,
+    })
     matches.value.push(matchResult)
     unmatchedInvoices.value = unmatchedInvoices.value.filter(i => i.id !== invoice.id)
     const usedIds = new Set(payments.map(p => p.id))

@@ -195,15 +195,8 @@ fn build_comparison_sheet(
                 }
 
                 // Payment fields — match by index (payment[i] → itinerary[i])
-                if let Some(payment) = result.payments.get(i) {
+                if let Some(payment) = result.payment_for_itinerary(i) {
                     write_payment_fields(ws, r, payment, &text_center_fmt, &text_center_wrap_fmt, &num_fmt)?;
-                } else if i == 0 {
-                    // Fallback: show first payment on first row
-                    if let Some(first_payment) = result.payments.first() {
-                        write_payment_fields(ws, r, first_payment, &text_center_fmt, &text_center_wrap_fmt, &num_fmt)?;
-                    } else {
-                        write_blank_range(ws, r, 7..=15, &thin)?;
-                    }
                 } else {
                     write_blank_range(ws, r, 7..=15, &thin)?;
                 }
@@ -234,10 +227,8 @@ fn build_comparison_sheet(
 
                 // 时间差异 — 每个行程与对应支付的时间差
                 {
-                    let time_diff = if let Some(payment) = result.payments.get(i) {
+                    let time_diff = if let Some(payment) = result.payment_for_itinerary(i) {
                         compute_time_diff(&itinerary.date_time, &payment.transaction_time)
-                    } else if let Some(first) = result.payments.first() {
-                        compute_time_diff(&itinerary.date_time, &first.transaction_time)
                     } else {
                         String::new()
                     };
@@ -643,6 +634,7 @@ mod tests {
                 match_type: MatchType::OneToOne,
                 confidence: 1.0,
                 amount_diff: 0.0,
+                itinerary_payment_pairs: vec![],
             },
             // City transport with 2 itineraries, 1 payment
             MatchResult {
@@ -696,6 +688,7 @@ mod tests {
                 match_type: MatchType::OneToOne,
                 confidence: 1.0,
                 amount_diff: 0.0,
+                itinerary_payment_pairs: vec![],
             },
             // Hotel invoice with details
             MatchResult {
@@ -739,6 +732,7 @@ mod tests {
                 match_type: MatchType::OneToOne,
                 confidence: 1.0,
                 amount_diff: 0.0,
+                itinerary_payment_pairs: vec![],
             },
             // Unmatched invoice
             MatchResult {
@@ -765,6 +759,7 @@ mod tests {
                 match_type: MatchType::Unmatched,
                 confidence: 0.0,
                 amount_diff: 100.0,
+                itinerary_payment_pairs: vec![],
             },
         ]
     }

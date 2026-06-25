@@ -160,8 +160,7 @@ pub fn generate_comparison_image_pdf(
             let mut rows: Vec<(usize, f64, String)> = Vec::new();
             for (i, itin) in result.invoice.itineraries.iter().enumerate() {
                 let pay_id = result
-                    .payments
-                    .get(i)
+                    .payment_for_itinerary(i)
                     .map(|p| p.transaction_id.clone())
                     .unwrap_or_default();
                 rows.push((i + 1, itin.amount, pay_id));

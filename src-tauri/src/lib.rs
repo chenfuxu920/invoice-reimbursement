@@ -11,7 +11,7 @@ use parser::wechat_parser;
 use parser::alipay_parser;
 use models::invoice::{Invoice, Itinerary};
 use models::payment::PaymentRecord;
-use models::match_result::MatchResult;
+use models::match_result::{MatchResult, ItineraryPaymentPair};
 use matching::batch;
 use matching::manual;
 use crate::pdf::form_generator;
@@ -155,8 +155,9 @@ async fn auto_match(
 async fn manual_match(
     invoice: Invoice,
     payments: Vec<PaymentRecord>,
+    itinerary_payment_pairs: Vec<ItineraryPaymentPair>,
 ) -> Result<MatchResult, String> {
-    Ok(manual::create_manual_match(invoice, payments))
+    Ok(manual::create_manual_match(invoice, payments, itinerary_payment_pairs))
 }
 
 // 生成报销表 PDF 命令

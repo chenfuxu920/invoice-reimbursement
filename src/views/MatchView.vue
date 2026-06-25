@@ -82,6 +82,7 @@
       :visible="showAdjustDialog"
       :invoice="adjustingInvoice"
       :current-payments="adjustingMatch?.payments || []"
+      :current-pairs="adjustingMatch?.itinerary_payment_pairs || []"
       :available-payments="matchStore.unmatchedPayments"
       @close="handleAdjustClose"
       @confirm="handleManualMatch"
@@ -113,7 +114,7 @@ import MatchCard from '../components/MatchCard.vue'
 import MatchAdjustDialog from '../components/MatchAdjustDialog.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import PaymentDetailModal from '../components/PaymentDetailModal.vue'
-import type { Invoice, MatchResult, PaymentRecord, InvoiceCategory } from '../types'
+import type { Invoice, MatchResult, PaymentRecord, InvoiceCategory, ItineraryPaymentPair } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 
@@ -152,13 +153,13 @@ function startManualMatch(invoice: Invoice) {
   showAdjustDialog.value = true
 }
 
-async function handleManualMatch(invoice: Invoice, paymentIds: string[]) {
+async function handleManualMatch(invoice: Invoice, paymentIds: string[], itineraryPaymentPairs: ItineraryPaymentPair[] = []) {
   const allPayments = [...matchStore.unmatchedPayments]
   if (adjustingMatch.value) {
     allPayments.push(...adjustingMatch.value.payments)
   }
   const payments = allPayments.filter(p => paymentIds.includes(p.id))
-  await matchStore.manualMatch(invoice, payments)
+  await matchStore.manualMatch(invoice, payments, itineraryPaymentPairs)
   showAdjustDialog.value = false
   adjustingMatch.value = null
 }

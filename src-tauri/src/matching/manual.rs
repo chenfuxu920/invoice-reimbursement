@@ -1,11 +1,14 @@
 use crate::models::invoice::Invoice;
 use crate::models::payment::PaymentRecord;
-use crate::models::match_result::{MatchResult, MatchType};
+use crate::models::match_result::{MatchResult, MatchType, ItineraryPaymentPair};
 
 /// 手动创建匹配
+/// itinerary_payment_pairs：行程-支付显式配对（市内交通一对多场景）；
+///   非行程场景传空 Vec。
 pub fn create_manual_match(
     invoice: Invoice,
     payments: Vec<PaymentRecord>,
+    itinerary_payment_pairs: Vec<ItineraryPaymentPair>,
 ) -> MatchResult {
     let total: f64 = payments.iter().map(|p| p.amount).sum();
     let diff = (invoice.amount - total).abs();
@@ -18,6 +21,7 @@ pub fn create_manual_match(
         match_type: MatchType::ManualConfirmed,
         confidence: if diff == 0.0 { 1.0 } else { 0.8 },
         amount_diff: diff,
+        itinerary_payment_pairs,
     }
 }
 
@@ -75,7 +79,7 @@ mod tests {
     fn test_manual_match() {
         let invoice = make_invoice("inv1", 100.0);
         let payments = vec![make_payment("pay1", 100.0)];
-        let result = create_manual_match(invoice, payments);
+        let result = create_manual_match(invoice, payments, vec![]);
         assert!(matches!(result.match_type, MatchType::ManualConfirmed));
         assert_eq!(result.confidence, 1.0);
     }
@@ -84,7 +88,7 @@ mod tests {
     fn test_unmatch() {
         let invoice = make_invoice("inv1", 100.0);
         let payments = vec![make_payment("pay1", 100.0)];
-        let result = create_manual_match(invoice, payments);
+        let result = create_manual_match(invoice, payments, vec![]);
         let (inv, pays) = unmatch_invoice(&result);
         assert_eq!(inv.id, "inv1");
         assert_eq!(pays.len(), 1);

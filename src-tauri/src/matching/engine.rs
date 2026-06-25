@@ -47,6 +47,7 @@ impl MatchEngine {
             match_type: MatchType::OneToOne,
             confidence: 1.0 - (diff / invoice.amount.max(0.01)),
             amount_diff: diff,
+            itinerary_payment_pairs: vec![],
         })
     }
 
@@ -84,6 +85,7 @@ impl MatchEngine {
                 match_type: MatchType::OneToMany,
                 confidence: 1.0 - (diff / invoice.amount.max(0.01)),
                 amount_diff: diff,
+                itinerary_payment_pairs: vec![],
             });
         }
 
