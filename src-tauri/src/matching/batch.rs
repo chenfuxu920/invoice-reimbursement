@@ -39,6 +39,7 @@ pub fn batch_match(
     let mut used_payment_ids: Vec<String> = Vec::new();
 
     // === 第一阶段：高速费单独匹配（最先，避免支付被行程占据）===
+    // 高速费用通行时间（toll_travel_time）匹配，而非开票日期（ETC延迟开票）
     let mut pending_tolls: Vec<Invoice> = Vec::new();  // 单独匹配失败，待关联行程
     for toll in &toll_invoices {
         let available: Vec<PaymentRecord> = payments
@@ -46,7 +47,16 @@ pub fn batch_match(
             .filter(|p| !used_payment_ids.contains(&p.id))
             .cloned()
             .collect();
-        if let Some(mr) = engine.match_one_to_one(toll, &available) {
+        // 用通行时间替换开票日期，使 match_one_to_one 按通行时间匹配
+        let mut toll_for_match = toll.clone();
+        if let Some(tt) = toll.toll_travel_time {
+            toll_for_match.date = tt.date();
+        }
+        if let Some(mr) = engine.match_one_to_one(&toll_for_match, &available) {
+            // MatchResult 中用原始发票（保留原始开票日期）
+            let mut mr = mr;
+            mr.invoice = toll.clone();
+            mr.invoice_id = toll.id.clone();
             for pid in &mr.payment_ids {
                 used_payment_ids.push(pid.clone());
             }
@@ -1295,5 +1305,24 @@ mod tests {
         // 行程应匹配成功（容忍多出 10 元）
         assert_eq!(result.matched.len(), 1);
         assert_eq!(result.matched[0].payment_ids, vec!["p1".to_string()]);
+    }
+
+    #[test]
+    fn test_toll_independent_match_uses_travel_time_not_invoice_date() {
+        // 高速费通行时间 2025-01-15 09:30，开票日期 2025-01-20（ETC延迟5天）
+        // 支付1：10元，2025-01-15 09:35（通行时间附近，应优先匹配）
+        // 支付2：10元，2025-01-20 12:00（开票日期附近，不应匹配）
+        let mut toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
+        toll.date = NaiveDate::from_ymd_opt(2025, 1, 20).unwrap();  // 开票日期延迟5天
+        let payments = vec![
+            make_payment_at("p_travel", 10.00, "2025-01-15 09:35"),
+            make_payment_at("p_invoice", 10.00, "2025-01-20 12:00"),
+        ];
+
+        let result = batch_match(&[toll], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        // 应匹配通行时间附近的支付，而非开票日期附近的
+        assert_eq!(result.matched[0].payment_ids, vec!["p_travel".to_string()]);
     }
 }
