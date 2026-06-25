@@ -19,6 +19,11 @@ pub fn batch_match(
     tolerance: f64,
 ) -> BatchMatchResult {
     let engine = MatchEngine::new(tolerance);
+    // 按交易时间升序排序，消除文件读取顺序偏差（微信/支付宝混合时不再按导入顺序）
+    let mut payments_sorted: Vec<PaymentRecord> = payments.to_vec();
+    sort_payments_by_time(&mut payments_sorted);
+    let payments = &payments_sorted[..];
+
     let mut matched = Vec::new();
     let mut unmatched_invoices = Vec::new();
     let mut used_payment_ids: Vec<String> = Vec::new();
@@ -287,6 +292,22 @@ fn find_best_payment(
     exact_best
         .map(|(d, _, p)| (p.clone(), d))
         .or_else(|| toll_best.map(|(d, _, p)| (p.clone(), d)))
+}
+
+/// 按交易时间升序稳定排序支付记录；时间无法解析的记录排在最后。
+/// 用于在 batch_match 入口消除"按文件读取顺序"的偏差，使后续匹配
+/// 遍历顺序与时间一致。
+fn sort_payments_by_time(payments: &mut [PaymentRecord]) {
+    payments.sort_by(|a, b| {
+        let ta = parse_datetime(&a.transaction_time);
+        let tb = parse_datetime(&b.transaction_time);
+        match (ta, tb) {
+            (Some(ta), Some(tb)) => ta.cmp(&tb),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
 }
 
 /// 解析时间字符串为 NaiveDateTime
@@ -729,5 +750,32 @@ mod tests {
         assert_eq!(m.itinerary_payment_pairs[0].payment_id, "p2");
         assert_eq!(m.itinerary_payment_pairs[1].itinerary_index, 1);
         assert_eq!(m.itinerary_payment_pairs[1].payment_id, "p1");
+    }
+
+    #[test]
+    fn test_sort_payments_by_time() {
+        let mut payments = vec![
+            make_payment_at("p1", 30.0, "2025-01-15 20:00"),
+            make_payment_at("p2", 30.0, "2025-01-15 09:00"),
+            make_payment_at("p3", 30.0, "2025-01-14 08:00"),
+        ];
+        sort_payments_by_time(&mut payments);
+        assert_eq!(payments[0].id, "p3");
+        assert_eq!(payments[1].id, "p2");
+        assert_eq!(payments[2].id, "p1");
+    }
+
+    #[test]
+    fn test_sort_payments_by_time_stable() {
+        // 相同时间应保持原顺序（稳定排序）
+        let mut payments = vec![
+            make_payment_at("a", 30.0, "2025-01-15 09:00"),
+            make_payment_at("b", 30.0, "2025-01-15 09:00"),
+            make_payment_at("c", 30.0, "2025-01-15 09:00"),
+        ];
+        sort_payments_by_time(&mut payments);
+        assert_eq!(payments[0].id, "a");
+        assert_eq!(payments[1].id, "b");
+        assert_eq!(payments[2].id, "c");
     }
 }

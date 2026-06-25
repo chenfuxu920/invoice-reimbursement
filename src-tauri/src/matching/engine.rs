@@ -6,6 +6,28 @@ const DEFAULT_TOLERANCE: f64 = 1.00;
 const MAX_SUBSET_SIZE: usize = 10;
 const MAX_PAYMENT_CANDIDATES: usize = 20;
 
+/// 解析支付时间字符串为日期，用于与发票日期比较天数差。
+/// 支持 "YYYY-MM-DD HH:MM[:SS]" / "YYYY-MM-DD" / "YYYY/MM/DD ..." 等格式。
+fn parse_payment_date(time_str: &str) -> Option<chrono::NaiveDate> {
+    let formats = [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
+    ];
+    for fmt in &formats {
+        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(time_str, fmt) {
+            return Some(dt.date());
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(time_str, fmt) {
+            return Some(d);
+        }
+    }
+    None
+}
+
 pub struct MatchEngine {
     pub tolerance: f64,
 }
@@ -20,26 +42,36 @@ impl MatchEngine {
     }
 
     /// One-to-one matching: find the single payment closest to the invoice amount
-    /// within the tolerance.
+    /// within the tolerance. 当多笔支付都落在金额容差内时，优先选时间与发票日期
+    /// 最近的；天数差相同时再按金额差决胜。
     pub fn match_one_to_one(
         &self,
         invoice: &Invoice,
         payments: &[PaymentRecord],
     ) -> Option<MatchResult> {
-        let mut best: Option<(f64, &PaymentRecord)> = None;
+        // (days_diff, amount_diff, payment)
+        let mut best: Option<(i64, f64, &PaymentRecord)> = None;
         for payment in payments {
             let diff_total = (invoice.amount - payment.total_value()).abs();
             let diff_amount = (invoice.amount - payment.amount).abs();
             let diff = diff_total.min(diff_amount);
-            if diff <= self.tolerance {
-                match best {
-                    Some((best_diff, _)) if diff < best_diff => best = Some((diff, payment)),
-                    None => best = Some((diff, payment)),
-                    _ => {}
+            if diff > self.tolerance {
+                continue;
+            }
+            let days_diff = parse_payment_date(&payment.transaction_time)
+                .map(|pd| (invoice.date - pd).num_days().abs())
+                .unwrap_or(i64::MAX);
+            let is_better = match best {
+                None => true,
+                Some((best_days, best_diff, _)) => {
+                    days_diff < best_days || (days_diff == best_days && diff < best_diff)
                 }
+            };
+            if is_better {
+                best = Some((days_diff, diff, payment));
             }
         }
-        best.map(|(diff, payment)| MatchResult {
+        best.map(|(_, diff, payment)| MatchResult {
             invoice_id: invoice.id.clone(),
             invoice: invoice.clone(),
             payment_ids: vec![payment.id.clone()],
@@ -193,6 +225,42 @@ mod tests {
             id: id.to_string(),
             transaction_id: format!("TX-{}", id),
             transaction_time: "2025-01-01 12:00".to_string(),
+            amount,
+            original_amount: amount,
+            refund_amount: 0.0,
+            discount: 0.0,
+            merchant_name: "Test Merchant".to_string(),
+            source: PaymentSource::Wechat,
+            category: "交通".to_string(),
+            payment_method: String::new(),
+        }
+    }
+
+    fn make_invoice_at(id: &str, amount: f64, date: &str) -> Invoice {
+        Invoice {
+            id: id.to_string(),
+            invoice_number: format!("INV-{}", id),
+            amount,
+            seller_name: "Test Seller".to_string(),
+            item_name: "Test Item".to_string(),
+            date: NaiveDate::parse_from_str(date, "%Y-%m-%d").unwrap(),
+            travel_date: None,
+            category: InvoiceCategory::Other,
+            source: InvoiceSource::Link("http://example.com".to_string()),
+            itineraries: vec![],
+            itinerary_file: None,
+            remarks: String::new(),
+            hotel_detail: None,
+            departure_city: None,
+            arrival_city: None,
+        }
+    }
+
+    fn make_payment_at(id: &str, amount: f64, time: &str) -> PaymentRecord {
+        PaymentRecord {
+            id: id.to_string(),
+            transaction_id: format!("TX-{}", id),
+            transaction_time: time.to_string(),
             amount,
             original_amount: amount,
             refund_amount: 0.0,
@@ -437,6 +505,36 @@ mod tests {
 
         let result = engine.match_one_to_one(&invoice, &payments);
         assert!(result.is_some());
+    }
+
+    #[test]
+    fn test_one_to_one_prefers_closer_time() {
+        // 金额都在容差内时，优先选时间最近的支付，而非金额差最小的
+        let engine = MatchEngine::new(1.00);
+        let invoice = make_invoice_at("inv1", 100.00, "2025-01-15");
+        let payments = vec![
+            make_payment_at("p1", 100.50, "2025-01-15 12:00"), // 同一天，金额差0.50
+            make_payment_at("p2", 99.90, "2025-01-10 12:00"),  // 5天前，金额差0.10
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        // 应优先时间近的 p1，而非金额差更小的 p2
+        assert_eq!(result.payment_ids[0], "p1");
+    }
+
+    #[test]
+    fn test_one_to_one_time_tie_breaks_by_amount() {
+        // 时间相同（同一天）时，按金额差决胜
+        let engine = MatchEngine::new(1.00);
+        let invoice = make_invoice_at("inv1", 100.00, "2025-01-15");
+        let payments = vec![
+            make_payment_at("p1", 100.50, "2025-01-15 12:00"), // 同一天，金额差0.50
+            make_payment_at("p2", 99.90, "2025-01-15 18:00"),  // 同一天，金额差0.10
+        ];
+
+        let result = engine.match_one_to_one(&invoice, &payments).unwrap();
+        // 同一天，按金额差选 p2
+        assert_eq!(result.payment_ids[0], "p2");
     }
 }
 
