@@ -17,3 +17,6 @@ T
 *.zip
 对照表含图片*.pdf
 对照表含图片*.pdf
+
+# deepwork progress
+.slim/deepwork/

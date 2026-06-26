@@ -833,8 +833,11 @@ pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> 
 }
 
 fn extract_amount(text: &str) -> Result<f64, String> {
+    // Match keyword followed by any non-digit characters (e.g. "（大写）", "¥", "：")
+    // then the actual numeric amount. This handles both OCR line-level output
+    // and pdfplumber merged lines where "价税合计（大写）...523.57" appears.
     let re =
-        Regex::new(r"(?:价税合计|合计金额|总金额|金额)[：:￥¥]*\s*([\d,]+\.?\d*)")
+        Regex::new(r"(?:价税合计|合计金额|总金额|金额)[^0-9]*([\d,]+\.?\d*)")
             .map_err(|e| e.to_string())?;
     if let Some(caps) = re.captures(text) {
         let amount_str = caps[1].replace(",", "");

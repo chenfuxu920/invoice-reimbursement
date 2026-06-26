@@ -1,7 +1,7 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
 use crate::ocr::OcrEngine;
 use crate::parser::invoice_parser::parse_invoice_text;
-use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback};
+use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, parse_itinerary_with_coords_pages_and_fallback};
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 use std::path::{Path, PathBuf};
@@ -26,7 +26,7 @@ pub struct ParseResult {
 /// 解析单个发票 PDF：先尝试文字提取，失败或缺销售方信息则 OCR（多页）
 pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<Invoice, String> {
     let source = InvoiceSource::Pdf(pdf_path.to_string());
-    let text_items = extract_text(pdf_path, engine)?;
+    let text_items = extract_text_with_coords_or_fallback(pdf_path, engine)?;
     match check_and_parse(text_items, source.clone()) {
         Ok(invoice) if !invoice.seller_name.is_empty() => Ok(invoice),
         Ok(_) | Err(_) => {
@@ -53,6 +53,32 @@ fn extract_ocr_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate:
     Ok(resp.pages)
 }
 
+/// 带坐标的文字提取：优先使用 pdfplumber（feature-gated），回退到 parangi/OCR
+#[cfg(feature = "pdfplumber")]
+fn extract_text_with_coords_or_fallback(
+    pdf_path: &str,
+    engine: &mut OcrEngine,
+) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
+    match text_extractor::extract_text_with_coords_flat(pdf_path) {
+        Ok(items) if text_extractor::has_sufficient_text(&items, 20) => {
+            eprintln!("  [pdfplumber] 提取到 {} 个带坐标文本项", items.len());
+            Ok(items)
+        }
+        _ => {
+            eprintln!("  [pdfplumber] 不可用或无文本，回退到 parangi/OCR");
+            extract_text(pdf_path, engine)
+        }
+    }
+}
+
+#[cfg(not(feature = "pdfplumber"))]
+fn extract_text_with_coords_or_fallback(
+    pdf_path: &str,
+    engine: &mut OcrEngine,
+) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
+    extract_text(pdf_path, engine)
+}
+
 /// 解析单个发票图片：OCR 识别后分类检查
 pub fn parse_invoice_from_image(image_path: &str, engine: &mut OcrEngine) -> Result<Invoice, String> {
     let source = InvoiceSource::Photo(image_path.to_string());
@@ -72,21 +98,38 @@ fn check_and_parse(
 }
 
 /// 解析行程单 PDF，返回行程明细集合
-/// 行程单优先走 OCR 路径以保留坐标，利用坐标还原表格行列结构；
-/// OCR 失败时回退到纯文本解析。
+/// 当 pdfplumber 可用时优先使用带坐标文本（跳过 OCR）；
+/// 否则走 OCR 路径以保留坐标，利用坐标还原表格行列结构；
+/// 均失败时回退到纯文本解析。
 pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<ItineraryDoc, String> {
-    let texts = extract_text(pdf_path, engine)?;
+    let texts = extract_text_with_coords_or_fallback(pdf_path, engine)?;
     let doc_type = classify_pdf_document_type(&texts);
     if doc_type != PdfDocumentType::Itinerary && doc_type != PdfDocumentType::Invoice {
         return Err(format!("非行程单类型: {:?}", doc_type));
     }
 
-    let ocr_pages = extract_ocr_text(pdf_path, engine)?;
-    let ocr_result = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
-    let itineraries = if !ocr_result.is_empty() {
-        ocr_result
+    // Check if text items already have coordinates (from pdfplumber)
+    let has_coords = texts.iter().any(|t| t.box_coords.is_some());
+
+    let itineraries = if has_coords {
+        // Text items have coordinates — use coord-based parsing directly, skip OCR
+        eprintln!("  [pdfplumber] 行程单带坐标，跳过 OCR");
+        let coord_result = parse_itinerary_with_coords(&texts);
+        if !coord_result.is_empty() {
+            coord_result
+        } else {
+            // Coords didn't help — fall back to text parsing
+            parse_itinerary_text(&texts)
+        }
     } else {
-        parse_itinerary_text(&texts)
+        // No coords (parangi or OCR fallback) — run OCR for coordinate-based table reconstruction
+        let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+        let ocr_result = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
+        if !ocr_result.is_empty() {
+            ocr_result
+        } else {
+            parse_itinerary_text(&texts)
+        }
     };
 
     if itineraries.is_empty() {

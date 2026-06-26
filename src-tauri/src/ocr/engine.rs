@@ -46,6 +46,20 @@ pub struct OcrPdfResponse {
     pub pages: Vec<OcrPageResult>,
 }
 
+/// Construct box_coords JSON from bounding box coordinates and score.
+/// Format: {points: [{x,y}*4], box_score: f64} — shared by OCR and pdfplumber extraction.
+pub(crate) fn bbox_to_json(x0: f64, y0: f64, x1: f64, y1: f64, score: f64) -> serde_json::Value {
+    serde_json::json!({
+        "points": [
+            {"x": x0, "y": y0},
+            {"x": x1, "y": y0},
+            {"x": x1, "y": y1},
+            {"x": x0, "y": y1}
+        ],
+        "box_score": score,
+    })
+}
+
 pub struct OcrEngine {
     engine: PaddleOcrEngine,
 }
@@ -99,15 +113,13 @@ impl OcrEngine {
             .map(|item| {
                 let bbox = &item.bbox;
                 let rect = bbox.rect;
-                let box_coords = Some(serde_json::json!({
-                    "points": [
-                        {"x": rect.left(), "y": rect.top()},
-                        {"x": rect.right(), "y": rect.top()},
-                        {"x": rect.right(), "y": rect.bottom()},
-                        {"x": rect.left(), "y": rect.bottom()}
-                    ],
-                    "box_score": bbox.score,
-                }));
+                let box_coords = Some(bbox_to_json(
+                    rect.left() as f64,
+                    rect.top() as f64,
+                    rect.right() as f64,
+                    rect.bottom() as f64,
+                    bbox.score as f64,
+                ));
                 OcrTextItem {
                     text: item.text.clone(),
                     confidence: item.confidence as f64,
@@ -133,15 +145,13 @@ impl OcrEngine {
             .map(|item| {
                 let bbox = &item.bbox;
                 let rect = bbox.rect;
-                let box_coords = Some(serde_json::json!({
-                    "points": [
-                        {"x": rect.left(), "y": rect.top()},
-                        {"x": rect.right(), "y": rect.top()},
-                        {"x": rect.right(), "y": rect.bottom()},
-                        {"x": rect.left(), "y": rect.bottom()}
-                    ],
-                    "box_score": bbox.score,
-                }));
+                let box_coords = Some(bbox_to_json(
+                    rect.left() as f64,
+                    rect.top() as f64,
+                    rect.right() as f64,
+                    rect.bottom() as f64,
+                    bbox.score as f64,
+                ));
                 OcrTextItem {
                     text: item.text.clone(),
                     confidence: item.confidence as f64,
