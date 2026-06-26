@@ -107,6 +107,87 @@ pub fn has_sufficient_text(items: &[OcrTextItem], min_chars: usize) -> bool {
 }
 
 // ──────────────────────────────────────────────
+// CID 字体乱码检测
+// ──────────────────────────────────────────────
+
+/// 检测单个字符是否为 CID 字体乱码字符。
+///
+/// 乱码字符范围：
+/// - 韩文字符 U+AC00..U+D7AF（CID 错误映射到韩文音节的典型表现）
+/// - 韩文兼容字母 U+3130..U+318F
+/// - PUA U+E000..U+F8FF
+/// - 替换字符 U+FFFD
+/// - 控制字符（排除空格 0x20、制表符 0x09、换行 0x0A、回车 0x0D）
+/// - 代理项 U+D800..U+DFFF
+fn is_garbled_char(c: char) -> bool {
+    let code = c as u32;
+    // 韩文音节（CID 错误映射的最常见表现）
+    (code >= 0xAC00 && code <= 0xD7AF)
+    // 韩文兼容字母
+    || (code >= 0x3130 && code <= 0x318F)
+    // PUA (Private Use Area)
+    || (code >= 0xE000 && code <= 0xF8FF)
+    // 替换字符
+    || code == 0xFFFD
+    // 控制字符（排除空格/换行/制表符）
+    || (code < 0x20 && code != 0x09 && code != 0x0A && code != 0x0D)
+    // 代理项
+    || (code >= 0xD800 && code <= 0xDFFF)
+}
+
+/// 检测文本是否为 CID 字体乱码。
+///
+/// 乱码特征：
+/// 1. `(cid:xxx)` 或 `CID:` 占位符 — 直接判定为乱码
+/// 2. 大量韩文字符（U+AC00-U+D7AF）— CID 错误映射的典型表现
+/// 3. PUA 字符（U+E000-U+F8FF）
+/// 4. 替换字符 U+FFFD
+///
+/// # 判定规则
+///
+/// 当乱码字符占总字符数的比例 >= `threshold` 时返回 `true`。
+/// 默认阈值 0.3（30%），可根据实际 PDF 样本调整。
+///
+/// # 示例
+///
+/// ```
+/// use invoice_reimbursement_lib::pdf::text_extractor::is_garbled_text;
+///
+/// let garbled = "랢튻 욱뗧ퟓ랢욱ꎨ쳺슷뗧ퟓ뿍욱ꎩ춳";
+/// assert!(is_garbled_text(garbled, 0.3));
+///
+/// let normal = "发票代码:043002200111湖南增值税电子普通发票";
+/// assert!(!is_garbled_text(normal, 0.3));
+/// ```
+pub fn is_garbled_text(text: &str, threshold: f64) -> bool {
+    // 1. 检测 (cid:xxx) 模式 — 直接判定乱码
+    if text.contains("(cid:") || text.contains("CID:") {
+        return true;
+    }
+
+    let total = text.chars().count();
+    if total == 0 {
+        return false;
+    }
+
+    let garbled = text.chars().filter(|&c| is_garbled_char(c)).count();
+    (garbled as f64 / total as f64) >= threshold
+}
+
+/// 检测 `OcrTextItem` 列表的整体乱码率。
+///
+/// 将列表中所有文本拼接后调用 `is_garbled_text`，用于判断
+/// pdfplumber 提取结果是否需要回退到 parangi。
+pub fn is_garbled_items(items: &[OcrTextItem], threshold: f64) -> bool {
+    let all_text: String = items
+        .iter()
+        .map(|i| i.text.as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    is_garbled_text(&all_text, threshold)
+}
+
+// ──────────────────────────────────────────────
 // pdfplumber coordinate-aware text extraction
 // ──────────────────────────────────────────────
 
@@ -540,5 +621,63 @@ mod tests {
         let words: Vec<Word> = vec![];
         let lines = merge_words_into_lines(words);
         assert!(lines.is_empty());
+    }
+
+    // ── CID 字体乱码检测 ──
+
+    #[test]
+    fn test_is_garbled_text_korean_cid_garble() {
+        // #2 铁路电子客票的真实乱码样本
+        let garbled = "랢튻 욱뗧ퟓ랢욱ꎨ쳺슷뗧ퟓ뿍욱ꎩ춳 맺볒쮰컱ퟜ뻖";
+        assert!(is_garbled_text(garbled, 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_text_normal_chinese() {
+        let normal = "发票代码:043002200111湖南增值税电子普通发票 名称：成都滴滴优行科技有限公司";
+        assert!(!is_garbled_text(normal, 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_text_cid_placeholder() {
+        assert!(is_garbled_text("hello (cid:123) world", 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_text_pua_chars() {
+        // PUA 字符，占比需 > 30%
+        // 4 个 PUA 字符 + " text" = 10 chars → 40% > 30%
+        let pua = "\u{E000}\u{E001}\u{E002}\u{E003} text";
+        assert!(is_garbled_text(pua, 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_text_mixed_low_ratio() {
+        // 少量乱码字符（低于阈值）不应判定为乱码
+        let mixed = "发票号码:32092584 \u{E000} 正常文本";
+        assert!(!is_garbled_text(mixed, 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_text_empty() {
+        assert!(!is_garbled_text("", 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_items_detects_garble() {
+        let items = vec![
+            OcrTextItem { text: "랢튻 욱뗧ퟓ랢욱".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem { text: "맺볒쮰컱ퟜ뻖".to_string(), confidence: 1.0, box_coords: None },
+        ];
+        assert!(is_garbled_items(&items, 0.3));
+    }
+
+    #[test]
+    fn test_is_garbled_items_normal() {
+        let items = vec![
+            OcrTextItem { text: "发票代码:043002200111".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem { text: "名称：成都滴滴优行科技有限公司".to_string(), confidence: 1.0, box_coords: None },
+        ];
+        assert!(!is_garbled_items(&items, 0.3));
     }
 }

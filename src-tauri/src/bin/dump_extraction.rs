@@ -7,7 +7,7 @@
 use invoice_reimbursement_lib::models::invoice::{Invoice, InvoiceSource};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::pdf::text_extractor::{
-    classify_pdf_document_type, extract_text_from_pdf, has_sufficient_text, PdfDocumentType,
+    classify_pdf_document_type, extract_text_from_pdf, has_sufficient_text, is_garbled_items, PdfDocumentType,
 };
 use invoice_reimbursement_lib::ocr::OcrTextItem;
 use std::path::Path;
@@ -98,6 +98,7 @@ fn process_pdf(path: &Path) {
     };
     print_items("parangi (纯文本)", &parangi_items);
     println!("  parangi 文本充足(>=20): {}", has_sufficient_text(&parangi_items, 20));
+    println!("  parangi 乱码检测: {}", is_garbled_items(&parangi_items, 0.3));
     println!("  分类(parangi): {}", doc_type_str(&classify_pdf_document_type(&parangi_items)));
     let src = InvoiceSource::Pdf(path_str.clone());
     print_invoice("解析(parangi)", &parse_invoice_text(&parangi_items, src.clone()));
@@ -126,6 +127,7 @@ fn process_pdf(path: &Path) {
         };
         print_items("pdfplumber (带坐标)", &pdfplumber_items);
         println!("  pdfplumber 文本充足(>=20): {}", has_sufficient_text(&pdfplumber_items, 20));
+        println!("  pdfplumber 乱码检测: {}", is_garbled_items(&pdfplumber_items, 0.3));
         println!("  分类(pdfplumber): {}", doc_type_str(&classify_pdf_document_type(&pdfplumber_items)));
         print_invoice("解析(pdfplumber)", &parse_invoice_text(&pdfplumber_items, src));
 

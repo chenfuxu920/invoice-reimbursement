@@ -53,6 +53,20 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
     let source = InvoiceSource::Pdf(pdf_path.to_string());
     let text_items = extract_text_with_coords_or_fallback(pdf_path, engine)?;
 
+    // 乱码检测：pdfplumber 对 CID 字体 PDF 可能输出乱码（如铁路电子客票），
+    // 检测到乱码时回退到 parangi（有 UCS2 CMap 回退，能正确提取 CID 字体）
+    let text_items = if text_extractor::is_garbled_items(&text_items, 0.3) {
+        eprintln!("  [pdfplumber] 检测到CID乱码，回退到parangi");
+        match text_extractor::extract_text_from_pdf(pdf_path) {
+            Ok(parangi_items) if !text_extractor::is_garbled_items(&parangi_items, 0.3) => {
+                parangi_items
+            }
+            _ => text_items, // parangi 也乱码或失败，保留原结果走后续解析/OCR
+        }
+    } else {
+        text_items
+    };
+
     // 先检查文档类型 — 行程单/结账单不应走发票解析
     let doc_type = classify_pdf_document_type(&text_items);
     if doc_type == PdfDocumentType::Itinerary || doc_type == PdfDocumentType::Bill {
