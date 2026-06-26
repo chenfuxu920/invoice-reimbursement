@@ -42,7 +42,7 @@ rust_xlsxwriter = "0.82"
 pdfplumber = { version = "0.2", optional = true }
 
 [features]
-default = []
+default = ["pdfplumber"]
 pdfplumber = ["dep:pdfplumber"]
 
 [dev-dependencies]
