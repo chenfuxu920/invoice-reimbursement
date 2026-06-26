@@ -288,6 +288,61 @@ pub fn extract_text_with_coords_flat(file_path: &str) -> Result<Vec<OcrTextItem>
     Ok(pages.into_iter().flat_map(|p| p.texts).collect())
 }
 
+/// Debug: 返回 pdfplumber 原始 Word 级数据（未经 merge_words_into_lines 合并），
+/// 用于验证分栏检测可行性。每项 = (text, x0, top, x1, bottom, page_number)
+#[cfg(feature = "pdfplumber")]
+pub fn extract_raw_words_debug(
+    file_path: &str,
+) -> Result<Vec<(String, f64, f64, f64, f64, u32)>, String> {
+    let result = std::panic::catch_unwind(|| {
+        let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
+        let mut out: Vec<(String, f64, f64, f64, f64, u32)> = Vec::new();
+        for page_result in pdf.pages_iter() {
+            let page = page_result.map_err(|e| format!("pdfplumber page: {}", e))?;
+            let pn = page.page_number() as u32;
+            let words = page.extract_words(&WordOptions::default());
+            for w in &words {
+                out.push((
+                    w.text.clone(),
+                    w.bbox.x0,
+                    w.bbox.top,
+                    w.bbox.x1,
+                    w.bbox.bottom,
+                    pn,
+                ));
+            }
+        }
+        Ok(out)
+    });
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err("pdfplumber panic in extract_raw_words_debug".to_string()),
+    }
+}
+
+/// 从 PDF 提取 pdfplumber 原始 Word 列表（未经 merge_words_into_lines 合并），
+/// 保留每个 Word 的完整坐标信息，供 layout_extractor 做坐标分栏/分框。
+#[cfg(feature = "pdfplumber")]
+pub fn extract_words_raw(file_path: &str) -> Result<Vec<Word>, String> {
+    let result = std::panic::catch_unwind(|| {
+        let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
+        let mut all_words: Vec<Word> = Vec::new();
+        for page_result in pdf.pages_iter() {
+            let page = page_result.map_err(|e| format!("pdfplumber page: {}", e))?;
+            let words = page.extract_words(&WordOptions::default());
+            all_words.extend(words);
+        }
+        if all_words.is_empty() {
+            return Err("pdfplumber extracted no words".to_string());
+        }
+        Ok(all_words)
+    });
+    match result {
+        Ok(inner) => inner,
+        Err(_) => Err("pdfplumber panic in extract_words_raw".to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

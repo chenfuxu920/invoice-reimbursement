@@ -4,6 +4,8 @@ use crate::parser::invoice_parser::parse_invoice_text;
 use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, parse_itinerary_with_coords_pages_and_fallback};
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
+#[cfg(feature = "pdfplumber")]
+use crate::parser::layout_extractor;
 use std::path::{Path, PathBuf};
 
 /// Check if a seller name looks garbled (failed extraction).
@@ -59,11 +61,45 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
 
     match check_and_parse(text_items, source.clone()) {
         Ok(invoice) if !invoice.seller_name.is_empty() && !is_likely_garbled_seller(&invoice.seller_name) => Ok(invoice),
-        Ok(_) | Err(_) => {
-            // parangi/pdfplumber text may have scrambled multi-column layout; fall back to OCR
+        Ok(mut invoice) => {
+            // Seller 空/乱码或 Amount 错误 — 先尝试 pdfplumber 原始 Word 坐标提取（比 OCR 快且准）
+            #[cfg(feature = "pdfplumber")]
+            {
+                if let Ok(words) = text_extractor::extract_words_raw(pdf_path) {
+                    // 1. 坐标 seller 提取
+                    let seller = layout_extractor::extract_seller_by_raw_coords(&words);
+                    if !seller.is_empty() && !is_likely_garbled_seller(&seller) {
+                        invoice.seller_name = seller;
+                    }
+
+                    // 2. 坐标 amount 提取（紧凑 Y 带排除 items 表格的不含税金额）
+                    if let Some(amt) = layout_extractor::extract_amount_by_coords(&words) {
+                        if amt > 0.0 {
+                            invoice.amount = amt;
+                        }
+                    }
+
+                    // 3. 如果 seller 现在有效，直接返回（不走 OCR）
+                    if !invoice.seller_name.is_empty()
+                        && !is_likely_garbled_seller(&invoice.seller_name)
+                    {
+                        return Ok(invoice);
+                    }
+                }
+            }
+            // 坐标提取未命中 — OCR 回退
             let ocr_pages = extract_ocr_text(pdf_path, engine)?;
             let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
-            // OCR 回退后也要重新检查类型 — OCR 文本可能包含"发票"字样但实际是行程单
+            let ocr_doc_type = classify_pdf_document_type(&ocr_items);
+            if ocr_doc_type == PdfDocumentType::Itinerary || ocr_doc_type == PdfDocumentType::Bill {
+                return Err(format!("非发票类型（OCR回退）: {:?}", ocr_doc_type));
+            }
+            check_and_parse(ocr_items, source)
+        }
+        Err(_) => {
+            // 解析失败 — OCR 回退
+            let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+            let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
             let ocr_doc_type = classify_pdf_document_type(&ocr_items);
             if ocr_doc_type == PdfDocumentType::Itinerary || ocr_doc_type == PdfDocumentType::Bill {
                 return Err(format!("非发票类型（OCR回退）: {:?}", ocr_doc_type));

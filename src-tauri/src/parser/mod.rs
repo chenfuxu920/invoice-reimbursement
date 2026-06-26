@@ -40,5 +40,7 @@ pub use template_manager::FieldStrategy;
 pub use template_manager::InvoiceTemplate;
 pub use template_manager::TemplateManager;
 
+pub mod layout_extractor;
+
 pub mod regex_skeleton;
 pub use regex_skeleton::{FieldType, generate_regex};

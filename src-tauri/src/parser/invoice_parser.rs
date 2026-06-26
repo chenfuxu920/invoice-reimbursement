@@ -287,6 +287,9 @@ pub fn parse_invoice_text(
     if seller_name.is_empty() {
         seller_name = extract_seller_by_coords(texts);
     }
+    if seller_name.is_empty() {
+        seller_name = extract_seller_name(&all_text);
+    }
     let item_name = extract_item_name(&regions.items);
     let date = extract_date(&all_text);
     let invoice_number = extract_invoice_number(&regions.header);
@@ -833,44 +836,103 @@ pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> 
 }
 
 fn extract_amount(text: &str) -> Result<f64, String> {
-    // Match keyword followed by any non-digit characters (e.g. "（大写）", "¥", "：")
-    // then the actual numeric amount. This handles both OCR line-level output
-    // and pdfplumber merged lines where "价税合计（大写）...523.57" appears.
-    let re =
-        Regex::new(r"(?:价税合计|合计金额|总金额|金额)[^0-9]*([\d,]+\.?\d*)")
-            .map_err(|e| e.to_string())?;
-    if let Some(caps) = re.captures(text) {
+    // 多步策略：每个匹配强制要求两位小数，排除整数匹配（如2026、168、税号）
+
+    // Step 0: 数字在关键字前 — "6.30价税合计" / "13.00价税合计"
+    let re_step0 = Regex::new(r"([\d,]+\.\d{2})\s*价税合计").map_err(|e| e.to_string())?;
+    if let Some(caps) = re_step0.captures(text) {
         let amount_str = caps[1].replace(",", "");
         return amount_str.parse::<f64>().map_err(|e| e.to_string());
     }
-    // 行程单格式：合计XXX.XX元
-    let re_itinerary = Regex::new(r"合计\s*([\d,]+\.?\d*)\s*元").map_err(|e| e.to_string())?;
+
+    // Step 1: 关键字 + ¥ + 两位小数 — "价税合计（大写） ¥523.57"
+    let re_step1 =
+        Regex::new(r"(?:价税合计|合计金额|总金额)[^¥￥]{0,20}[¥￥]\s*([\d,]+\.\d{2})")
+            .map_err(|e| e.to_string())?;
+    if let Some(caps) = re_step1.captures(text) {
+        let amount_str = caps[1].replace(",", "");
+        return amount_str.parse::<f64>().map_err(|e| e.to_string());
+    }
+
+    // Step 2: 关键字后紧邻（10字符内）两位小数 — "价税合计¥6.30"
+    let re_step2 =
+        Regex::new(r"(?:价税合计|合计金额)[^0-9]{0,10}([\d,]+\.\d{2})")
+            .map_err(|e| e.to_string())?;
+    if let Some(caps) = re_step2.captures(text) {
+        let amount_str = caps[1].replace(",", "");
+        return amount_str.parse::<f64>().map_err(|e| e.to_string());
+    }
+
+    // 行程单格式：合计XXX.XX元（保留两位小数要求）
+    let re_itinerary = Regex::new(r"合计\s*([\d,]+\.\d{2})\s*元").map_err(|e| e.to_string())?;
     if let Some(caps) = re_itinerary.captures(text) {
         let amount_str = caps[1].replace(",", "");
         return amount_str.parse::<f64>().map_err(|e| e.to_string());
     }
-    let re2 = Regex::new(r"[￥¥]\s*([\d,]+\.?\d*)").map_err(|e| e.to_string())?;
-    let mut max_amount = 0.0f64;
-    for cap in re2.captures_iter(text) {
+
+    // Step 2.5: 区域内裸两位小数（无¥），取最大值，排除>1e6（税号）
+    // 限制数字长度1-7位，避免匹配税号等长数字
+    let re_step25 = Regex::new(r"\b([\d,]{1,7}\.\d{2})\b").map_err(|e| e.to_string())?;
+    let mut max_bare = 0.0f64;
+    for cap in re_step25.captures_iter(text) {
         let v: f64 = cap[1].replace(",", "").parse().unwrap_or(0.0);
-        if v > max_amount {
+        if v > max_bare && v < 1_000_000.0 {
+            max_bare = v;
+        }
+    }
+    if max_bare > 0.0 {
+        return Ok(max_bare);
+    }
+
+    // Step 3: 全文 ¥金额，取最大值（已有逻辑保留，加<1_000_000排除税号）
+    let re_yuan = Regex::new(r"[￥¥]\s*([\d,]+\.?\d*)").map_err(|e| e.to_string())?;
+    let mut max_amount = 0.0f64;
+    for cap in re_yuan.captures_iter(text) {
+        let v: f64 = cap[1].replace(",", "").parse().unwrap_or(0.0);
+        if v > max_amount && v < 1_000_000.0 {
             max_amount = v;
         }
     }
     if max_amount > 0.0 {
         return Ok(max_amount);
     }
+
     Err("无法识别发票金额".to_string())
 }
 
 fn extract_seller_name(text: &str) -> String {
-    // 从销售方区域提取名称
+    // 精确匹配（原逻辑）
     let re = Regex::new(r"名称[：:]\s*(.+?)(?:\s+统一社会信用代码|\s+$)").unwrap();
     if let Some(caps) = re.captures(text) {
         let name = caps[1].trim();
         if !name.is_empty() && name.len() > 2 {
             return name.to_string();
         }
+    }
+    // 容空格：parangi 在 CJK 字符间插入空格，如"名 称:" → 用 find_iter 找到所有"名称:"位置
+    // 手动提取每个候选（regex 不支持 lookahead）
+    let re_start = Regex::new(r"名\s*称\s*[：:]").unwrap();
+    let re_end = Regex::new(r"\s*(?:名\s*称|统一|纳税人|电话|开户|地址|销|买|售|备)|$").unwrap();
+    let buyer_keywords = ["购买方", "国防", "大学", "学院", "医院"];
+    let mut candidates: Vec<String> = Vec::new();
+    for m in re_start.find_iter(text) {
+        let after = &text[m.end()..];
+        let end_pos = re_end.find(after).map(|em| em.start()).unwrap_or(after.len());
+        let name = after[..end_pos].trim()
+            .trim_end_matches(|c: char| c == '买' || c == '售' || c == ' ');
+        if name.len() > 2 && !candidates.iter().any(|c| c == name) {
+            candidates.push(name.to_string());
+        }
+    }
+    // 从后往前找第一个非买方候选（卖方通常在买方之后）
+    for candidate in candidates.iter().rev() {
+        if !buyer_keywords.iter().any(|kw| candidate.contains(kw)) {
+            return candidate.clone();
+        }
+    }
+    // 全是买方候选，取最后一个
+    if let Some(last) = candidates.last() {
+        return last.clone();
     }
     // 回退：尝试其他模式
     let re2 = Regex::new(r"(?:销售方|收款单位|开票方)[：:]\s*(.+?)(?:\s|$)").unwrap();
@@ -988,9 +1050,18 @@ fn extract_item_name(text: &str) -> String {
 }
 
 fn extract_date(text: &str) -> chrono::NaiveDate {
+    // 四字年份："2026年05月06日"
     let re = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日").unwrap();
     if let Some(caps) = re.captures(text) {
         let y: i32 = caps[1].parse().unwrap_or(2025);
+        let m: u32 = caps[2].parse().unwrap_or(1);
+        let d: u32 = caps[3].parse().unwrap_or(1);
+        return chrono::NaiveDate::from_ymd_opt(y, m, d).unwrap_or_default();
+    }
+    // 两字年份："20年06月05日" → 2000 + 20 = 2020
+    let re_short = Regex::new(r"(\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日").unwrap();
+    if let Some(caps) = re_short.captures(text) {
+        let y: i32 = 2000 + caps[1].parse::<i32>().unwrap_or(25);
         let m: u32 = caps[2].parse().unwrap_or(1);
         let d: u32 = caps[3].parse().unwrap_or(1);
         return chrono::NaiveDate::from_ymd_opt(y, m, d).unwrap_or_default();
@@ -1011,10 +1082,20 @@ fn extract_invoice_number(text: &str) -> String {
     if let Some(caps) = re.captures(text) {
         return caps[1].to_string();
     }
+    // 容空格模式：pdfplumber 中 CJK 间有空格如"发 票 号 码:32092584"
+    let re_space = Regex::new(r"发\s*票\s*号\s*码[：:]?\s*(\d+)").unwrap();
+    if let Some(caps) = re_space.captures(text) {
+        return caps[1].to_string();
+    }
     // 反向模式：PDF文字提取时列顺序可能颠倒，号码出现在标签之前
     // 例如：...26512000001728418261发票号码：...
     let re_rev = Regex::new(r"(\d{8,20})\s*发票号码").unwrap();
     if let Some(caps) = re_rev.captures(text) {
+        return caps[1].to_string();
+    }
+    // 反向容空格
+    let re_rev_space = Regex::new(r"(\d{8,20})\s*发\s*票\s*号\s*码").unwrap();
+    if let Some(caps) = re_rev_space.captures(text) {
         return caps[1].to_string();
     }
     String::new()
@@ -1620,6 +1701,100 @@ mod tests {
     /// Bug: 通行费发票"备注"二字竖排印刷，OCR 识别不到，
     /// 导致 split_into_regions 无法切换到 remarks 区域，备注内容丢失。
     /// 应通过坐标从价税合计下方恢复备注。
+    // ===== extract_amount TDD tests =====
+
+    #[test]
+    fn test_extract_amount_tianfutong_not_2026() {
+        // Bug: #3 天府通13元 — ¥13.00价税合计...2026 should not return 2026
+        let text = "壹拾叁圆整¥13.00价税合计（大写） （小写） 2026/04/24-2026/04/26";
+        let result = extract_amount(text).unwrap();
+        assert!((result - 13.00).abs() < 0.01, "expected 13.00, got {}", result);
+    }
+
+    #[test]
+    fn test_extract_amount_before_keyword() {
+        // Bug: #1 长沙轨交 pdfplumber — "6.30价税合计"
+        let text = "6.30价税合计(大写) ¥ 陆圆叁角整 (小写)";
+        let result = extract_amount(text).unwrap();
+        assert!((result - 6.30).abs() < 0.01, "expected 6.30, got {}", result);
+    }
+
+    #[test]
+    fn test_extract_amount_exclude_taxid() {
+        // Bug: tax ID "91430100578607044B" should not be captured
+        let text = "91430100578607044B 价税合计 ¥6.30";
+        let result = extract_amount(text).unwrap();
+        assert!((result - 6.30).abs() < 0.01, "expected 6.30, got {}", result);
+    }
+
+    #[test]
+    fn test_extract_amount_normal_jiaoshuiheji() {
+        // Normal amount with Chinese amount words
+        let text = "价税合计（大写） （小写）伍佰贰拾叁圆伍角柒分 ¥523.57";
+        let result = extract_amount(text).unwrap();
+        assert!((result - 523.57).abs() < 0.01, "expected 523.57, got {}", result);
+    }
+
+    // ===== extract_seller_name TDD tests =====
+
+    #[test]
+    fn test_extract_seller_name_with_spaces() {
+        // Bug: parangi inserts spaces in CJK text "名 称:"
+        let text = "名 称: 长沙市轨道交通运营有限公司销 备纳税人识别号";
+        let result = extract_seller_name(text);
+        assert_eq!(result, "长沙市轨道交通运营有限公司");
+    }
+
+    #[test]
+    fn test_extract_seller_name_double_name_take_seller() {
+        // Bug: two "名称:" entries — must exclude buyer (国防大学)
+        let text = "名称：中国人民解放军国防科技大学 名称：成都滴滴优行科技有限公司买 售";
+        let result = extract_seller_name(text);
+        assert_eq!(result, "成都滴滴优行科技有限公司");
+    }
+
+    #[test]
+    fn test_extract_seller_name_normal_single() {
+        // Normal single name entry
+        let text = "名称：四川景澜酒店管理有限公司 统一社会信用代码";
+        let result = extract_seller_name(text);
+        assert_eq!(result, "四川景澜酒店管理有限公司");
+    }
+
+    // ===== extract_date TDD tests =====
+
+    #[test]
+    fn test_extract_date_normal_four_digit_year() {
+        let text = "开票日期:2026年05月06日";
+        let date = extract_date(text);
+        assert_eq!(date, chrono::NaiveDate::from_ymd_opt(2026, 5, 6).unwrap());
+    }
+
+    #[test]
+    fn test_extract_date_two_digit_year() {
+        // Bug: #1 pdfplumber — "20年 6 月 日 05 06" → year "20" needs 2000+ prefix
+        let text = "20年06月05日";
+        let date = extract_date(text);
+        assert_eq!(date, chrono::NaiveDate::from_ymd_opt(2020, 6, 5).unwrap());
+    }
+
+    // ===== extract_invoice_number TDD tests =====
+
+    #[test]
+    fn test_extract_invoice_number_with_spaces() {
+        // Bug: pdfplumber "发 票 号 码:" with spaces between CJK
+        let text = "发 票 号 码:32092584";
+        let result = extract_invoice_number(text);
+        assert_eq!(result, "32092584");
+    }
+
+    #[test]
+    fn test_extract_invoice_number_normal() {
+        let text = "发票号码:26517000000358455168";
+        let result = extract_invoice_number(text);
+        assert_eq!(result, "26517000000358455168");
+    }
+
     #[test]
     fn test_parse_toll_invoice_remarks_recovered_by_coords() {
         let texts = vec![
