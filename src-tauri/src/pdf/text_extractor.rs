@@ -224,6 +224,29 @@ pub fn merge_words_into_lines(words: Vec<Word>) -> Vec<(String, BBox)> {
 /// pipeline that expects `Vec<OcrPageResult>`.
 #[cfg(feature = "pdfplumber")]
 pub fn extract_text_with_coords(file_path: &str) -> Result<Vec<OcrPageResult>, String> {
+    // Wrap pdfplumber in catch_unwind — it may panic on non-standard PDFs
+    // (CID font parsing, encrypted PDFs, etc.). Same pattern as pdf-extract.
+    let result = std::panic::catch_unwind(|| {
+        extract_text_with_coords_inner(file_path)
+    });
+    match result {
+        Ok(inner) => inner,
+        Err(panic_msg) => {
+            let msg = if let Some(s) = panic_msg.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_msg.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "pdfplumber panicked (unknown cause)".to_string()
+            };
+            eprintln!("  [pdfplumber] panic: {}", msg);
+            Err(format!("pdfplumber panic: {}", msg))
+        }
+    }
+}
+
+#[cfg(feature = "pdfplumber")]
+fn extract_text_with_coords_inner(file_path: &str) -> Result<Vec<OcrPageResult>, String> {
     let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
 
     let mut results: Vec<OcrPageResult> = Vec::new();

@@ -62,8 +62,17 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
 
 fn extract_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
     match text_extractor::extract_text_from_pdf(pdf_path) {
-        Ok(items) if text_extractor::has_sufficient_text(&items, 20) => Ok(items),
-        _ => {
+        Ok(items) if text_extractor::has_sufficient_text(&items, 20) => {
+            eprintln!("  [parangi] 提取到 {} 个文本项", items.len());
+            Ok(items)
+        }
+        Ok(items) => {
+            eprintln!("  [parangi] 文本不足 ({} 字符)，回退到 OCR", items.iter().map(|i| i.text.len()).sum::<usize>());
+            let resp = engine.recognize_pdf(pdf_path)?;
+            Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
+        }
+        Err(e) => {
+            eprintln!("  [parangi] 失败: {}，回退到 OCR", e);
             let resp = engine.recognize_pdf(pdf_path)?;
             Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
         }
