@@ -46,15 +46,28 @@ pub struct ParseResult {
 }
 
 /// 解析单个发票 PDF：先尝试文字提取，失败或缺销售方信息则 OCR（多页）
+/// 如果文档分类为行程单/结账单，直接返回错误（不应当发票处理）
 pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<Invoice, String> {
     let source = InvoiceSource::Pdf(pdf_path.to_string());
     let text_items = extract_text_with_coords_or_fallback(pdf_path, engine)?;
+
+    // 先检查文档类型 — 行程单/结账单不应走发票解析
+    let doc_type = classify_pdf_document_type(&text_items);
+    if doc_type == PdfDocumentType::Itinerary || doc_type == PdfDocumentType::Bill {
+        return Err(format!("非发票类型: {:?}", doc_type));
+    }
+
     match check_and_parse(text_items, source.clone()) {
         Ok(invoice) if !invoice.seller_name.is_empty() && !is_likely_garbled_seller(&invoice.seller_name) => Ok(invoice),
         Ok(_) | Err(_) => {
             // parangi/pdfplumber text may have scrambled multi-column layout; fall back to OCR
             let ocr_pages = extract_ocr_text(pdf_path, engine)?;
             let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
+            // OCR 回退后也要重新检查类型 — OCR 文本可能包含"发票"字样但实际是行程单
+            let ocr_doc_type = classify_pdf_document_type(&ocr_items);
+            if ocr_doc_type == PdfDocumentType::Itinerary || ocr_doc_type == PdfDocumentType::Bill {
+                return Err(format!("非发票类型（OCR回退）: {:?}", ocr_doc_type));
+            }
             check_and_parse(ocr_items, source)
         }
     }
