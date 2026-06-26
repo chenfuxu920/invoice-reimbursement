@@ -6,6 +6,28 @@ use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 use std::path::{Path, PathBuf};
 
+/// Check if a seller name looks garbled (failed extraction).
+/// Used to trigger OCR fallback even when seller_name is non-empty
+/// but clearly wrong (e.g., contains the label itself or is too short).
+fn is_likely_garbled_seller(name: &str) -> bool {
+    let trimmed = name.trim();
+    // Too short to be a real company name (Chinese company names are typically 4+ chars)
+    if trimmed.chars().count() < 3 {
+        return true;
+    }
+    // Contains the label itself — extraction got "名称：" but not the actual name
+    if trimmed.contains("名称：") || trimmed.contains("名称:") {
+        return true;
+    }
+    // Contains only punctuation, whitespace, or common label characters
+    if trimmed.chars().all(|c| {
+        c.is_whitespace() || "名称：:，,。.、；;（）()".contains(c)
+    }) {
+        return true;
+    }
+    false
+}
+
 /// 从行程单解析出的行程明细集合
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ItineraryDoc {
@@ -28,9 +50,9 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
     let source = InvoiceSource::Pdf(pdf_path.to_string());
     let text_items = extract_text_with_coords_or_fallback(pdf_path, engine)?;
     match check_and_parse(text_items, source.clone()) {
-        Ok(invoice) if !invoice.seller_name.is_empty() => Ok(invoice),
+        Ok(invoice) if !invoice.seller_name.is_empty() && !is_likely_garbled_seller(&invoice.seller_name) => Ok(invoice),
         Ok(_) | Err(_) => {
-            // parangi text may have scrambled multi-column layout; fall back to OCR
+            // parangi/pdfplumber text may have scrambled multi-column layout; fall back to OCR
             let ocr_pages = extract_ocr_text(pdf_path, engine)?;
             let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
             check_and_parse(ocr_items, source)
@@ -55,7 +77,7 @@ fn extract_ocr_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate:
 
 /// 带坐标的文字提取：优先使用 pdfplumber（feature-gated），回退到 parangi/OCR
 #[cfg(feature = "pdfplumber")]
-fn extract_text_with_coords_or_fallback(
+pub fn extract_text_with_coords_or_fallback(
     pdf_path: &str,
     engine: &mut OcrEngine,
 ) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
@@ -72,7 +94,7 @@ fn extract_text_with_coords_or_fallback(
 }
 
 #[cfg(not(feature = "pdfplumber"))]
-fn extract_text_with_coords_or_fallback(
+pub fn extract_text_with_coords_or_fallback(
     pdf_path: &str,
     engine: &mut OcrEngine,
 ) -> Result<Vec<crate::ocr::OcrTextItem>, String> {

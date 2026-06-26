@@ -1,7 +1,7 @@
 #![cfg(feature = "pdfplumber")]
 
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
-use invoice_reimbursement_lib::ocr::OcrTextItem;
+use invoice_reimbursement_lib::ocr::{OcrTextItem, bbox_to_json};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::parser::itinerary_parser::parse_itinerary_with_coords;
 use invoice_reimbursement_lib::pdf::text_extractor::extract_text_with_coords_flat;
@@ -10,19 +10,6 @@ use std::path::Path;
 
 /// Helpers directory: src-tauri/tests/../../data/... resolves to project-root/data/
 const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data");
-
-/// Construct box_coords JSON from bounding box coordinates (matches bbox_to_json format).
-fn make_box_coords(x0: f64, y0: f64, x1: f64, y1: f64) -> serde_json::Value {
-    serde_json::json!({
-        "points": [
-            {"x": x0, "y": y0},
-            {"x": x1, "y": y0},
-            {"x": x1, "y": y1},
-            {"x": x0, "y": y1}
-        ],
-        "box_score": 1.0
-    })
-}
 
 /// Extract words from a PDF using pdfplumber and convert each word to OcrTextItem
 /// with bounding box coordinates.
@@ -37,11 +24,12 @@ fn pdfplumber_words_to_ocr_items(pdf_path: &str) -> Result<Vec<OcrTextItem>, Str
             items.push(OcrTextItem {
                 text: word.text.clone(),
                 confidence: 1.0,
-                box_coords: Some(make_box_coords(
+                box_coords: Some(bbox_to_json(
                     word.bbox.x0,
                     word.bbox.top,
                     word.bbox.x1,
                     word.bbox.bottom,
+                    1.0,
                 )),
             });
         }

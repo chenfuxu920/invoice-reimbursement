@@ -48,7 +48,7 @@ pub struct OcrPdfResponse {
 
 /// Construct box_coords JSON from bounding box coordinates and score.
 /// Format: {points: [{x,y}*4], box_score: f64} — shared by OCR and pdfplumber extraction.
-pub(crate) fn bbox_to_json(x0: f64, y0: f64, x1: f64, y1: f64, score: f64) -> serde_json::Value {
+pub fn bbox_to_json(x0: f64, y0: f64, x1: f64, y1: f64, score: f64) -> serde_json::Value {
     serde_json::json!({
         "points": [
             {"x": x0, "y": y0},

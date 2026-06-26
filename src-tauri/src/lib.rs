@@ -5,8 +5,8 @@ pub mod ocr;
 pub mod parser;
 pub mod pdf;
 
-use ocr::{OcrEngine, OcrTextItem};
-use parser::itinerary_parser::parse_itinerary_text;
+use ocr::OcrEngine;
+use parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords};
 use parser::wechat_parser;
 use parser::alipay_parser;
 use models::invoice::{Invoice, Itinerary};
@@ -23,7 +23,6 @@ use crate::pdf::form_html_generator;
 use crate::pdf::form_xlsx_generator;
 use crate::pdf::comparison_xlsx_generator;
 use crate::pdf::invoice_pipeline::{self, ParseResult};
-use crate::pdf::text_extractor;
 use tokio::sync::Mutex as AsyncMutex;
 use tauri::Manager;
 
@@ -107,24 +106,27 @@ async fn recognize_itinerary(
     state: tauri::State<'_, AppState>,
     file_path: String,
 ) -> Result<Vec<Itinerary>, String> {
-    // 优先尝试直接提取 PDF 文字（适用于文字型 PDF）
-    match text_extractor::extract_text_from_pdf(&file_path) {
-        Ok(text_items) if text_extractor::has_sufficient_text(&text_items, 20) => {
-            // 文字型 PDF，直接使用提取的文字
-            Ok(parse_itinerary_text(&text_items))
+    let mut engine = state.ocr_engine.lock().await;
+    let engine = engine
+        .as_mut()
+        .ok_or("OCR engine not initialized. Model files may be missing.")?;
+
+    let texts = invoice_pipeline::extract_text_with_coords_or_fallback(&file_path, engine)?;
+
+    // If text items have coordinates (from pdfplumber), use coord-based parsing
+    let has_coords = texts.iter().any(|t| t.box_coords.is_some());
+    let itineraries = if has_coords {
+        let coord_result = parse_itinerary_with_coords(&texts);
+        if !coord_result.is_empty() {
+            coord_result
+        } else {
+            parse_itinerary_text(&texts)
         }
-        _ => {
-            // 扫描型 PDF 或文字提取失败，回退到 OCR
-            let mut engine = state.ocr_engine.lock().await;
-            let engine = engine
-                .as_mut()
-                .ok_or("OCR engine not initialized. Model files may be missing.")?;
-            let resp = engine.recognize_pdf(&file_path)?;
-            let all_texts: Vec<OcrTextItem> =
-                resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
-            Ok(parse_itinerary_text(&all_texts))
-        }
-    }
+    } else {
+        parse_itinerary_text(&texts)
+    };
+
+    Ok(itineraries)
 }
 
 // 微信账单导入命令
