@@ -143,14 +143,27 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
     let has_coords = texts.iter().any(|t| t.box_coords.is_some());
 
     let itineraries = if has_coords {
-        // Text items have coordinates — use coord-based parsing directly, skip OCR
-        eprintln!("  [pdfplumber] 行程单带坐标，跳过 OCR");
+        // Text items have coordinates (from pdfplumber) — try coord-based parsing first
+        eprintln!("  [pdfplumber] 行程单带坐标，尝试坐标解析");
         let coord_result = parse_itinerary_with_coords(&texts);
         if !coord_result.is_empty() {
             coord_result
         } else {
-            // Coords didn't help — fall back to text parsing
-            parse_itinerary_text(&texts)
+            // Coords didn't help — try text-only parsing
+            let text_result = parse_itinerary_text(&texts);
+            if !text_result.is_empty() {
+                text_result
+            } else {
+                // Both failed — fall back to OCR for better table reconstruction
+                eprintln!("  [pdfplumber] 坐标和文本解析均失败，回退到 OCR");
+                let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+                let ocr_result = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
+                if !ocr_result.is_empty() {
+                    ocr_result
+                } else {
+                    parse_itinerary_text(&texts)
+                }
+            }
         }
     } else {
         // No coords (parangi or OCR fallback) — run OCR for coordinate-based table reconstruction
