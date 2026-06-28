@@ -10,6 +10,11 @@ use pdfplumber::TextDirection;
 use crate::ocr::engine::bbox_to_json;
 #[cfg(feature = "pdfplumber")]
 use crate::ocr::OcrPageResult;
+// Column-aware merging: import column detection + per-column merge from layout_extractor.
+// These are the correct primitives for multi-column Chinese invoices —
+// merge_words_into_lines alone mixes buyer/seller columns when Y coordinates align.
+#[cfg(feature = "pdfplumber")]
+use crate::parser::layout_extractor::{detect_columns, merge_words_in_column};
 
 /// PDF 文档类型分类
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -338,7 +343,8 @@ fn extract_text_with_coords_inner(file_path: &str) -> Result<Vec<OcrPageResult>,
         let words = page.extract_words(&WordOptions::default());
         total_words += words.len();
 
-        let lines = merge_words_into_lines(words);
+        // 列感知合并：多栏发票不会跨列混合买方/卖方
+        let lines = column_aware_merge(words);
         let texts: Vec<OcrTextItem> = lines
             .into_iter()
             .map(|(text, bbox)| OcrTextItem {
@@ -421,6 +427,143 @@ pub fn extract_words_raw(file_path: &str) -> Result<Vec<Word>, String> {
     match result {
         Ok(inner) => inner,
         Err(_) => Err("pdfplumber panic in extract_words_raw".to_string()),
+    }
+}
+
+// ──────────────────────────────────────────────
+// Column-aware extraction (P1: fixes multi-column merging)
+// ──────────────────────────────────────────────
+
+/// 单次 PDF 打开的完整提取结果，包含合并后的行文本和原始 Word 列表。
+///
+/// 解决两个问题：
+/// 1. **列感知合并**：多栏发票（买方/卖方）不会跨列合并
+/// 2. **性能**：管线不再需要二次打开 PDF 获取 raw words
+#[cfg(feature = "pdfplumber")]
+pub struct PdfExtraction {
+    /// 按页组织的合并后文本项（列感知合并，可直接用于正则解析）
+    pub pages: Vec<OcrPageResult>,
+    /// 全部原始 Word（未经合并，保留完整坐标，供坐标提取器使用）
+    pub raw_words: Vec<Word>,
+}
+
+/// 列感知合并：检测列布局，在每列内独立合并 Word 为行。
+///
+/// - 单栏：退化为 `merge_words_into_lines`（向后兼容）
+/// - 多栏：用 `detect_columns` 检测列边界，每列内用 `merge_words_in_column` 合并
+///
+/// 这解决了 `merge_words_into_lines` 将买方/卖方列合并到同一行的根本问题。
+///
+/// 容差参数从 `LayoutTuning::default()` 获取，集中管理硬编码值。
+#[cfg(feature = "pdfplumber")]
+fn column_aware_merge(words: Vec<Word>) -> Vec<(String, BBox)> {
+    if words.is_empty() {
+        return Vec::new();
+    }
+
+    // 使用 LayoutTuning 集中管理容差参数
+    let tuning = crate::parser::layout_extractor::LayoutTuning::default();
+    let avg_height = crate::parser::layout_extractor::LayoutTuning::avg_height_of(&words);
+    let y_tolerance = tuning.y_tolerance(avg_height);
+    let x_gap_threshold = tuning.x_gap_threshold(avg_height);
+
+    // 检测列布局
+    let layout = detect_columns(&words);
+
+    if layout.columns.is_empty() || layout.is_single_column() {
+        // 单栏或无法检测：使用原有合并逻辑
+        merge_words_into_lines(words)
+    } else {
+        // 多栏：每列内独立合并，避免跨列混合
+        let mut all_lines: Vec<(String, BBox)> = Vec::new();
+        for column in &layout.columns {
+            let col_words: Vec<&Word> = words
+                .iter()
+                .filter(|w| {
+                    let cx = (w.bbox.x0 + w.bbox.x1) / 2.0;
+                    cx >= column.x_min && cx <= column.x_max
+                })
+                .collect();
+            if col_words.is_empty() {
+                continue;
+            }
+            let col_lines = merge_words_in_column(&col_words, y_tolerance, x_gap_threshold);
+            all_lines.extend(col_lines);
+        }
+        // 按 Y 再按 X 排序，保持阅读顺序
+        all_lines.sort_by(|a, b| {
+            a.1.top
+                .partial_cmp(&b.1.top)
+                .unwrap()
+                .then(a.1.x0.partial_cmp(&b.1.x0).unwrap())
+        });
+        all_lines
+    }
+}
+
+/// 单次打开 PDF，返回列感知合并的文本项 + 原始 Word 列表。
+///
+/// 替代 `extract_text_with_coords` + `extract_words_raw` 的两次 PDF 打开，
+/// 同时通过列感知合并修复多栏发票的买方/卖方混合问题。
+#[cfg(feature = "pdfplumber")]
+pub fn extract_pdf_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
+    let result = std::panic::catch_unwind(|| {
+        let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
+
+        let mut pages: Vec<OcrPageResult> = Vec::new();
+        let mut all_words: Vec<Word> = Vec::new();
+        let mut total_words: usize = 0;
+
+        for page_result in pdf.pages_iter() {
+            let page = page_result.map_err(|e| format!("pdfplumber page: {}", e))?;
+            let words = page.extract_words(&WordOptions::default());
+            total_words += words.len();
+
+            // 克隆一份用于坐标提取器（column_aware_merge 消费原始 Vec）
+            all_words.extend(words.clone());
+
+            // 列感知合并
+            let lines = column_aware_merge(words);
+
+            let texts: Vec<OcrTextItem> = lines
+                .into_iter()
+                .map(|(text, bbox)| OcrTextItem {
+                    text,
+                    confidence: 1.0,
+                    box_coords: Some(bbox_to_json(
+                        bbox.x0, bbox.top, bbox.x1, bbox.bottom, 1.0,
+                    )),
+                })
+                .collect();
+
+            pages.push(OcrPageResult {
+                page: page.page_number() as u32,
+                texts,
+            });
+        }
+
+        if pages.is_empty() || total_words == 0 {
+            return Err("pdfplumber extracted no text".to_string());
+        }
+
+        Ok(PdfExtraction {
+            pages,
+            raw_words: all_words,
+        })
+    });
+    match result {
+        Ok(inner) => inner,
+        Err(panic_msg) => {
+            let msg = if let Some(s) = panic_msg.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_msg.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "pdfplumber panicked (unknown cause)".to_string()
+            };
+            eprintln!("  [pdfplumber] panic: {}", msg);
+            Err(format!("pdfplumber panic: {}", msg))
+        }
     }
 }
 
@@ -620,6 +763,91 @@ mod tests {
     fn test_merge_words_into_lines_empty() {
         let words: Vec<Word> = vec![];
         let lines = merge_words_into_lines(words);
+        assert!(lines.is_empty());
+    }
+
+    // ── column_aware_merge tests (P1: multi-column invoice fix) ──
+
+    #[cfg(feature = "pdfplumber")]
+    fn make_word(text: &str, x0: f64, top: f64, x1: f64, bottom: f64) -> Word {
+        Word {
+            text: text.to_string(),
+            bbox: BBox::new(x0, top, x1, bottom),
+            doctop: top,
+            direction: TextDirection::Ltr,
+            chars: vec![],
+        }
+    }
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_column_aware_merge_multi_column_does_not_mix() {
+        // 模拟增值税电子发票双栏布局：
+        //   左栏（买方）: X=31-175, Y=95
+        //   右栏（卖方）: X=301-450, Y=95
+        // 旧 merge_words_into_lines 会合并为一行 "买方 卖方"
+        // column_aware_merge 应检测到双栏，各自独立合并
+        let words = vec![
+            // 表头行（Y < 80 被排除列检测，但合并仍处理）
+            make_word("发票", 100.0, 30.0, 130.0, 42.0),
+            // 买方名称（左栏）
+            make_word("名称：中国人民解放军国防科技大学", 31.0, 95.0, 175.0, 104.0),
+            // 卖方名称（右栏，同 Y 行）
+            make_word("名称：成都滴滴优行科技有限公司", 301.0, 95.0, 450.0, 104.0),
+            // 买方税号（左栏，下一行）
+            make_word("纳税人识别号：91110108A1100000M", 31.0, 120.0, 200.0, 129.0),
+            // 卖方税号（右栏，同 Y 行）
+            make_word("纳税人识别号：91430100578607044B", 301.0, 120.0, 450.0, 129.0),
+        ];
+
+        let lines = column_aware_merge(words);
+
+        // 关键断言：买方和卖方不应出现在同一行
+        let has_mixed = lines.iter().any(|(text, _)| {
+            text.contains("国防") && text.contains("滴滴")
+        });
+        assert!(
+            !has_mixed,
+            "多栏合并不应将买方和卖方混合到同一行: {:?}",
+            lines.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>()
+        );
+
+        // 应该至少有 2 个包含"名称"的行（买方和卖方各一个）
+        let name_lines: Vec<_> = lines.iter().filter(|(t, _)| t.contains("名称")).collect();
+        assert!(
+            name_lines.len() >= 2,
+            "应有至少2个名称行（买方+卖方），实际 {}: {:?}",
+            name_lines.len(),
+            name_lines.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_column_aware_merge_single_column_preserves_behavior() {
+        // 单栏文档：column_aware_merge 应退化为 merge_words_into_lines 的行为
+        // 使用紧密排列的单词（小间距），确保 detect_columns 判定为单栏
+        let words = vec![
+            make_word("Hello", 10.0, 100.0, 50.0, 112.0),
+            make_word("World", 52.0, 100.0, 92.0, 112.0),
+            make_word("Test", 94.0, 100.0, 124.0, 112.0),
+            // 添加更多行确保不是单行偶然通过
+            make_word("Second", 10.0, 120.0, 60.0, 132.0),
+            make_word("Line", 62.0, 120.0, 92.0, 132.0),
+        ];
+
+        let lines = column_aware_merge(words);
+        // 单栏应合并为 2 行（Y=100 和 Y=120）
+        assert_eq!(lines.len(), 2, "单栏应合并为2行");
+        assert_eq!(lines[0].0, "Hello World Test");
+        assert_eq!(lines[1].0, "Second Line");
+    }
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_column_aware_merge_empty() {
+        let words: Vec<Word> = vec![];
+        let lines = column_aware_merge(words);
         assert!(lines.is_empty());
     }
 

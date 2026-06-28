@@ -9,6 +9,95 @@ use pdfplumber::{BBox, Word};
 use crate::ocr::engine::bbox_to_json;
 use crate::ocr::OcrTextItem;
 
+// ── Layout Tuning ──────────────────────────────────────────────────────
+
+/// 布局提取的可调参数集合，集中管理原先散布在多个函数中的硬编码值。
+///
+/// 所有阈值都从字体高度（avg_height）派生，确保对不同字号的自适应性。
+/// 通过 `LayoutTuning::default()` 获取经过实战验证的默认值。
+///
+/// # 参数说明
+///
+/// | 参数 | 默认值 | 说明 |
+/// |------|--------|------|
+/// | `y_tolerance_pct` | 0.5 | Y 容差 = avg_height × 此值，控制同行判定 |
+/// | `x_gap_threshold_pct` | 2.0 | X 间距阈值 = avg_height × 此值，控制同组判定 |
+/// | `default_avg_height` | 12.0 | avg_height 为零时的回退值 |
+/// | `header_y_threshold` | 80.0 | 表头 Y 排除阈值（PDF 点值），低于此 Y 的词不参与列检测 |
+/// | `column_gap_bins` | 3 | 列间隙检测：≥此数量的连续空桶判定为列间隙 |
+/// | `bucket_width_pct` | 0.6 | 直方图桶宽 = avg_height × 此值 |
+/// | `bucket_width_floor` | 8.0 | 桶宽下限，防止过窄桶 |
+/// | `amount_band_top_offset` | 5.0 | 金额 Y 带上边界 = 锚点 top - 此值 |
+/// | `amount_band_bottom_offset` | 30.0 | 金额 Y 带下边界 = 锚点 bottom + 此值 |
+/// | `max_valid_amount` | 1_000_000.0 | 最大有效金额（排除税号等长数字） |
+/// | `min_seller_chars` | 3 | 最小卖方名称字符数 |
+/// | `garble_threshold` | 0.3 | CID 乱码检测阈值（乱码字符占比） |
+#[derive(Debug, Clone)]
+pub struct LayoutTuning {
+    pub y_tolerance_pct: f64,
+    pub x_gap_threshold_pct: f64,
+    pub default_avg_height: f64,
+    pub header_y_threshold: f64,
+    pub column_gap_bins: usize,
+    pub bucket_width_pct: f64,
+    pub bucket_width_floor: f64,
+    pub amount_band_top_offset: f64,
+    pub amount_band_bottom_offset: f64,
+    pub max_valid_amount: f64,
+    pub min_seller_chars: usize,
+    pub garble_threshold: f64,
+}
+
+impl Default for LayoutTuning {
+    fn default() -> Self {
+        Self {
+            y_tolerance_pct: 0.5,
+            x_gap_threshold_pct: 2.0,
+            default_avg_height: 12.0,
+            header_y_threshold: 80.0,
+            column_gap_bins: 3,
+            bucket_width_pct: 0.6,
+            bucket_width_floor: 8.0,
+            amount_band_top_offset: 5.0,
+            amount_band_bottom_offset: 30.0,
+            max_valid_amount: 1_000_000.0,
+            min_seller_chars: 3,
+            garble_threshold: 0.3,
+        }
+    }
+}
+
+impl LayoutTuning {
+    /// 从 Word 列表计算平均字高
+    pub fn avg_height_of(words: &[Word]) -> f64 {
+        if words.is_empty() {
+            return 12.0;
+        }
+        let sum: f64 = words.iter().map(|w| w.bbox.height()).sum();
+        let count = words.len() as f64;
+        if count > 0.0 && sum > 0.0 {
+            sum / count
+        } else {
+            12.0
+        }
+    }
+
+    /// 计算 Y 容差 = avg_height × y_tolerance_pct
+    pub fn y_tolerance(&self, avg_height: f64) -> f64 {
+        avg_height * self.y_tolerance_pct
+    }
+
+    /// 计算 X 间距阈值 = avg_height × x_gap_threshold_pct
+    pub fn x_gap_threshold(&self, avg_height: f64) -> f64 {
+        avg_height * self.x_gap_threshold_pct
+    }
+
+    /// 计算直方图桶宽 = max(avg_height × bucket_width_pct, bucket_width_floor)
+    pub fn bucket_width(&self, avg_height: f64) -> f64 {
+        (avg_height * self.bucket_width_pct).max(self.bucket_width_floor)
+    }
+}
+
 // ── Data Structures ────────────────────────────────────────────────────
 
 /// Label identifying which side of a multi-column layout a column occupies.
@@ -55,26 +144,31 @@ impl ColumnarLayout {
 /// Detect column layout from raw pdfplumber Words using X-coordinate histogram gap analysis.
 ///
 /// Algorithm:
-/// 1. Exclude header words (`top < 80`).
-/// 2. Compute average word height → derive bucket width (`max(avg_height × 0.6, 8.0)`).
-/// 3. Bin body words by X, find runs of ≥3 consecutive empty bins as column gaps.
+/// 1. Exclude header words (`top < header_y_threshold`).
+/// 2. Compute average word height → derive bucket width (`max(avg_height × bucket_width_pct, bucket_width_floor)`).
+/// 3. Bin body words by X, find runs of ≥`column_gap_bins` consecutive empty bins as column gaps.
 /// 4. Take the widest gap, split at its center → left/right columns.
 /// 5. No gap → single `Full` column.
 pub fn detect_columns(words: &[Word]) -> ColumnarLayout {
+    detect_columns_with_tuning(words, &LayoutTuning::default())
+}
+
+/// 带自定义参数的列检测（供测试和未来配置化使用）
+pub fn detect_columns_with_tuning(words: &[Word], tuning: &LayoutTuning) -> ColumnarLayout {
     if words.is_empty() {
         return ColumnarLayout { columns: vec![] };
     }
 
-    // Exclude header words (Y < 80)
-    let body_words: Vec<&Word> = words.iter().filter(|w| w.bbox.top >= 80.0).collect();
+    // Exclude header words (Y < threshold)
+    let body_words: Vec<&Word> = words.iter().filter(|w| w.bbox.top >= tuning.header_y_threshold).collect();
     if body_words.is_empty() {
         return ColumnarLayout { columns: vec![] };
     }
 
     // Compute average word height for adaptive bucket sizing
     let sum_h: f64 = body_words.iter().map(|w| w.bbox.height()).sum();
-    let avg_height = sum_h / body_words.len() as f64;
-    let bucket_width = (avg_height * 0.6).max(8.0);
+    let avg_height = if body_words.is_empty() { tuning.default_avg_height } else { sum_h / body_words.len() as f64 };
+    let bucket_width = tuning.bucket_width(avg_height);
 
     // Determine X range
     let min_x = body_words
@@ -109,7 +203,7 @@ pub fn detect_columns(words: &[Word]) -> ColumnarLayout {
     }
 
     // Find runs of consecutive empty bins (gaps)
-    let gap_threshold = 3;
+    let gap_threshold = tuning.column_gap_bins;
     let mut gaps: Vec<(usize, usize)> = Vec::new(); // (start, end) inclusive
     let mut i = 0;
     while i < num_bins {
@@ -198,6 +292,12 @@ pub fn extract_region_words<'a>(
 /// rightmost "名称：" word block.
 ///
 /// Returns an empty string if no matching word is found.
+///
+/// Handles two invoice layout formats:
+/// 1. Standard: `名称：[company name]` — company name follows the label
+/// 2. Reversed: `[company name]名称：[label]` — company name precedes the label
+///    (found in some electronic invoice formats where pdfplumber merges the
+///    seller name with trailing labels into one wide Word)
 pub fn extract_seller_by_raw_coords(words: &[Word]) -> String {
     // Find all words containing "名称" and either "：" or ":"
     let candidates: Vec<&Word> = words
@@ -226,9 +326,22 @@ pub fn extract_seller_by_raw_coords(words: &[Word]) -> String {
 
     let text = &seller_word.text;
     let extracted = if let Some(pos) = text.find("名称：") {
-        clean_seller_name(&text[pos + "名称：".len()..])
+        let after = clean_seller_name(&text[pos + "名称：".len()..]);
+        if after.is_empty() || after.contains("名称") {
+            // Text after "名称：" is just a label artifact (e.g. "买", "名称：买").
+            // The actual company name may appear BEFORE "名称：" in this word
+            // (reversed format: "[company name]名称：[label]").
+            extract_company_name_before_label(&text[..pos])
+        } else {
+            after
+        }
     } else if let Some(pos) = text.find("名称:") {
-        clean_seller_name(&text[pos + "名称:".len()..])
+        let after = clean_seller_name(&text[pos + "名称:".len()..]);
+        if after.is_empty() || after.contains("名称") {
+            extract_company_name_before_label(&text[..pos])
+        } else {
+            after
+        }
     } else {
         String::new()
     };
@@ -267,10 +380,18 @@ pub fn extract_seller_by_raw_coords(words: &[Word]) -> String {
 }
 
 /// Check if a name looks like a buyer (purchaser) rather than a seller.
+/// 买方关键词列表 — 用于检测"名称："候选是否实际是买方（购买方）。
+///
+/// 当右栏"名称："提取的名字包含这些关键词时，触发向右搜索真实卖方。
+///
+/// **注意**：此列表包含机构类关键词（国防/大学/学院/医院），对特定客户有效。
+/// 未来应移至用户配置，默认仅保留 "购买方"。
+pub const BUYER_KEYWORDS: &[&str] = &["购买方", "国防", "大学", "学院", "医院"];
+
+/// Check if a name looks like a buyer (purchaser) rather than a seller.
 /// Used to detect when the rightmost "名称：" candidate is actually the buyer,
 /// triggering a search for the real seller to its right.
 fn is_likely_buyer(name: &str) -> bool {
-    const BUYER_KEYWORDS: &[&str] = &["国防", "大学", "学院", "医院", "购买方"];
     BUYER_KEYWORDS.iter().any(|k| name.contains(k))
 }
 
@@ -291,6 +412,36 @@ fn clean_seller_name(raw: &str) -> String {
         .to_string()
 }
 
+/// Extract a company name from text appearing **before** a "名称：" label.
+///
+/// Used when the text after "名称：" is just a label artifact (e.g. "买",
+/// "名称：买"), and the actual company name appears before "名称：" in the
+/// same pdfplumber Word. This happens in some electronic invoice formats
+/// where pdfplumber merges the seller name with trailing labels into one
+/// wide Word, producing text like:
+///   `"四川景澜酒店管理有限公司名称：名称：买"`
+///
+/// Strips leading/trailing label characters (购/买/售/销/方/密) and returns
+/// the remaining text if it contains a company suffix ("公司", "酒店", "中心").
+/// Returns empty string if no company suffix is found.
+fn extract_company_name_before_label(text_before: &str) -> String {
+    // Strip common label characters and whitespace
+    let cleaned: String = text_before
+        .chars()
+        .filter(|c| !"购买售销方密 \t\r\n".contains(*c))
+        .collect();
+
+    // Require a company suffix to avoid returning random text
+    if cleaned.contains("公司")
+        || cleaned.contains("酒店")
+        || cleaned.contains("中心")
+    {
+        return cleaned.trim().to_string();
+    }
+
+    String::new()
+}
+
 // ── Amount Extraction by Coordinates ───────────────────────────────────
 
 /// Use the "价税合计" (total-including-tax) anchor word's coordinates to locate
@@ -306,14 +457,19 @@ fn clean_seller_name(raw: &str) -> String {
 /// 2. Define a compact Y-band: anchor.top - 5 to anchor.bottom + 30.
 /// 3. Collect all words whose center falls within the band (full X width).
 /// 4. Join the region text and extract all valid 2-decimal amounts via regex.
-/// 5. Return the maximum amount (< 1,000,000 to exclude tax IDs).
+/// 5. Return the maximum amount (< `max_valid_amount` to exclude tax IDs).
 ///
 /// Returns `None` if no anchor is found or no valid amount exists in the region.
 pub fn extract_amount_by_coords(words: &[Word]) -> Option<f64> {
+    extract_amount_by_coords_with_tuning(words, &LayoutTuning::default())
+}
+
+/// 带自定义参数的金额坐标提取（供测试和未来配置化使用）
+pub fn extract_amount_by_coords_with_tuning(words: &[Word], tuning: &LayoutTuning) -> Option<f64> {
     // 1. Find anchor word
     let anchor = find_anchor_word(words, &["价税合计", "合计金额", "总金额"])?;
 
-    // 2. Define compact Y-band
+    // 2. Define compact Y-band (使用 LayoutTuning 的偏移量)
     let page_max_x = words
         .iter()
         .map(|w| w.bbox.x1)
@@ -321,9 +477,9 @@ pub fn extract_amount_by_coords(words: &[Word]) -> Option<f64> {
     let region_words = extract_region_words(
         words,
         0.0,
-        anchor.bbox.top - 5.0,
+        anchor.bbox.top - tuning.amount_band_top_offset,
         page_max_x,
-        anchor.bbox.bottom + 30.0,
+        anchor.bbox.bottom + tuning.amount_band_bottom_offset,
     );
 
     // 3. Join region text
@@ -333,13 +489,13 @@ pub fn extract_amount_by_coords(words: &[Word]) -> Option<f64> {
         .collect::<Vec<_>>()
         .join(" ");
 
-    // 4. Extract 2-decimal amounts, exclude > 1e6 (tax IDs), take max
+    // 4. Extract 2-decimal amounts, exclude > max_valid_amount (tax IDs), take max
     //   价税合计 = 含税总额, always >= tax-exclusive amount, so max is correct
     let re = regex::Regex::new(r"([\d,]+\.\d{2})").ok()?;
     let mut max_amount: f64 = 0.0;
     for caps in re.captures_iter(&text) {
         let v: f64 = caps[1].replace(",", "").parse().unwrap_or(0.0);
-        if v > max_amount && v < 1_000_000.0 {
+        if v > max_amount && v < tuning.max_valid_amount {
             max_amount = v;
         }
     }
@@ -697,6 +853,47 @@ mod tests {
         ];
         let seller = extract_seller_by_raw_coords(&words);
         assert_eq!(seller, "成都天府通金融支付股份有限公司");
+    }
+
+    #[test]
+    fn test_extract_seller_by_raw_coords_reversed_format() {
+        // 电子发票（普通发票）场景：pdfplumber 将卖方名称与尾部标签合并为一个宽 Word，
+        // 产生 "[公司名]名称：[标签]" 格式。应从 "名称：" 之前提取公司名。
+        let words = vec![
+            // 买方（宽 Word，含水印"载"前缀）
+            make_word("载中国人民解放军国防科技大学系统工程学院", 60.0, 99.0, 596.0, 111.0),
+            // 卖方：公司名 + "名称：" + 标签 "买"
+            make_word("四川景澜酒店管理有限公司名称：名称：买", 20.0, 102.0, 454.0, 115.0),
+        ];
+        let seller = extract_seller_by_raw_coords(&words);
+        assert_eq!(seller, "四川景澜酒店管理有限公司");
+    }
+
+    #[test]
+    fn test_extract_company_name_before_label_basic() {
+        // 标准场景：公司名在 "名称：" 之前
+        let name = extract_company_name_before_label("四川景澜酒店管理有限公司");
+        assert_eq!(name, "四川景澜酒店管理有限公司");
+    }
+
+    #[test]
+    fn test_extract_company_name_before_label_with_label_chars() {
+        // 带标签字符前缀：应过滤掉 "销" 等标签字符
+        let name = extract_company_name_before_label("销成都铂涛酒店管理有限公司");
+        assert_eq!(name, "成都铂涛酒店管理有限公司");
+    }
+
+    #[test]
+    fn test_extract_company_name_before_label_no_suffix() {
+        // 无公司后缀：应返回空字符串
+        let name = extract_company_name_before_label("随便的文字");
+        assert_eq!(name, "");
+    }
+
+    #[test]
+    fn test_extract_company_name_before_label_empty() {
+        let name = extract_company_name_before_label("");
+        assert_eq!(name, "");
     }
 
     // ── words_to_items ────────────────────────────────────────────────

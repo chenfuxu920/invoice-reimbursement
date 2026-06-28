@@ -913,7 +913,8 @@ fn extract_seller_name(text: &str) -> String {
     // 手动提取每个候选（regex 不支持 lookahead）
     let re_start = Regex::new(r"名\s*称\s*[：:]").unwrap();
     let re_end = Regex::new(r"\s*(?:名\s*称|统一|纳税人|电话|开户|地址|销|买|售|备)|$").unwrap();
-    let buyer_keywords = ["购买方", "国防", "大学", "学院", "医院"];
+    // 使用 layout_extractor 的统一买方关键词列表（消除重复）
+    use crate::parser::layout_extractor::BUYER_KEYWORDS;
     let mut candidates: Vec<String> = Vec::new();
     for m in re_start.find_iter(text) {
         let after = &text[m.end()..];
@@ -926,7 +927,7 @@ fn extract_seller_name(text: &str) -> String {
     }
     // 从后往前找第一个非买方候选（卖方通常在买方之后）
     for candidate in candidates.iter().rev() {
-        if !buyer_keywords.iter().any(|kw| candidate.contains(kw)) {
+        if !BUYER_KEYWORDS.iter().any(|kw| candidate.contains(kw)) {
             return candidate.clone();
         }
     }
@@ -949,12 +950,21 @@ fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
     for item in texts {
         if let Some(caps) = re.captures(&item.text) {
             let name = caps[1].trim();
-            if name.len() <= 2 { continue; }
+            // 修复：使用 chars().count() 而非 len()（字节计数），
+            // 中文字符 3 字节但 1 字符，"公司A" = 7 字节但 4 字符
+            if name.chars().count() <= 2 { continue; }
             if let Some(coords) = &item.box_coords {
-                if let Some(x) = coords.get("points").and_then(|p| p.get(0)).and_then(|p| p.get("x")).and_then(|v| v.as_f64()) {
-                    if x > best_x {
-                        best_x = x;
-                        best_name = name.to_string();
+                // 修复：使用 X 中心而非 X0（左边缘），
+                // 宽 Word 跨两栏时左边缘可能比买方还左，但中心点在右栏
+                if let Some(pts) = coords.get("points").and_then(|p| p.as_array()) {
+                    let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|v| v.as_f64())).collect();
+                    if !xs.is_empty() {
+                        let x_center = (xs.iter().cloned().fold(f64::INFINITY, f64::min)
+                            + xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) / 2.0;
+                        if x_center > best_x {
+                            best_x = x_center;
+                            best_name = name.to_string();
+                        }
                     }
                 }
             }
