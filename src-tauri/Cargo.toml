@@ -39,6 +39,11 @@ parangi = "0.1.0"
 printpdf = { version = "0.7", features = ["embedded_images"] }
 base64 = "0.22"
 rust_xlsxwriter = "0.82"
+pdfplumber = { version = "0.2", optional = true }
+
+[features]
+default = ["pdfplumber"]
+pdfplumber = ["dep:pdfplumber"]
 
 [dev-dependencies]
 tempfile = "3"

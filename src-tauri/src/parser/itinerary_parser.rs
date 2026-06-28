@@ -1084,6 +1084,66 @@ fn parse_fallback_format(text: &str) -> Vec<Itinerary> {
     results
 }
 
+/// 从行程单 OCR 文本中提取印制的"合计"总金额
+/// 格式示例:
+///   滴滴: "合计 100.00 元"或"合计：100.00"
+///   高德: "合计金额：100.00"
+///   天府通: "合计 3.00 元"
+pub fn extract_itinerary_printed_total(texts: &[OcrTextItem]) -> Option<f64> {
+    let all_text: String = texts
+        .iter()
+        .map(|t| t.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // 格式1: "合计 XXX.XX 元"或"合计XXX.XX元"（滴滴/天府通）
+    let re1 = regex::Regex::new(r"合计\s*([\d,]+\.\d{2})\s*元").unwrap();
+    if let Some(cap) = re1.captures(&all_text) {
+        let amount_str = cap[1].replace(',', "");
+        if let Ok(amount) = amount_str.parse::<f64>() {
+            if amount > 0.0 {
+                return Some(amount);
+            }
+        }
+    }
+
+    // 格式2: "合计金额：XXX.XX"或"合计：XXX.XX"（高德）
+    let re2 = regex::Regex::new(r"合计[金额]*[：:]\s*([\d,]+\.\d{2})").unwrap();
+    if let Some(cap) = re2.captures(&all_text) {
+        let amount_str = cap[1].replace(',', "");
+        if let Ok(amount) = amount_str.parse::<f64>() {
+            if amount > 0.0 {
+                return Some(amount);
+            }
+        }
+    }
+
+    None
+}
+
+/// 用行程单印制的合计金额交叉验证并修正单条 OCR 行程金额
+/// 当 OCR 累加和 != 合计金额时，按比例分摊差额到各条行程
+pub fn cross_validate_with_printed_total(entries: &mut [Itinerary], printed_total: f64) {
+    if entries.is_empty() {
+        return;
+    }
+    let ocr_sum: f64 = entries.iter().map(|e| e.amount).sum();
+    if ocr_sum <= 0.0 || printed_total <= 0.0 {
+        return;
+    }
+    let diff = (printed_total - ocr_sum).abs();
+    // 如果差额很小（<0.5元），认为是浮点舍入，不修正
+    if diff < 0.5 {
+        // 将所有金额统一到合计金额的小数位精度
+        return;
+    }
+    // 按比例分摊差额
+    let ratio = printed_total / ocr_sum;
+    for entry in entries.iter_mut() {
+        entry.amount = (entry.amount * ratio * 100.0).round() / 100.0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

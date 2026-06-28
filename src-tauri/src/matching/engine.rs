@@ -142,13 +142,14 @@ impl MatchEngine {
     /// Subset sum matching: find a subset of candidates whose sum is within
     /// tolerance of the target amount. Limits subset size to MAX_SUBSET_SIZE
     /// and candidate count to MAX_PAYMENT_CANDIDATES.
+    /// 搜索所有有效子集，返回金额差最小的最优解。
     fn subset_sum_match(
         &self,
         target: f64,
         candidates: &[&PaymentRecord],
     ) -> Option<Vec<usize>> {
         let amounts: Vec<f64> = candidates.iter().map(|p| p.amount).collect();
-        let mut result: Option<Vec<usize>> = None;
+        let mut best: Option<(f64, Vec<usize>)> = None;
 
         self.search_subset(
             &amounts,
@@ -156,13 +157,14 @@ impl MatchEngine {
             0,
             0.0,
             &mut Vec::new(),
-            &mut result,
+            &mut best,
         );
 
-        result
+        best.map(|(_, indices)| indices)
     }
 
     /// Recursive subset sum search with pruning.
+    /// 搜索所有有效子集，追踪最优解（最小金额差），而非第一个匹配。
     fn search_subset(
         &self,
         amounts: &[f64],
@@ -170,16 +172,24 @@ impl MatchEngine {
         start: usize,
         current_sum: f64,
         current_indices: &mut Vec<usize>,
-        result: &mut Option<Vec<usize>>,
+        best: &mut Option<(f64, Vec<usize>)>,  // (diff, indices)
     ) {
         // Check if current subset sum is within tolerance
         let diff = (target - current_sum).abs();
         if diff <= self.tolerance && !current_indices.is_empty() {
-            *result = Some(current_indices.clone());
-            return;
+            match best {
+                Some((best_diff, _)) if diff < *best_diff => {
+                    *best = Some((diff, current_indices.clone()));
+                }
+                None => {
+                    *best = Some((diff, current_indices.clone()));
+                }
+                _ => {}
+            }
+            // 不 return，继续搜索更优解
         }
 
-        // Pruning: subset too large or overshot too much
+        // Pruning: subset too large
         if current_indices.len() >= MAX_SUBSET_SIZE {
             return;
         }
@@ -187,6 +197,13 @@ impl MatchEngine {
         // Pruning: if current_sum already exceeds target beyond tolerance, stop
         if current_sum > target + self.tolerance {
             return;
+        }
+
+        // 额外剪枝：如果当前最优差已经为 0 就停止（无需更优解）
+        if let Some((best_diff, _)) = best {
+            if *best_diff == 0.0 {
+                return;
+            }
         }
 
         for i in start..amounts.len() {
@@ -197,12 +214,8 @@ impl MatchEngine {
                 i + 1,
                 current_sum + amounts[i],
                 current_indices,
-                result,
+                best,
             );
-            // If we found a result, stop searching
-            if result.is_some() {
-                return;
-            }
             current_indices.pop();
         }
     }
