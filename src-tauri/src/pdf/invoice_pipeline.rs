@@ -1,7 +1,7 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
 use crate::ocr::OcrEngine;
 use crate::parser::invoice_parser::parse_invoice_text;
-use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, parse_itinerary_with_coords_pages_and_fallback};
+use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, parse_itinerary_with_coords_pages_and_fallback, cross_validate_with_printed_total, extract_itinerary_printed_total};
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 #[cfg(feature = "pdfplumber")]
@@ -59,6 +59,9 @@ pub struct ItineraryDoc {
     pub file_name: String,
     pub itineraries: Vec<Itinerary>,
     pub total_amount: f64,
+    /// 行程单上印制的"合计金额"（精确值，用于匹配发票）
+    /// None 表示未能从行程单中提取到合计金额（需回退容差匹配）
+    pub printed_total: Option<f64>,
 }
 
 /// 解析目录结果
@@ -307,7 +310,7 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
     // Check if text items already have coordinates (from pdfplumber)
     let has_coords = texts.iter().any(|t| t.box_coords.is_some());
 
-    let itineraries = if has_coords {
+    let mut itineraries = if has_coords {
         // Text items have coordinates (from pdfplumber) — try coord-based parsing first
         eprintln!("  [pdfplumber] 行程单带坐标，尝试坐标解析");
         let coord_result = parse_itinerary_with_coords(&texts);
@@ -344,10 +347,23 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
     if itineraries.is_empty() {
         return Err("行程单中未解析到行程明细".to_string());
     }
+
+    // 从行程单文本中提取印制的"合计"总金额
+    let printed_total = extract_itinerary_printed_total(&texts);
+
+    // 如果有合计金额，用它交叉验证并修正单条 OCR 行程金额
+    if let Some(pt) = printed_total {
+        cross_validate_with_printed_total(&mut itineraries, pt);
+        let file_name = Path::new(pdf_path).file_name()
+            .unwrap_or_default().to_string_lossy().to_string();
+        return Ok(ItineraryDoc { file_name, itineraries, total_amount: pt, printed_total: Some(pt) });
+    }
+
+    // 没有合计金额时，回退到累加值
     let total_amount: f64 = itineraries.iter().map(|i| i.amount).sum();
     let file_name = Path::new(pdf_path).file_name()
         .unwrap_or_default().to_string_lossy().to_string();
-    Ok(ItineraryDoc { file_name, itineraries, total_amount })
+    Ok(ItineraryDoc { file_name, itineraries, total_amount, printed_total: None })
 }
 
 /// 批量解析目录下所有 PDF（发票+行程单），自动配对
@@ -384,7 +400,7 @@ pub fn parse_all_from_dir(
     }
 
     // 配对：将行程单与 CityTransport 发票关联
-    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 0.01);
+    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 2.0);
 
     // 批次内按发票号去重
     let duplicates = deduplicate_invoices(&mut invoices);
@@ -416,7 +432,7 @@ pub fn parse_all_from_files(
         }
     }
 
-    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 0.01);
+    pair_invoices_with_itineraries(&mut invoices, itinerary_docs, 2.0);
 
     // 批次内按发票号去重
     let duplicates = deduplicate_invoices(&mut invoices);
@@ -429,13 +445,26 @@ pub fn parse_all_from_files(
 pub fn pair_invoices_with_itineraries(
     invoices: &mut Vec<Invoice>,
     itinerary_docs: Vec<ItineraryDoc>,
-    tolerance: f64,
+    _tolerance: f64,  // 仅在没有合计金额时使用
 ) {
     for doc in itinerary_docs {
-        // 找一张金额匹配且尚未关联行程的发票（不限类别）
+        // 如果有印制的合计金额，精确匹配（无需容差）
+        if doc.printed_total.is_some() {
+            let target = invoices.iter_mut().find(|inv| {
+                inv.itineraries.is_empty()
+                    && (inv.amount - doc.total_amount).abs() <= 0.01  // 浮点舍入容差
+            });
+            if let Some(inv) = target {
+                inv.category = InvoiceCategory::CityTransport;
+                inv.itineraries = doc.itineraries;
+                inv.itinerary_file = Some(doc.file_name.clone());
+                continue;
+            }
+        }
+        // 没有合计金额时用容差匹配（回退逻辑）
         let target = invoices.iter_mut().find(|inv| {
             inv.itineraries.is_empty()
-                && (inv.amount - doc.total_amount).abs() <= tolerance
+                && (inv.amount - doc.total_amount).abs() <= 2.00
         });
         if let Some(inv) = target {
             inv.category = InvoiceCategory::CityTransport;
@@ -460,7 +489,7 @@ pub fn pair_invoices_with_itineraries(
                 hotel_detail: None,
                 departure_city: None,
                 arrival_city: None,
-                            toll_travel_time: None,
+                toll_travel_time: None,
             });
         }
     }

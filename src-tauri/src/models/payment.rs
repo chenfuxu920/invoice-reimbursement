@@ -40,9 +40,14 @@ impl Default for PaymentRecord {
 }
 
 impl PaymentRecord {
-    /// 商家实际收到的金额 = 支付金额 + 优惠金额
-    /// 这个金额应该等于发票金额或行程单金额
+    /// 商家实际收到的金额 = max(支付金额 - 退款金额, 0) + 优惠金额
+    /// 考虑退款后，实际可匹配的支付净值
     pub fn total_value(&self) -> f64 {
-        self.amount + self.discount
+        (self.amount - self.refund_amount).max(0.0) + self.discount
+    }
+
+    /// 是否是退款交易（退款金额 > 0 或实际支付金额 <= 0）
+    pub fn is_refund(&self) -> bool {
+        self.refund_amount > 0.0 || self.amount <= 0.0
     }
 }

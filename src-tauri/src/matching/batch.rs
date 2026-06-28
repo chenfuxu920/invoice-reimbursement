@@ -2,9 +2,10 @@ use crate::models::invoice::{Invoice, InvoiceCategory};
 use crate::models::match_result::{MatchResult, MatchType, ItineraryPaymentPair};
 use crate::models::payment::PaymentRecord;
 use super::engine::MatchEngine;
+use super::strategy_selector::{MatchingStrategy, StrategySelector};
 use chrono::{Datelike, NaiveDateTime};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchMatchResult {
@@ -22,6 +23,11 @@ pub fn batch_match(
     // 按交易时间升序排序，消除文件读取顺序偏差（微信/支付宝混合时不再按导入顺序）
     let mut payments_sorted: Vec<PaymentRecord> = payments.to_vec();
     sort_payments_by_time(&mut payments_sorted);
+    // 过滤退款交易（退款金额 > 0 或实际支付金额 <= 0）
+    let payments_sorted: Vec<PaymentRecord> = payments_sorted
+        .into_iter()
+        .filter(|p| !p.is_refund())
+        .collect();
     let payments = &payments_sorted[..];
 
     // 分离 Toll 发票和其他发票
@@ -36,7 +42,7 @@ pub fn batch_match(
 
     let mut matched = Vec::new();
     let mut unmatched_invoices = Vec::new();
-    let mut used_payment_ids: Vec<String> = Vec::new();
+    let mut used_payment_ids: HashSet<String> = HashSet::new();
 
     // === 第一阶段：高速费单独匹配（最先，避免支付被行程占据）===
     // match_one_to_one 内部已统一用 toll_travel_time 匹配（见 engine.rs）
@@ -49,7 +55,7 @@ pub fn batch_match(
             .collect();
         if let Some(mr) = engine.match_one_to_one(toll, &available) {
             for pid in &mr.payment_ids {
-                used_payment_ids.push(pid.clone());
+                used_payment_ids.insert(pid.clone());
             }
             matched.push(mr);
         } else {
@@ -124,7 +130,7 @@ pub fn batch_match(
             let matched_payments = match_result.payments.clone();
             let trip_confidence = match_result.confidence;
             for pid in &payment_ids {
-                used_payment_ids.push(pid.clone());
+                used_payment_ids.insert(pid.clone());
             }
 
             // 行程发票 MatchResult（用原始金额）
@@ -196,13 +202,13 @@ pub fn batch_match(
         }
     }
 
-    // === 第三阶段：剩余行程单独匹配 ===
-    for invoice in &non_toll_invoices {
-        // 跳过已被高速费组合匹配的行程
-        if trip_matched_by_toll.contains(&invoice.id) {
-            continue;
-        }
+    // === 第三阶段：剩余行程单独匹配（按金额降序，改善贪心匹配质量） ===
+    let mut sorted_non_toll: Vec<&Invoice> = non_toll_invoices.iter()
+        .filter(|inv| !trip_matched_by_toll.contains(&inv.id))
+        .collect();
+    sorted_non_toll.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap_or(std::cmp::Ordering::Equal));
 
+    for invoice in sorted_non_toll {
         let available: Vec<PaymentRecord> = payments
             .iter()
             .filter(|p| !used_payment_ids.contains(&p.id))
@@ -223,12 +229,32 @@ pub fn batch_match(
                 engine.match_one_to_many(invoice, &time_filtered)
             }
         } else {
-            engine.match_one_to_one(invoice, &available)
+            let strategy = StrategySelector::select(invoice, available.len());
+            match strategy {
+                MatchingStrategy::AmountWithMerchant if !invoice.seller_name.is_empty() => {
+                    // 优先选同商户的支付
+                    let merchant_lower = invoice.seller_name.to_lowercase();
+                    let merchant_filtered: Vec<PaymentRecord> = available.iter()
+                        .filter(|p| {
+                            let m = p.merchant_name.to_lowercase();
+                            m.contains(&merchant_lower) || merchant_lower.contains(&m)
+                        })
+                        .cloned()
+                        .collect();
+                    if !merchant_filtered.is_empty() {
+                        engine.match_one_to_one(invoice, &merchant_filtered)
+                            .or_else(|| engine.match_one_to_one(invoice, &available))
+                    } else {
+                        engine.match_one_to_one(invoice, &available)
+                    }
+                }
+                _ => engine.match_one_to_one(invoice, &available),
+            }
         };
 
         if let Some(match_result) = result {
             for pid in &match_result.payment_ids {
-                used_payment_ids.push(pid.clone());
+                used_payment_ids.insert(pid.clone());
             }
             matched.push(match_result);
         } else {
@@ -236,7 +262,7 @@ pub fn batch_match(
             if invoice.category == InvoiceCategory::CityTransport && !invoice.itineraries.is_empty() {
                 if let Some(toll_match) = match_trip_with_toll_tolerance(invoice, &available, tolerance) {
                     for pid in &toll_match.payment_ids {
-                        used_payment_ids.push(pid.clone());
+                        used_payment_ids.insert(pid.clone());
                     }
                     matched.push(toll_match);
                 } else {

@@ -59,10 +59,14 @@ impl MultiDimensionalScorer {
         let score_amount = self.score_amount(invoice.amount, payment.amount);
         let amount_score = score_total.max(score_amount);
         let merchant_score = self.score_merchant(&invoice.seller_name, &payment.merchant_name);
-        let time_score = self.score_time(&invoice.date, &payment.transaction_time);
+        let ref_date = invoice.travel_date
+            .or_else(|| invoice.toll_travel_time.map(|t| t.date()))
+            .or_else(|| invoice.hotel_detail.as_ref().and_then(|h| h.check_in))
+            .unwrap_or(invoice.date);
+        let time_score = self.score_time(&ref_date, &payment.transaction_time);
         let category_score = self.score_category(&invoice.category, &payment.category);
 
-        let time_diff_hours = self.calculate_time_diff_hours(&invoice.date, &payment.transaction_time);
+        let time_diff_hours = self.calculate_time_diff_hours(ref_date, &payment.transaction_time);
 
         let total = amount_score * self.weights.amount
             + merchant_score * self.weights.merchant
@@ -255,13 +259,13 @@ impl MultiDimensionalScorer {
         None
     }
 
-    fn calculate_time_diff_hours(&self, invoice_date: &NaiveDate, payment_time: &str) -> f64 {
+    fn calculate_time_diff_hours(&self, ref_date: NaiveDate, payment_time: &str) -> f64 {
         let payment_date = match self.parse_datetime(payment_time) {
             Some(pd) => pd.date(),
             None => return 999.0,
         };
 
-        let days_diff = (*invoice_date - payment_date).num_days().abs();
+        let days_diff = (ref_date - payment_date).num_days().abs();
         days_diff as f64 * 24.0
     }
 }
