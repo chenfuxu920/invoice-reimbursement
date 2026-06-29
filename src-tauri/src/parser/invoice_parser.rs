@@ -450,6 +450,10 @@ fn classify_from_regions(
     if contains_any(&item_lower, &["住宿", "酒店", "宾馆", "民宿"]) {
         return InvoiceCategory::Hotel;
     }
+    // 保险费发票优先识别（防止"机票航空意外险"被误判为机票）
+    if contains_any(&item_lower, &["保险", "意外险"]) {
+        return InvoiceCategory::TicketChange;
+    }
     if contains_any(&item_lower, &["机票", "航空", "航班"]) {
         return InvoiceCategory::Flight;
     }
@@ -462,6 +466,11 @@ fn classify_from_regions(
 
     // 2.5 检查商品明细区域全文（item_name 提取可能失败，退化检查 items_text）
     let items_lower = items_text.to_lowercase();
+    // 保险费发票优先识别（防止"机票航空意外险"被误判为机票）
+    // 真实样本：items_text 含"*保险服务*国内机票航空意外"，"机票"会误命中 Flight
+    if contains_any(&items_lower, &["保险服务", "意外险", "保险费"]) {
+        return InvoiceCategory::TicketChange;
+    }
     if contains_any(&items_lower, &["机票", "航空", "航班", "旅客运输"]) {
         return InvoiceCategory::Flight;
     }
@@ -1259,6 +1268,19 @@ mod tests {
             "价税合计：¥50.00",
         ]);
         let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::FlightInvoice);
+        assert_eq!(result, InvoiceCategory::TicketChange);
+    }
+
+    #[test]
+    fn test_classify_from_regions_insurance_not_flight() {
+        // 众安保险发票：items_text 含"*保险服务*国内机票航空意外"
+        // classify_from_regions 应优先识别"保险服务"→TicketChange，而非"机票"→Flight
+        // 真实样本：20/21_电子发票（众安在线财产保险）
+        let items_text = "*保险服务*国内机票航空意外 ** 1 47.169811 47.17 6% 2.83";
+        let seller_text = "众安在线财产保险股份有限公司";
+        let item_name = "保险服务";
+        let seller_name = "众安在线财产保险股份有限公司";
+        let result = classify_from_regions(items_text, seller_text, item_name, seller_name);
         assert_eq!(result, InvoiceCategory::TicketChange);
     }
 
