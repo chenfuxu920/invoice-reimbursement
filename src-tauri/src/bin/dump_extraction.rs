@@ -147,10 +147,42 @@ fn process_pdf(path: &Path) {
             }
             Err(e) => println!("--- 坐标提取 失败: {} ---", e),
         }
+
+        // 测试 extract_pdf_column_aware（含 pdfium 回退）
+        println!("\n--- extract_pdf_column_aware (含 pdfium 回退) ---");
+        match invoice_reimbursement_lib::pdf::text_extractor::extract_pdf_column_aware(&path_str) {
+            Ok(extraction) => {
+                let items: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
+                println!("  提取到 {} 个文本项, {} 个原始Word", items.len(), extraction.raw_words.len());
+                println!("  文本充足(>=20): {}", has_sufficient_text(&items, 20));
+                let src2 = InvoiceSource::Pdf(path_str.clone());
+                print_invoice("解析(column_aware)", &parse_invoice_text(&items, src2));
+
+                // 坐标 seller 和 amount（用 column_aware 的 raw_words）
+                if !extraction.raw_words.is_empty() {
+                    let seller = layout_extractor::extract_seller_by_raw_coords(&extraction.raw_words);
+                    println!("  坐标seller: [{}]", seller);
+                    let amount = layout_extractor::extract_amount_by_coords(&extraction.raw_words);
+                    match amount {
+                        Some(amt) => println!("  坐标amount: {}", amt),
+                        None => println!("  坐标amount: None"),
+                    }
+                }
+            }
+            Err(e) => println!("  失败: {}", e),
+        }
     }
 }
 
 fn main() {
+    // 初始化 PDFium（用于 pdfplumber 失败时的文本提取回退）
+    for path in &["pdfium.dll".as_ref(), "..\\pdfium.dll".as_ref(), "src-tauri/pdfium.dll".as_ref()] {
+        if std::path::Path::new(path).exists() {
+            let _ = invoice_reimbursement_lib::ocr::engine::init_pdfium(path);
+            break;
+        }
+    }
+
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("用法: dump_extraction <pdf_dir>");

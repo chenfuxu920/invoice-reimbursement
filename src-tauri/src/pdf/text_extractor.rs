@@ -4,7 +4,7 @@ use std::path::Path;
 
 #[cfg(feature = "pdfplumber")]
 use pdfplumber::{Pdf, WordOptions, Word, BBox};
-#[cfg(all(feature = "pdfplumber", test))]
+#[cfg(feature = "pdfplumber")]
 use pdfplumber::TextDirection;
 #[cfg(feature = "pdfplumber")]
 use crate::ocr::engine::bbox_to_json;
@@ -503,10 +503,125 @@ fn column_aware_merge(words: Vec<Word>) -> Vec<(String, BBox)> {
 
 /// 单次打开 PDF，返回列感知合并的文本项 + 原始 Word 列表。
 ///
-/// 替代 `extract_text_with_coords` + `extract_words_raw` 的两次 PDF 打开，
-/// 同时通过列感知合并修复多栏发票的买方/卖方混合问题。
+/// 使用 pdfium (Google PDF 引擎) 提取带坐标的文本，作为 pdfplumber 失败时的回退。
+///
+/// pdfplumber 对某些 PDF 会报 "interpreter error: unexpected '<<' in content stream"，
+/// 而 pdfium 作为 Chrome 的 PDF 引擎，能正确解析这些 PDF。
+///
+/// 坐标转换：pdfium 原点在左下角（PDF 标准），pdfplumber 原点在左上角。
+/// 转换公式：top_plumber = page_height - top_pdfium
+fn extract_pdfium_fallback(file_path: &str) -> Result<PdfExtraction, String> {
+    use pdfium_render::prelude::*;
+    use crate::ocr::engine::get_pdfium_path;
+
+    let lib_path = get_pdfium_path()
+        .ok_or_else(|| "PDFium not initialized for text extraction fallback".to_string())?;
+
+    let pdfium = Pdfium::new(
+        Pdfium::bind_to_library(lib_path)
+            .map_err(|e| format!("pdfium bind failed: {:?}", e))?,
+    );
+
+    let document = pdfium
+        .load_pdf_from_file(file_path, None)
+        .map_err(|e| format!("pdfium load PDF failed: {:?}", e))?;
+
+    let mut pages: Vec<OcrPageResult> = Vec::new();
+    let mut all_words: Vec<Word> = Vec::new();
+    let mut total_words: usize = 0;
+
+    for (page_idx, page) in document.pages().iter().enumerate() {
+        let page_height = page.height().value as f64;
+        let page_number = (page_idx + 1) as u32;
+
+        // 提取文本片段（每个片段有 bounds + text，类似 pdfplumber 的 Word）
+        let text = page.text().map_err(|e| format!("pdfium text extract failed: {:?}", e))?;
+        let segments = text.segments();
+
+        let mut page_words: Vec<Word> = Vec::new();
+        for segment in segments.iter() {
+            let seg_text = segment.text().trim().to_string();
+            if seg_text.is_empty() {
+                continue;
+            }
+
+            let bounds = segment.bounds();
+            // pdfium 坐标：原点在左下角，top > bottom
+            // pdfplumber 坐标：原点在左上角，top < bottom
+            let x0 = bounds.left().value as f64;
+            let x1 = bounds.right().value as f64;
+            let top_plumber = page_height - bounds.top().value as f64;
+            let bottom_plumber = page_height - bounds.bottom().value as f64;
+
+            page_words.push(Word {
+                text: seg_text,
+                bbox: BBox::new(x0, top_plumber, x1, bottom_plumber),
+                doctop: top_plumber,
+                direction: TextDirection::Ltr,
+                chars: vec![],
+            });
+        }
+
+        total_words += page_words.len();
+
+        // 克隆一份用于坐标提取器
+        all_words.extend(page_words.clone());
+
+        // 列感知合并（复用 pdfplumber 的合并逻辑）
+        let lines = column_aware_merge(page_words);
+
+        let texts: Vec<OcrTextItem> = lines
+            .into_iter()
+            .map(|(text, bbox)| OcrTextItem {
+                text,
+                confidence: 1.0,
+                box_coords: Some(bbox_to_json(
+                    bbox.x0, bbox.top, bbox.x1, bbox.bottom, 1.0,
+                )),
+            })
+            .collect();
+
+        pages.push(OcrPageResult {
+            page: page_number,
+            texts,
+        });
+    }
+
+    if pages.is_empty() || total_words == 0 {
+        return Err("pdfium extracted no text".to_string());
+    }
+
+    eprintln!("  [pdfium] 回退提取 {} 个文本项, {} 个原始Word", 
+        pages.iter().map(|p| p.texts.len()).sum::<usize>(), total_words);
+
+    Ok(PdfExtraction {
+        pages,
+        raw_words: all_words,
+    })
+}
+
+/// 单次 PDF 打开：列感知合并 + 原始 Word（供坐标提取器使用，无需二次打开）
 #[cfg(feature = "pdfplumber")]
 pub fn extract_pdf_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
+    // 先尝试 pdfplumber
+    match extract_pdfplumber_column_aware(file_path) {
+        Ok(extraction) => Ok(extraction),
+        Err(plumber_err) => {
+            eprintln!("  [pdfplumber] 失败: {}，尝试 pdfium 回退...", plumber_err);
+            // pdfplumber 失败 — 尝试 pdfium（Google PDF 引擎，更健壮）
+            match extract_pdfium_fallback(file_path) {
+                Ok(extraction) => Ok(extraction),
+                Err(pdfium_err) => {
+                    eprintln!("  [pdfium] 也失败: {}，回退到 parangi/OCR", pdfium_err);
+                    Err(plumber_err)
+                }
+            }
+        }
+    }
+}
+
+/// pdfplumber 列感知提取（原 extract_pdf_column_aware 逻辑）
+fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
     let result = std::panic::catch_unwind(|| {
         let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
 
