@@ -1,7 +1,7 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
 use crate::ocr::OcrEngine;
 use crate::parser::invoice_parser::parse_invoice_text;
-use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, parse_itinerary_with_coords_pages_and_fallback, cross_validate_with_printed_total, extract_itinerary_printed_total};
+use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback, cross_validate_with_printed_total, extract_itinerary_printed_total};
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 #[cfg(feature = "pdfplumber")]
@@ -301,65 +301,92 @@ fn check_and_parse(
 /// 否则走 OCR 路径以保留坐标，利用坐标还原表格行列结构；
 /// 均失败时回退到纯文本解析。
 pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<ItineraryDoc, String> {
-    let texts = extract_text_with_coords_or_fallback(pdf_path, engine)?;
+    // 优先使用 extract_pdf_column_aware（含 pdfium 回退，保留页边界）
+    // 多页行程单必须按页解析，否则 Y 坐标重叠导致表格解析失败
+    #[cfg(feature = "pdfplumber")]
+    {
+        match text_extractor::extract_pdf_column_aware(pdf_path) {
+            Ok(extraction) => {
+                let flat_texts: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
+                if text_extractor::has_sufficient_text(&flat_texts, 20) {
+                    let doc_type = classify_pdf_document_type(&flat_texts);
+                    if doc_type != PdfDocumentType::Itinerary && doc_type != PdfDocumentType::Invoice {
+                        return Err(format!("非行程单类型: {:?}", doc_type));
+                    }
+                    eprintln!("  [pdfplumber] 列感知提取 {} 个文本项, {} 个原始Word ({} 页)",
+                        flat_texts.len(), extraction.raw_words.len(), extraction.pages.len());
+
+                    let has_coords = flat_texts.iter().any(|t| t.box_coords.is_some());
+
+                    let itineraries = if has_coords {
+                        eprintln!("  [pdfplumber] 行程单带坐标，按页 word 级坐标解析");
+                        // 关键：用 word_pages（word 级未合并）按页解析，保留单元格坐标
+                        let coord_result = parse_itinerary_with_coords_pages_and_fallback(
+                            &extraction.word_pages, Some(&flat_texts));
+                        if !coord_result.is_empty() {
+                            coord_result
+                        } else {
+                            eprintln!("  [pdfplumber] 按页坐标解析失败，尝试纯文本解析");
+                            let text_result = parse_itinerary_text(&flat_texts);
+                            if !text_result.is_empty() {
+                                text_result
+                            } else {
+                                eprintln!("  [pdfplumber] 纯文本解析也失败，回退到 OCR");
+                                let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+                                parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&flat_texts))
+                            }
+                        }
+                    } else {
+                        let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+                        parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&flat_texts))
+                    };
+
+                    if itineraries.is_empty() {
+                        return Err("行程单中未解析到行程明细".to_string());
+                    }
+                    return build_itinerary_doc(itineraries, &flat_texts, pdf_path);
+                }
+                eprintln!("  [pdfplumber] 文本不足，回退到 parangi/OCR");
+            }
+            Err(e) => {
+                eprintln!("  [pdfplumber] 失败: {}，回退到 parangi/OCR", e);
+            }
+        }
+    }
+
+    // 回退路径：parangi/OCR（无坐标，纯文本）
+    let texts = extract_text(pdf_path, engine)?;
     let doc_type = classify_pdf_document_type(&texts);
     if doc_type != PdfDocumentType::Itinerary && doc_type != PdfDocumentType::Invoice {
         return Err(format!("非行程单类型: {:?}", doc_type));
     }
 
-    // Check if text items already have coordinates (from pdfplumber)
-    let has_coords = texts.iter().any(|t| t.box_coords.is_some());
-
-    let mut itineraries = if has_coords {
-        // Text items have coordinates (from pdfplumber) — try coord-based parsing first
-        eprintln!("  [pdfplumber] 行程单带坐标，尝试坐标解析");
-        let coord_result = parse_itinerary_with_coords(&texts);
-        if !coord_result.is_empty() {
-            coord_result
-        } else {
-            // Coords didn't help — try text-only parsing
-            let text_result = parse_itinerary_text(&texts);
-            if !text_result.is_empty() {
-                text_result
-            } else {
-                // Both failed — fall back to OCR for better table reconstruction
-                eprintln!("  [pdfplumber] 坐标和文本解析均失败，回退到 OCR");
-                let ocr_pages = extract_ocr_text(pdf_path, engine)?;
-                let ocr_result = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
-                if !ocr_result.is_empty() {
-                    ocr_result
-                } else {
-                    parse_itinerary_text(&texts)
-                }
-            }
-        }
-    } else {
-        // No coords (parangi or OCR fallback) — run OCR for coordinate-based table reconstruction
-        let ocr_pages = extract_ocr_text(pdf_path, engine)?;
-        let ocr_result = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
-        if !ocr_result.is_empty() {
-            ocr_result
-        } else {
-            parse_itinerary_text(&texts)
-        }
-    };
+    // 无坐标 — 走 OCR 获取坐标用于表格重建
+    let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+    let mut itineraries = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
+    if itineraries.is_empty() {
+        itineraries = parse_itinerary_text(&texts);
+    }
 
     if itineraries.is_empty() {
         return Err("行程单中未解析到行程明细".to_string());
     }
+    build_itinerary_doc(itineraries, &texts, pdf_path)
+}
 
-    // 从行程单文本中提取印制的"合计"总金额
-    let printed_total = extract_itinerary_printed_total(&texts);
-
-    // 如果有合计金额，用它交叉验证并修正单条 OCR 行程金额
+/// 构建 ItineraryDoc，提取印制合计金额并交叉验证
+fn build_itinerary_doc(
+    mut itineraries: Vec<Itinerary>,
+    texts: &[crate::ocr::OcrTextItem],
+    pdf_path: &str,
+) -> Result<ItineraryDoc, String> {
+    let printed_total = extract_itinerary_printed_total(texts);
     if let Some(pt) = printed_total {
         cross_validate_with_printed_total(&mut itineraries, pt);
         let file_name = Path::new(pdf_path).file_name()
             .unwrap_or_default().to_string_lossy().to_string();
         return Ok(ItineraryDoc { file_name, itineraries, total_amount: pt, printed_total: Some(pt) });
     }
-
-    // 没有合计金额时，回退到累加值
     let total_amount: f64 = itineraries.iter().map(|i| i.amount).sum();
     let file_name = Path::new(pdf_path).file_name()
         .unwrap_or_default().to_string_lossy().to_string();

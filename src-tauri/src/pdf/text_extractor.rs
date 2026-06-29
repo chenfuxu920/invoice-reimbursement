@@ -443,6 +443,8 @@ pub fn extract_words_raw(file_path: &str) -> Result<Vec<Word>, String> {
 pub struct PdfExtraction {
     /// 按页组织的合并后文本项（列感知合并，可直接用于正则解析）
     pub pages: Vec<OcrPageResult>,
+    /// 按页组织的 word 级文本项（未合并，保留独立坐标，供行程单表格解析）
+    pub word_pages: Vec<OcrPageResult>,
     /// 全部原始 Word（未经合并，保留完整坐标，供坐标提取器使用）
     pub raw_words: Vec<Word>,
 }
@@ -527,6 +529,7 @@ fn extract_pdfium_fallback(file_path: &str) -> Result<PdfExtraction, String> {
         .map_err(|e| format!("pdfium load PDF failed: {:?}", e))?;
 
     let mut pages: Vec<OcrPageResult> = Vec::new();
+    let mut word_pages: Vec<OcrPageResult> = Vec::new();
     let mut all_words: Vec<Word> = Vec::new();
     let mut total_words: usize = 0;
 
@@ -567,6 +570,14 @@ fn extract_pdfium_fallback(file_path: &str) -> Result<PdfExtraction, String> {
         // 克隆一份用于坐标提取器
         all_words.extend(page_words.clone());
 
+        // word 级文本项（未合并，保留独立坐标，供行程单表格解析）
+        let word_texts: Vec<OcrTextItem> = page_words.iter().map(|w| OcrTextItem {
+            text: w.text.clone(),
+            confidence: 1.0,
+            box_coords: Some(bbox_to_json(w.bbox.x0, w.bbox.top, w.bbox.x1, w.bbox.bottom, 1.0)),
+        }).collect();
+        word_pages.push(OcrPageResult { page: page_number, texts: word_texts });
+
         // 列感知合并（复用 pdfplumber 的合并逻辑）
         let lines = column_aware_merge(page_words);
 
@@ -596,6 +607,7 @@ fn extract_pdfium_fallback(file_path: &str) -> Result<PdfExtraction, String> {
 
     Ok(PdfExtraction {
         pages,
+        word_pages,
         raw_words: all_words,
     })
 }
@@ -626,16 +638,26 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
         let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
 
         let mut pages: Vec<OcrPageResult> = Vec::new();
+        let mut word_pages: Vec<OcrPageResult> = Vec::new();
         let mut all_words: Vec<Word> = Vec::new();
         let mut total_words: usize = 0;
 
         for page_result in pdf.pages_iter() {
             let page = page_result.map_err(|e| format!("pdfplumber page: {}", e))?;
+            let page_number = page.page_number() as u32;
             let words = page.extract_words(&WordOptions::default());
             total_words += words.len();
 
             // 克隆一份用于坐标提取器（column_aware_merge 消费原始 Vec）
             all_words.extend(words.clone());
+
+            // word 级文本项（未合并，保留独立坐标，供行程单表格解析）
+            let word_texts: Vec<OcrTextItem> = words.iter().map(|w| OcrTextItem {
+                text: w.text.clone(),
+                confidence: 1.0,
+                box_coords: Some(bbox_to_json(w.bbox.x0, w.bbox.top, w.bbox.x1, w.bbox.bottom, 1.0)),
+            }).collect();
+            word_pages.push(OcrPageResult { page: page_number, texts: word_texts });
 
             // 列感知合并
             let lines = column_aware_merge(words);
@@ -652,7 +674,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
                 .collect();
 
             pages.push(OcrPageResult {
-                page: page.page_number() as u32,
+                page: page_number,
                 texts,
             });
         }
@@ -663,6 +685,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
 
         Ok(PdfExtraction {
             pages,
+            word_pages,
             raw_words: all_words,
         })
     });
