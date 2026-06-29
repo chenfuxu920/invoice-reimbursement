@@ -759,6 +759,12 @@ pub fn classify_from_full_text(
         return InvoiceCategory::Flight;
     }
 
+    // 保险费发票优先识别（防止"机票航空意外险"被误判为机票）
+    // 必须在 InvoiceType match 之前，避免 FlightInvoice 短路
+    if contains_any(&all_text, &["保险服务", "意外险", "保险费"]) {
+        return InvoiceCategory::TicketChange;
+    }
+
     match invoice_type {
         InvoiceType::FlightInvoice => return InvoiceCategory::Flight,
         InvoiceType::TrainInvoice => return InvoiceCategory::Train,
@@ -776,6 +782,10 @@ pub fn classify_from_full_text(
     if contains_any(&all_text, &["滴滴", "网约车", "高德", "t3", "曹操", "出租"]) {
         return InvoiceCategory::CityTransport;
     }
+    // 保险/退改签优先于航班检查（防止"机票航空意外险"误判为机票）
+    if contains_any(&all_text, &["退票", "改签", "保险"]) {
+        return InvoiceCategory::TicketChange;
+    }
     if contains_any(&all_text, &["航空", "机票", "机场", "航班"]) {
         return InvoiceCategory::Flight;
     }
@@ -784,9 +794,6 @@ pub fn classify_from_full_text(
     }
     if contains_any(&all_text, &["餐饮", "饭店", "食品", "餐厅", "饭馆"]) {
         return InvoiceCategory::Meal;
-    }
-    if contains_any(&all_text, &["退票", "改签", "保险"]) {
-        return InvoiceCategory::TicketChange;
     }
 
     if let Some(seller_field) = seller {
@@ -839,10 +846,25 @@ fn extract_amount(text: &str) -> Result<f64, String> {
     // 多步策略：每个匹配强制要求两位小数，排除整数匹配（如2026、168、税号）
 
     // Step 0: 数字在关键字前 — "6.30价税合计" / "13.00价税合计"
-    let re_step0 = Regex::new(r"([\d,]+\.\d{2})\s*价税合计").map_err(|e| e.to_string())?;
-    if let Some(caps) = re_step0.captures(text) {
-        let amount_str = caps[1].replace(",", "");
-        return amount_str.parse::<f64>().map_err(|e| e.to_string());
+    // 遍历所有匹配取最大值，跳过税额行（修复华住酒店"143.10\n价税合计"误匹配税额）
+    // 使用 [^\S\n]* 替代 \s* 避免跨行匹配（pdfplumber 用 \n 分行，OCR 用空格 join）
+    let re_step0 = Regex::new(r"([\d,]+\.\d{2})[^\S\n]*价税合计").map_err(|e| e.to_string())?;
+    let mut max_step0 = 0.0f64;
+    for cap in re_step0.captures_iter(text) {
+        // 检查匹配所在行是否含税额上下文
+        let match_start = cap.get(0).unwrap().start();
+        let line_start = text[..match_start].rfind('\n').map_or(0, |p| p + 1);
+        let context_before = &text[line_start..match_start];
+        if context_before.contains("税额") || context_before.contains("税率") || context_before.contains("不含税") {
+            continue;
+        }
+        let v: f64 = cap[1].replace(",", "").parse().unwrap_or(0.0);
+        if v > max_step0 && v < 1_000_000.0 {
+            max_step0 = v;
+        }
+    }
+    if max_step0 > 0.0 {
+        return Ok(max_step0);
     }
 
     // Step 1: 关键字 + ¥ + 两位小数 — "价税合计（大写） ¥523.57"
@@ -1117,10 +1139,10 @@ pub fn classify_invoice(seller_name: &str, item_name: &str) -> InvoiceCategory {
 
     if contains_any(&combined_lower, &["铁路", "高铁", "火车", "客运站"]) {
         InvoiceCategory::Train
+    } else if contains_any(&combined_lower, &["退票", "改签", "保险", "意外险"]) {
+        InvoiceCategory::TicketChange
     } else if contains_any(&combined_lower, &["航空", "机票", "机场", "航班"]) {
         InvoiceCategory::Flight
-    } else if contains_any(&combined_lower, &["退票", "改签", "保险"]) {
-        InvoiceCategory::TicketChange
     } else if contains_any(
         &combined_lower,
         &["出租", "网约车", "滴滴", "高德", "t3", "曹操"],
@@ -1128,6 +1150,8 @@ pub fn classify_invoice(seller_name: &str, item_name: &str) -> InvoiceCategory {
         InvoiceCategory::CityTransport
     } else if contains_any(&combined_lower, &["酒店", "宾馆", "住宿", "招待所", "民宿"]) {
         InvoiceCategory::Hotel
+    } else if contains_any(&combined_lower, &["通行", "etc"]) {
+        InvoiceCategory::Toll
     } else if contains_any(&combined_lower, &["餐饮", "饭店", "食品", "餐厅", "饭馆"]) {
         InvoiceCategory::Meal
     } else {
@@ -1212,6 +1236,33 @@ mod tests {
     }
 
     #[test]
+    fn test_classify_insurance_invoice_as_ticket_change() {
+        // 机票保险费发票应分类为 TicketChange，而非 Flight
+        // 真实样本：项目名称"*保险服务*国内机票航空意外险"
+        let ocr = create_ocr_output(vec![
+            "电子发票（普通发票）",
+            "*保险服务*国内机票航空意外险",
+            "众安在线财产保险股份有限公司",
+            "价税合计：¥50.00",
+        ]);
+        let result =
+            classify_from_full_text(&ocr, &None, &None, &InvoiceType::VatElectronicInvoice);
+        assert_eq!(result, InvoiceCategory::TicketChange);
+    }
+
+    #[test]
+    fn test_classify_insurance_invoice_defense_against_flight_type() {
+        // 防御性测试：即使 InvoiceType 被误判为 FlightInvoice，
+        // 含"保险"的发票仍应归为 TicketChange
+        let ocr = create_ocr_output(vec![
+            "*保险服务*国内机票航空意外险",
+            "价税合计：¥50.00",
+        ]);
+        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::FlightInvoice);
+        assert_eq!(result, InvoiceCategory::TicketChange);
+    }
+
+    #[test]
     fn test_classify_from_full_text_city_transport() {
         let ocr = create_ocr_output(vec!["滴滴出行电子发票", "网约车服务"]);
         let result =
@@ -1277,6 +1328,20 @@ mod tests {
         assert!(matches!(
             classify_invoice("中国航空", ""),
             InvoiceCategory::Flight
+        ));
+    }
+
+    #[test]
+    fn test_classify_insurance_as_ticket_change() {
+        // 机票保险费发票应分类为 TicketChange，而非 Flight
+        // 真实样本：销售方"众安在线财产保险"，项目"国内机票航空意外险"
+        assert!(matches!(
+            classify_invoice("众安在线财产保险股份有限公司", "国内机票航空意外险"),
+            InvoiceCategory::TicketChange
+        ));
+        assert!(matches!(
+            classify_invoice("", "航空意外险"),
+            InvoiceCategory::TicketChange
         ));
     }
 
@@ -1889,5 +1954,58 @@ mod tests {
         let t = inv.toll_travel_time.unwrap();
         assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
         assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
+    }
+
+    #[test]
+    fn test_extract_amount_step0_skips_tax_line() {
+        // 华住酒店场景：税额"143.10"紧邻"价税合计"标签前，跨行
+        // Step0 应跳过税额行，不应返回 143.10
+        let text = "*生产生活服务*住宿费 天 7 340.7075 2384.95 6% 143.10\n价税合计（大写） 贰仟伍佰贰拾捌圆零伍分 （小写） ¥ 2528.05";
+        let result = extract_amount(text);
+        assert!(result.is_ok());
+        let amount = result.unwrap();
+        assert!((amount - 2528.05).abs() < 0.01, "应提取价税合计 2528.05，而非税额 143.10，实际: {}", amount);
+    }
+
+    #[test]
+    fn test_extract_amount_step0_ocr_reversed() {
+        // OCR 顺序颠倒场景："6.30价税合计"（数字在关键字前，同行）
+        // Step0 仍应正确提取
+        let text = "6.30价税合计";
+        let result = extract_amount(text);
+        assert!(result.is_ok());
+        let amount = result.unwrap();
+        assert!((amount - 6.30).abs() < 0.01, "OCR 颠倒场景应提取 6.30，实际: {}", amount);
+    }
+
+    #[test]
+    fn test_extract_amount_step0_takes_max() {
+        // 多个"数字价税合计"匹配时取最大值
+        let text = "税额 143.10价税合计\n实际 2528.05价税合计";
+        let result = extract_amount(text);
+        assert!(result.is_ok());
+        let amount = result.unwrap();
+        assert!((amount - 2528.05).abs() < 0.01, "应取最大值 2528.05，实际: {}", amount);
+    }
+
+    #[test]
+    fn test_classify_invoice_toll() {
+        // 票根高速发票应分类为 Toll
+        let category = classify_invoice("湖南省高速公路集团有限公司", "通行费");
+        assert_eq!(category, InvoiceCategory::Toll);
+    }
+
+    #[test]
+    fn test_classify_invoice_toll_etc() {
+        // ETC 发票应分类为 Toll
+        let category = classify_invoice("某ETC公司", "通行");
+        assert_eq!(category, InvoiceCategory::Toll);
+    }
+
+    #[test]
+    fn test_classify_invoice_hotel_not_toll() {
+        // "高速公路酒店"含"高速"但应归 Hotel（Toll 用"通行"而非"高速"）
+        let category = classify_invoice("高速公路酒店", "住宿服务");
+        assert_eq!(category, InvoiceCategory::Hotel);
     }
 }

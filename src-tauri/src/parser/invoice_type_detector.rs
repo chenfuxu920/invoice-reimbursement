@@ -18,13 +18,20 @@ pub enum InvoiceType {
 pub struct InvoiceTypeDetector;
 
 impl InvoiceTypeDetector {
+    /// 归一化 CJK 部首变体为标准汉字
+    /// 修复华住酒店 PDF 中"电⼦发票"使用 U+2F26（CJK 部首⼦）而非标准 U+5B50（子）的问题
+    fn normalize_cjk_radicals(text: &str) -> String {
+        text.replace('\u{2F26}', "\u{5B50}") // ⼦ → 子
+    }
+
     pub fn detect(ocr_output: &OcrStructuredOutput) -> InvoiceType {
-        let all_text = ocr_output
+        let raw_text = ocr_output
             .blocks
             .iter()
             .map(|b| b.text.as_str())
             .collect::<Vec<_>>()
             .join(" ");
+        let all_text = Self::normalize_cjk_radicals(&raw_text);
 
         if Self::is_ride_hailing_itinerary(&all_text) {
             return InvoiceType::RideHailingItinerary;
@@ -73,6 +80,10 @@ impl InvoiceTypeDetector {
     }
 
     fn is_flight_invoice(text: &str) -> bool {
+        // 排除保险费发票：如"国内机票航空意外险"含"机票"+"航空"但实为保险
+        if text.contains("保险") || text.contains("意外险") {
+            return false;
+        }
         text.contains("机票")
             || text.contains("航班")
             || text.contains("航空")
@@ -80,7 +91,14 @@ impl InvoiceTypeDetector {
     }
 
     fn is_vat_electronic_invoice(text: &str) -> bool {
-        text.contains("增值税") && text.contains("电子发票")
+        // 增值税电子发票（原逻辑）
+        if text.contains("增值税") && text.contains("电子发票") {
+            return true;
+        }
+        // 电子普通发票（如众安保险、华住酒店），但排除网约车发票
+        // 滴滴/高德等电子发票也是"电子发票（普通发票）"格式，应归 RideHailingInvoice
+        text.contains("电子发票") && text.contains("普通发票")
+            && !Self::is_ride_hailing_invoice(text)
     }
 
     fn is_hotel_statement(text: &str) -> bool {
@@ -211,6 +229,19 @@ mod tests {
     }
 
     #[test]
+    fn test_detect_insurance_invoice_not_flight() {
+        // 机票保险费发票含"机票"+"航空"+"保险"，不应识别为 FlightInvoice
+        // 真实样本：众安在线财产保险 *保险服务*国内机票航空意外险
+        let ocr = create_ocr_output(vec![
+            "电子发票（普通发票）",
+            "*保险服务*国内机票航空意外险",
+            "众安在线财产保险股份有限公司",
+            "价税合计：¥50.00",
+        ]);
+    assert_ne!(InvoiceTypeDetector::detect(&ocr), InvoiceType::FlightInvoice);
+    }
+
+    #[test]
     fn test_detect_toll_invoice_by_keyword() {
         let ocr = create_ocr_output(vec!["通行费", "增值税电子发票", "价税合计：10.00"]);
         assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TollInvoice);
@@ -233,5 +264,44 @@ mod tests {
         // 同时含"增值税电子发票"和"通行费"，应优先识别为 Toll
         let ocr = create_ocr_output(vec!["增值税电子发票", "通行费", "价税合计：10.00"]);
         assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TollInvoice);
+    }
+
+    #[test]
+    fn test_detect_general_electronic_invoice() {
+        // 电子普通发票（不含"增值税"）应识别为 VatElectronicInvoice
+        // 真实样本：众安保险"电子发票（普通发票）"
+        let ocr = create_ocr_output(vec![
+            "电子发票（普通发票）",
+            "*保险服务*国内机票航空意外险",
+            "众安在线财产保险股份有限公司",
+            "价税合计：¥50.00",
+        ]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::VatElectronicInvoice);
+    }
+
+    #[test]
+    fn test_detect_general_electronic_not_ride_hailing() {
+        // 滴滴电子发票也是"电子发票（普通发票）"格式，但应归 RideHailingInvoice
+        // 防止方案A放宽后引入回归
+        let ocr = create_ocr_output(vec![
+            "电子发票（普通发票）",
+            "发票号码: 26437000000202866011",
+            "旅客运输服务",
+            "湖南滴滴出行科技有限公司",
+        ]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::RideHailingInvoice);
+    }
+
+    #[test]
+    fn test_detect_cjk_radical_normalization() {
+        // 华住酒店 PDF 中"电⼦发票"使用 U+2F26（CJK 部首⼦）而非标准 U+5B50（子）
+        // 归一化后应能识别为 VatElectronicInvoice
+        let ocr = create_ocr_output(vec![
+            "电\u{2F26}发票（普通发票）", // ⼦ = U+2F26
+            "*住宿服务*住宿费",
+            "四川景澜酒店管理有限公司",
+            "价税合计：¥2528.05",
+        ]);
+        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::VatElectronicInvoice);
     }
 }
