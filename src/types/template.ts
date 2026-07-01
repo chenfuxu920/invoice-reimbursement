@@ -86,5 +86,6 @@ export const CATEGORY_OPTIONS = [
   { value: 'CityTransport', label: '市内交通' },
   { value: 'Hotel', label: '住宿费' },
   { value: 'Meal', label: '餐饮费' },
+  { value: 'Toll', label: '高速通行费' },
   { value: 'Other', label: '其他' },
 ]

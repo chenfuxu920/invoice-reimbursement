@@ -15,6 +15,7 @@ const CATEGORY_STYLES: Record<InvoiceCategory, CategoryStyle> = {
   CityTransport: { label: CATEGORY_LABELS.CityTransport, icon: '🚕', bgColor: 'bg-purple-100', textColor: 'text-purple-700' },
   Hotel: { label: CATEGORY_LABELS.Hotel, icon: '🏨', bgColor: 'bg-yellow-100', textColor: 'text-yellow-700' },
   Meal: { label: CATEGORY_LABELS.Meal, icon: '🍜', bgColor: 'bg-red-100', textColor: 'text-red-700' },
+  Toll: { label: CATEGORY_LABELS.Toll, icon: '🛣️', bgColor: 'bg-indigo-100', textColor: 'text-indigo-700' },
   Other: { label: CATEGORY_LABELS.Other, icon: '📋', bgColor: 'bg-gray-100', textColor: 'text-gray-700' },
 }
 

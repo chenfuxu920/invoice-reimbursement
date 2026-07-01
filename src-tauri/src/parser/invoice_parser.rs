@@ -770,6 +770,11 @@ pub fn classify_from_full_text(
         _ => {}
     }
 
+    // 通行费兜底：InvoiceTypeDetector 未命中时，通过关键词识别高速通行费
+    if contains_any(&all_text, &["通行费", "过路费", "etc"]) {
+        return InvoiceCategory::Toll;
+    }
+
     if contains_any(&all_text, &["酒店", "宾馆", "住宿", "招待所", "民宿"]) {
         return InvoiceCategory::Hotel;
     }

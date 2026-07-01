@@ -5,6 +5,7 @@ export type InvoiceCategory =
   | 'CityTransport'
   | 'Hotel'
   | 'Meal'
+  | 'Toll'
   | 'Other'
 
 export interface InvoiceSource {
@@ -43,6 +44,7 @@ export const CATEGORY_LABELS: Record<InvoiceCategory, string> = {
   CityTransport: '市内交通',
   Hotel: '住宿费',
   Meal: '餐饮费',
+  Toll: '高速通行费',
   Other: '其他',
 }
 

@@ -21,10 +21,11 @@ describe('Type definitions integrity', () => {
       'CityTransport',
       'Hotel',
       'Meal',
+      'Toll',
       'Other',
     ]
-    expect(categories).toHaveLength(7)
-    expect(new Set(categories).size).toBe(7)
+    expect(categories).toHaveLength(8)
+    expect(new Set(categories).size).toBe(8)
   })
 
   it('PaymentSource should cover Wechat and Alipay', () => {
