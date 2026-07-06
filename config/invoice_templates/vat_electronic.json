@@ -1,0 +1,62 @@
+{
+  "template_id": "vat_electronic_invoice",
+  "name": "增值税电子发票",
+  "keywords": ["增值税", "电子发票", "价税合计"],
+  "fields": [
+    {
+      "name": "amount",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "价税合计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "confidence": 0.9
+        },
+        {
+          "type": "regex",
+          "pattern": "合计金额[：:￥¥]*\\s*([\\d,]+\\.?\\d*)",
+          "confidence": 0.8
+        }
+      ]
+    },
+    {
+      "name": "seller_name",
+      "required": true,
+      "strategies": [
+        {
+          "type": "section_field",
+          "section_keyword": "销售方信息",
+          "field_keyword": "名称",
+          "confidence": 0.95
+        },
+        {
+          "type": "regex",
+          "pattern": "名称[：:](.+?)(?=\\s+统一社会信用代码|$)",
+          "confidence": 0.85
+        }
+      ]
+    },
+    {
+      "name": "invoice_number",
+      "required": true,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "发票号码[：:]\\s*(\\d+)",
+          "confidence": 0.95
+        }
+      ]
+    },
+    {
+      "name": "date",
+      "required": false,
+      "strategies": [
+        {
+          "type": "regex",
+          "pattern": "(\\d{4})\\s*年\\s*(\\d{1,2})\\s*月\\s*(\\d{1,2})\\s*日",
+          "confidence": 0.9
+        }
+      ]
+    }
+  ]
+}

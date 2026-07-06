@@ -1,0 +1,67 @@
+{
+  "conversationsWithEdits": [
+    "2777077a-8975-4908-8071-e66c1d971bfa",
+    "fb9794b7-668a-4ac4-8546-97120bbe4f9e",
+    "def3cb42-5f9c-49d8-823b-504af4001743",
+    "5d53c57d-e666-4685-8941-87e86917064e",
+    "b5de5462-9730-402d-8075-b449159e34ae",
+    "bce1fb2c-4c48-4fec-84de-ca62bc0fa8f4",
+    "c153b5c3-435c-4138-899c-6b73b3cb9f5f",
+    "c197e166-a1d0-4d37-886c-4917c74f55b8",
+    "800227a1-f8bd-4366-82b5-93ba9392823c",
+    "13a999b6-659f-46a1-8093-94fef64dbffe"
+  ],
+  "rewordedBranches": [],
+  "branchOwnership": {
+    "2777077a-8975-4908-8071-e66c1d971bfa": {
+      "rootSessionID": "ses_0f11679e6ffe7q0eoLn8eMtcgG",
+      "branchName": "conversation-2777077a",
+      "firstSeen": 1782662375260
+    },
+    "fb9794b7-668a-4ac4-8546-97120bbe4f9e": {
+      "rootSessionID": "ses_0f1010dbfffemry8uS98Mmxt7s",
+      "branchName": "conversation-fb9794b7",
+      "firstSeen": 1782663144388
+    },
+    "def3cb42-5f9c-49d8-823b-504af4001743": {
+      "rootSessionID": "ses_0e344a99fffezwySbgzFIMWI6O",
+      "branchName": "conversation-def3cb42",
+      "firstSeen": 1782893855733
+    },
+    "5d53c57d-e666-4685-8941-87e86917064e": {
+      "rootSessionID": "ses_0e33d5140ffefGRbczOi3H54NH",
+      "branchName": "conversation-5d53c57d",
+      "firstSeen": 1782894094838
+    },
+    "b5de5462-9730-402d-8075-b449159e34ae": {
+      "rootSessionID": "ses_0dd40ac71ffeTlCA17F7ZyDrfK",
+      "branchName": "conversation-b5de5462",
+      "firstSeen": 1782995059376
+    },
+    "bce1fb2c-4c48-4fec-84de-ca62bc0fa8f4": {
+      "rootSessionID": "ses_0d33c94ebffe768EtX9ILrELJP",
+      "branchName": "conversation-bce1fb2c",
+      "firstSeen": 1783162859860
+    },
+    "c153b5c3-435c-4138-899c-6b73b3cb9f5f": {
+      "rootSessionID": "ses_0d3325288ffe1yTqZtsOaJEAaY",
+      "branchName": "conversation-c153b5c3",
+      "firstSeen": 1783163253903
+    },
+    "c197e166-a1d0-4d37-886c-4917c74f55b8": {
+      "rootSessionID": "ses_0d22d863affeMWL6T3372AZCbi",
+      "branchName": "conversation-c197e166",
+      "firstSeen": 1783180712236
+    },
+    "800227a1-f8bd-4366-82b5-93ba9392823c": {
+      "rootSessionID": "ses_0cfc26483ffef3V0Muf7mfecLQ",
+      "branchName": "conversation-800227a1",
+      "firstSeen": 1783220792896
+    },
+    "13a999b6-659f-46a1-8093-94fef64dbffe": {
+      "rootSessionID": "ses_0cfb55fddffeN2Z82ozcijoX5Z",
+      "branchName": "conversation-13a999b6",
+      "firstSeen": 1783221885327
+    }
+  }
+}

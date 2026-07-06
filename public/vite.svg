@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="docGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#F0F4FF"/>
+    </linearGradient>
+    <linearGradient id="checkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22C55E"/>
+      <stop offset="100%" stop-color="#16A34A"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bgGrad)"/>
+
+  <!-- Document body -->
+  <rect x="64" y="52" width="128" height="152" rx="10" ry="10" fill="url(#docGrad)" stroke="#CBD5E1" stroke-width="1.5"/>
+
+  <!-- Folded corner -->
+  <path d="M160 52 L160 84 L192 84 Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="1.5"/>
+
+  <!-- Title line (document header) -->
+  <rect x="78" y="70" width="60" height="5" rx="2.5" fill="#2563EB"/>
+
+  <!-- Lines representing text on document -->
+  <rect x="78" y="88" width="90" height="3" rx="1.5" fill="#CBD5E1"/>
+  <rect x="78" y="98" width="80" height="3" rx="1.5" fill="#CBD5E1"/>
+  <rect x="78" y="108" width="85" height="3" rx="1.5" fill="#CBD5E1"/>
+
+  <!-- Divider line -->
+  <line x1="78" y1="122" x2="178" y2="122" stroke="#E2E8F0" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- ¥ symbol on document -->
+  <text x="128" y="148" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="bold" fill="#2563EB" opacity="0.3">¥</text>
+
+  <!-- Checkmark circle badge -->
+  <circle cx="160" cy="170" r="22" fill="url(#checkGrad)"/>
+  <path d="M150 170 L157 177 L170 163" fill="none" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,55 @@
+[package]
+name = "invoice-reimbursement"
+version = "0.4.0"
+description = "发票报销助手"
+authors = ["白开水"]
+edition = "2021"
+default-run = "invoice-reimbursement"
+
+[lib]
+name = "invoice_reimbursement_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "generate_report"
+path = "src/bin/generate_report.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+reqwest = { version = "0.12", features = ["json", "multipart"] }
+tokio = { version = "1", features = ["sync"] }
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+calamine = "0.26"
+genpdf = "0.2"
+ocr-rs = "2.2.2"
+image = { version = "0.25", default-features = false }
+pdfium-render = "0.8"
+pdf-extract = "0.10"
+encoding_rs = "0.8"
+parangi = "0.1.0"
+printpdf = { version = "0.7", features = ["embedded_images"] }
+base64 = "0.22"
+rust_xlsxwriter = "0.82"
+pdfplumber = { version = "0.2", optional = true }
+
+[features]
+default = ["pdfplumber"]
+pdfplumber = ["dep:pdfplumber"]
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = false
+strip = true
+codegen-units = 16

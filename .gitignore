@@ -1,0 +1,22 @@
+node_modules/
+dist/
+src-tauri/target/
+venv/
+*.pyc
+.DS_Store
+
+# Build artifacts
+src-tauri/build_error.txt
+src-tauri/ocr_output.txt
+vite.config.ts.timestamp-*.mjs
+
+# Temp files
+C
+T
+
+*.zip
+对照表含图片*.pdf
+对照表含图片*.pdf
+
+# deepwork progress
+.slim/deepwork/

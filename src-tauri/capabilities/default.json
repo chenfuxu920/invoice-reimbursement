@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "fs:default",
+    "fs:scope-temp-recursive",
+    "fs:allow-read"
+  ]
+}
+
