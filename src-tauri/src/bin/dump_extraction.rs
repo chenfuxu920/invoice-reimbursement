@@ -148,8 +148,8 @@ fn process_pdf(path: &Path) {
             Err(e) => println!("--- 坐标提取 失败: {} ---", e),
         }
 
-        // 测试 extract_pdf_column_aware（含 pdfium 回退）
-        println!("\n--- extract_pdf_column_aware (含 pdfium 回退) ---");
+        // 测试 extract_pdf_column_aware（含 pdfplumber 回退）
+        println!("\n--- extract_pdf_column_aware ---");
         match invoice_reimbursement_lib::pdf::text_extractor::extract_pdf_column_aware(&path_str) {
             Ok(extraction) => {
                 let items: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
@@ -175,14 +175,6 @@ fn process_pdf(path: &Path) {
 }
 
 fn main() {
-    // 初始化 PDFium（用于 pdfplumber 失败时的文本提取回退）
-    for path in &["pdfium.dll".as_ref(), "..\\pdfium.dll".as_ref(), "src-tauri/pdfium.dll".as_ref()] {
-        if std::path::Path::new(path).exists() {
-            let _ = invoice_reimbursement_lib::ocr::engine::init_pdfium(path);
-            break;
-        }
-    }
-
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         eprintln!("用法: dump_extraction <pdf_dir>");

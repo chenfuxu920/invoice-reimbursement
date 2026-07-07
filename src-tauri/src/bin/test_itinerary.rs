@@ -8,14 +8,6 @@ fn main() {
         std::process::exit(1);
     }
     let pdf_path = &args[1];
-
-    for path in &["pdfium.dll".as_ref(), "..\\pdfium.dll".as_ref()] {
-        if std::path::Path::new(path).exists() {
-            let _ = invoice_reimbursement_lib::ocr::engine::init_pdfium(path);
-            break;
-        }
-    }
-
     let mut engine = OcrEngine::new("models").expect("OCR init failed");
     match parse_itinerary_from_pdf(pdf_path, &mut engine) {
         Ok(doc) => {

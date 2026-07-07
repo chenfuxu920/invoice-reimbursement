@@ -214,7 +214,32 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                     }
                 }
             }
-            // parangi 也未命中 — OCR 回退
+            // parangi 也未命中 — 尝试 zpdf（Form XObject 中的文字，带坐标）
+            if let Ok(z_items) = text_extractor::extract_text_with_zpdf(pdf_path) {
+                eprintln!("  [zpdf] 交叉验证: {} 个文本项", z_items.len());
+                if let Ok(z_invoice) = parse_invoice_text(&z_items, source.clone()) {
+                    if !z_invoice.seller_name.is_empty()
+                        && !is_likely_garbled_seller(&z_invoice.seller_name)
+                    {
+                        eprintln!("  [zpdf] seller补全: {}", z_invoice.seller_name);
+                        invoice.seller_name = z_invoice.seller_name;
+                        if invoice.amount <= 0.0 && z_invoice.amount > 0.0 {
+                            invoice.amount = z_invoice.amount;
+                        }
+                        if invoice.invoice_number.is_empty() && !z_invoice.invoice_number.is_empty() {
+                            invoice.invoice_number = z_invoice.invoice_number;
+                        }
+                        return Ok(invoice);
+                    }
+                }
+            }
+            // OCR 回退
+            // ponytail: OCR 不可用时返回文字提取结果（invoice_number/amount 通常已正确），
+            // 而非硬报错。升级路径=安装 OCR 模型后自动走 OCR 补全 seller。
+            if !engine.health().unwrap_or(false) {
+                eprintln!("  [pipeline] OCR 不可用，返回文字提取结果");
+                return Ok(invoice);
+            }
             let ocr_pages = extract_ocr_text(pdf_path, engine)?;
             let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
             let ocr_doc_type = classify_pdf_document_type(&ocr_items);
@@ -224,7 +249,23 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
             check_and_parse(ocr_items, source)
         }
         Err(_) => {
-            // 解析失败 — OCR 回退
+            // 解析失败 — 尝试 zpdf（Form XObject 中的文字）
+            match text_extractor::extract_text_with_zpdf(pdf_path) {
+                Ok(z_items) => {
+                    eprintln!("  [zpdf] 提取到 {} 个文本项（parse失败回退）", z_items.len());
+                    let z_doc_type = classify_pdf_document_type(&z_items);
+                    if z_doc_type != PdfDocumentType::Itinerary && z_doc_type != PdfDocumentType::Bill {
+                        if let Ok(invoice) = check_and_parse(z_items, source.clone()) {
+                            return Ok(invoice);
+                        }
+                    }
+                }
+                Err(e) => eprintln!("  [zpdf] 失败: {}", e),
+            }
+            // OCR 回退
+            if !engine.health().unwrap_or(false) {
+                return Err("文字提取解析失败，且 OCR 模型未安装".to_string());
+            }
             let ocr_pages = extract_ocr_text(pdf_path, engine)?;
             let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
             let ocr_doc_type = classify_pdf_document_type(&ocr_items);
@@ -244,11 +285,18 @@ fn extract_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr
         }
         Ok(items) => {
             eprintln!("  [parangi] 文本不足 ({} 字符)，回退到 OCR", items.iter().map(|i| i.text.len()).sum::<usize>());
+            // ponytail: OCR 不可用时返回不足的文本，让后续解析尝试（可能部分成功）
+            if !engine.health().unwrap_or(false) {
+                return Ok(items);
+            }
             let resp = engine.recognize_pdf(pdf_path)?;
             Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
         }
         Err(e) => {
             eprintln!("  [parangi] 失败: {}，回退到 OCR", e);
+            if !engine.health().unwrap_or(false) {
+                return Err(format!("文字提取失败且 OCR 不可用: {}", e));
+            }
             let resp = engine.recognize_pdf(pdf_path)?;
             Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
         }
@@ -309,7 +357,7 @@ fn check_and_parse(
 /// 否则走 OCR 路径以保留坐标，利用坐标还原表格行列结构；
 /// 均失败时回退到纯文本解析。
 pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<ItineraryDoc, String> {
-    // 优先使用 extract_pdf_column_aware（含 pdfium 回退，保留页边界）
+    // 优先使用 extract_pdf_column_aware（含 pdfplumber 回退，保留页边界）
     // 多页行程单必须按页解析，否则 Y 坐标重叠导致表格解析失败
     #[cfg(feature = "pdfplumber")]
     {

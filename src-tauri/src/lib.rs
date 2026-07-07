@@ -28,17 +28,14 @@ use tauri::Manager;
 
 // 应用状态
 pub struct AppState {
-    ocr_engine: AsyncMutex<Option<OcrEngine>>,
+    ocr_engine: AsyncMutex<OcrEngine>,
 }
 
 // OCR 健康检查命令
 #[tauri::command]
 async fn ocr_health(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     let engine = state.ocr_engine.lock().await;
-    match engine.as_ref() {
-        Some(e) => Ok(e.health()?),
-        None => Ok(false),
-    }
+    engine.health()
 }
 
 // OCR 图片识别命令
@@ -48,9 +45,6 @@ async fn ocr_recognize_image(
     file_path: String,
 ) -> Result<serde_json::Value, String> {
     let mut engine = state.ocr_engine.lock().await;
-    let engine = engine
-        .as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
     let result = engine.recognize_image(&file_path)?;
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
 }
@@ -62,11 +56,40 @@ async fn ocr_recognize_pdf(
     file_path: String,
 ) -> Result<serde_json::Value, String> {
     let mut engine = state.ocr_engine.lock().await;
-    let engine = engine
-        .as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
     let result = engine.recognize_pdf(&file_path)?;
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
+}
+
+// 下载 OCR 模型（识别扫描件/图片发票，完成后初始化引擎）
+#[tauri::command]
+async fn download_ocr_models(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let models_dir = ocr::model_downloader::download_models(&app).await?;
+    let dir_str = models_dir.to_string_lossy().to_string();
+    let engine = OcrEngine::new(&dir_str)
+        .map_err(|e| format!("模型下载完成但初始化失败: {}", e))?;
+    *state.ocr_engine.lock().await = engine;
+    Ok(())
+}
+
+// 获取 OCR 模型下载配置
+#[tauri::command]
+async fn get_ocr_model_config(
+    app: tauri::AppHandle,
+) -> Result<ocr::OcrModelConfig, String> {
+    Ok(ocr::model_downloader::load_config(&app))
+}
+
+// 设置 OCR 模型下载地址
+#[tauri::command]
+async fn set_ocr_model_config(
+    app: tauri::AppHandle,
+    model_base_url: String,
+) -> Result<(), String> {
+    let config = ocr::OcrModelConfig { model_base_url };
+    ocr::model_downloader::save_config(&app, &config)
 }
 
 // 发票识别与解析命令
@@ -77,13 +100,10 @@ async fn recognize_invoice(
     file_type: String, // "image" | "pdf"
 ) -> Result<Invoice, String> {
     let mut engine = state.ocr_engine.lock().await;
-    let engine = engine
-        .as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
     if file_type == "pdf" {
-        invoice_pipeline::parse_invoice_from_pdf(&file_path, engine)
+        invoice_pipeline::parse_invoice_from_pdf(&file_path, &mut engine)
     } else {
-        invoice_pipeline::parse_invoice_from_image(&file_path, engine)
+        invoice_pipeline::parse_invoice_from_image(&file_path, &mut engine)
     }
 }
 
@@ -94,10 +114,7 @@ async fn batch_recognize(
     file_paths: Vec<String>,
 ) -> Result<ParseResult, String> {
     let mut engine = state.ocr_engine.lock().await;
-    let engine = engine
-        .as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
-    Ok(invoice_pipeline::parse_all_from_files(&file_paths, engine))
+    Ok(invoice_pipeline::parse_all_from_files(&file_paths, &mut engine))
 }
 
 // 行程单识别与解析命令
@@ -107,11 +124,8 @@ async fn recognize_itinerary(
     file_path: String,
 ) -> Result<Vec<Itinerary>, String> {
     let mut engine = state.ocr_engine.lock().await;
-    let engine = engine
-        .as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
 
-    let texts = invoice_pipeline::extract_text_with_coords_or_fallback(&file_path, engine)?;
+    let texts = invoice_pipeline::extract_text_with_coords_or_fallback(&file_path, &mut engine)?;
 
     // If text items have coordinates (from pdfplumber), use coord-based parsing
     let has_coords = texts.iter().any(|t| t.box_coords.is_some());
@@ -347,8 +361,6 @@ async fn batch_global_import(
     let mut errors = Vec::new();
 
     let mut engine = state.ocr_engine.lock().await;
-    let engine = engine.as_mut()
-        .ok_or("OCR engine not initialized. Model files may be missing.")?;
 
     let mut pdf_files = Vec::new();
 
@@ -365,7 +377,7 @@ async fn batch_global_import(
             }
             "jpg" | "jpeg" | "png" => {
                 let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                match invoice_pipeline::parse_invoice_from_image(&path_str, engine) {
+                match invoice_pipeline::parse_invoice_from_image(&path_str, &mut engine) {
                     Ok(inv) => invoices.push(inv),
                     Err(e) => errors.push([name, e]),
                 }
@@ -391,7 +403,7 @@ async fn batch_global_import(
     // PDF 复用已有的 batch 解析逻辑（含发票→行程单→配对）
     let mut pdf_duplicates = Vec::new();
     if !pdf_files.is_empty() {
-        let result = invoice_pipeline::parse_all_from_files(&pdf_files, engine);
+        let result = invoice_pipeline::parse_all_from_files(&pdf_files, &mut engine);
         invoices.extend(result.invoices);
         pdf_duplicates = result.duplicates;
         for (name, err) in result.errors {
@@ -564,12 +576,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .manage(AppState {
-            ocr_engine: AsyncMutex::new(None), // 将在 setup 中初始化
+            ocr_engine: AsyncMutex::new(OcrEngine::uninitialized()),
         })
         .invoke_handler(tauri::generate_handler![
             ocr_health,
             ocr_recognize_image,
             ocr_recognize_pdf,
+            download_ocr_models,
+            get_ocr_model_config,
+            set_ocr_model_config,
             recognize_invoice,
             batch_recognize,
             recognize_itinerary,
@@ -600,33 +615,28 @@ pub fn run() {
             commands::template_commands::generate_regex_skeleton,
         ])
         .setup(|app| {
-            // 初始化 PDFium（从资源目录加载 pdfium.dll 用于 PDF 渲染）
-            let resource_dir = app
-                .path()
-                .resource_dir()
-                .expect("Failed to get resource directory");
-            let pdfium_dll = resource_dir.join("pdfium.dll");
-            match ocr::engine::init_pdfium(&pdfium_dll) {
-                Ok(()) => println!("PDFium initialized successfully from: {}", pdfium_dll.display()),
-                Err(e) => eprintln!("Warning: PDFium init failed: {}", e),
-            }
+            let app_handle = app.handle().clone();
 
-            // 初始化嵌入式 OCR 引擎
-            let models_dir = resource_dir.join("models");
-            let models_dir_str = models_dir.to_string_lossy().to_string();
-
-            let engine = match OcrEngine::new(&models_dir_str) {
-                Ok(e) => {
-                    println!("OCR engine initialized successfully from: {}", models_dir_str);
-                    Some(e)
+            // 初始化 OCR 引擎：优先用户下载的模型，其次打包内置模型
+            let engine = match ocr::model_downloader::find_models_dir(&app_handle) {
+                Some(dir) => {
+                    let dir_str = dir.to_string_lossy().to_string();
+                    match OcrEngine::new(&dir_str) {
+                        Ok(e) => {
+                            if e.health().unwrap_or(false) {
+                                println!("OCR engine initialized from: {}", dir_str);
+                            }
+                            e
+                        }
+                        Err(e) => {
+                            eprintln!("Warning: OCR init failed ({}): {}", dir_str, e);
+                            OcrEngine::uninitialized()
+                        }
+                    }
                 }
-                Err(e) => {
-                    eprintln!(
-                        "Warning: Failed to initialize OCR engine ({}): {}",
-                        models_dir_str, e
-                    );
-                    eprintln!("OCR features will be unavailable. Please ensure model files are in the 'models/' directory.");
-                    None
+                None => {
+                    eprintln!("OCR models not found. 可在首页点击「下载OCR模型」在线下载。");
+                    OcrEngine::uninitialized()
                 }
             };
 

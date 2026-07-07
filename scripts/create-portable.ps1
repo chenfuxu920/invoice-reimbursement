@@ -1,13 +1,14 @@
 $ErrorActionPreference = "Stop"
 
-$releaseDir = "$PSScriptRoot/../src-tauri/target/release"
+# ponytail: 便携版打包 — exe + builtin_templates，无需安装，无外部 DLL
+$root = Resolve-Path "$PSScriptRoot/.."
+$releaseDir = "$root/src-tauri/target/release"
 $portableDir = "$releaseDir/portable"
-$bundleDir = "$releaseDir/bundle/nsis"
 
 Write-Host "Creating portable version..."
 
 if (-not (Test-Path "$releaseDir/invoice-reimbursement.exe")) {
-    Write-Error "Build output not found. Run 'npm run tauri build' first."
+    Write-Error "Build output not found. Run 'npm run tauri:build' first."
     exit 1
 }
 
@@ -16,24 +17,16 @@ if (Test-Path $portableDir) {
 }
 New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
 
+# 复制 exe
 Copy-Item "$releaseDir/invoice-reimbursement.exe" $portableDir
-Copy-Item "$releaseDir/pdfium.dll" $portableDir -ErrorAction SilentlyContinue
-Copy-Item -Recurse "$releaseDir/models" $portableDir -ErrorAction SilentlyContinue
 
-$exeName = Get-ChildItem "$bundleDir/*-setup.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if ($exeName) {
-    $baseName = $exeName.Name -replace '_\d+\.\d+\.\d+_x64-setup\.exe$', ''
-    Rename-Item "$portableDir/invoice-reimbursement.exe" "$baseName.exe" -Force
+# 复制内置模板（resource_dir 在便携模式下指向 exe 所在目录）
+Copy-Item -Recurse "$root/src-tauri/builtin_templates" $portableDir
 
-    # 清理旧安装包，只保留最新一个
-    $allInstallers = Get-ChildItem "$bundleDir/*-setup.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-    if ($allInstallers -and @($allInstallers).Count -gt 1) {
-        $allInstallers | Select-Object -Skip 1 | ForEach-Object {
-            Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
-            Write-Host "Removed old installer: $($_.Name)"
-        }
-    }
-}
+# 用版本号重命名 exe
+$version = (Get-Content "$root/package.json" | ConvertFrom-Json).version
+$exeName = "发票报销助手_v${version}.exe"
+Rename-Item "$portableDir/invoice-reimbursement.exe" $exeName -Force
 
 Write-Host "Portable version created at: $portableDir"
-Get-ChildItem $portableDir | ForEach-Object { Write-Host "  $($_.Name)" }
+Get-ChildItem $portableDir -Recurse | ForEach-Object { Write-Host "  $($_.FullName.Replace($portableDir, '.'))" }

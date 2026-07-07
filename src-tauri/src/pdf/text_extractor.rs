@@ -92,6 +92,61 @@ pub fn extract_text_from_pdf(file_path: &str) -> Result<Vec<OcrTextItem>, String
     Ok(text_to_items(&text))
 }
 
+/// zpdf 文字提取：当 parangi/pdfplumber/pdf-extract 都无法提取完整文字时
+/// （典型场景：发票值在 Form XObject 中，parangi 只读到标签），
+/// 用 zpdf 的 ContentInterpreter 遍历完整内容流（含 Form XObject）提取文字。
+/// zpdf 是纯 Rust 库，已是项目依赖，无需 Python 或外部 DLL。
+pub fn extract_text_with_zpdf(file_path: &str) -> Result<Vec<OcrTextItem>, String> {
+    use zpdf::{ContentInterpreter, ImageCache, PdfDocument};
+
+    let data = std::fs::read(file_path).map_err(|e| format!("读取 PDF 失败: {}", e))?;
+    let doc = PdfDocument::open(data).map_err(|e| format!("解析 PDF 失败: {:?}", e))?;
+
+    let mut all_items = Vec::new();
+    for i in 0..doc.page_count() {
+        let page = doc.page(i).map_err(|e| format!("获取页面 {} 失败: {:?}", i, e))?;
+        let mut fonts = doc.load_page_fonts(&page);
+        let mut img_cache = ImageCache::new();
+        let content = doc
+            .page_content_bytes(&page)
+            .map_err(|e| format!("获取页面 {} 内容失败: {:?}", i, e))?;
+
+        let mut spans: Vec<zpdf::TextSpan> = Vec::new();
+        let page_rect = page.effective_box();
+        let _ = ContentInterpreter::new(page_rect)
+            .with_page_rotation(page.rotate)
+            .with_fonts(&mut fonts)
+            .with_document(doc.file(), &page.resources)
+            .with_images(&mut img_cache)
+            .with_text_sink(&mut spans)
+            .interpret(&content);
+
+        // zpdf TextSpan 坐标是 PDF 用户空间（y-up），parser 期望屏幕坐标（y-down）。
+        // 翻转 Y: screen_y = page_rect.y1 - pdf_y
+        for span in &spans {
+            let text = span.text.trim();
+            if !text.is_empty() {
+                let x0 = span.x;
+                let y_top = page_rect.y1 - (span.y + span.size as f64);
+                let x1 = span.x + span.advance;
+                let y_bottom = page_rect.y1 - span.y;
+                all_items.push(OcrTextItem {
+                    text: text.to_string(),
+                    confidence: 1.0,
+                    box_coords: Some(crate::ocr::engine::bbox_to_json(
+                        x0, y_top, x1, y_bottom, 1.0,
+                    )),
+                });
+            }
+        }
+    }
+
+    if all_items.is_empty() {
+        return Err("zpdf 提取到 0 个文本项".to_string());
+    }
+    Ok(all_items)
+}
+
 fn text_to_items(text: &str) -> Vec<OcrTextItem> {
     text.lines()
         .map(|line| line.trim())
@@ -503,131 +558,14 @@ fn column_aware_merge(words: Vec<Word>) -> Vec<(String, BBox)> {
     }
 }
 
-/// 单次打开 PDF，返回列感知合并的文本项 + 原始 Word 列表。
-///
-/// 使用 pdfium (Google PDF 引擎) 提取带坐标的文本，作为 pdfplumber 失败时的回退。
-///
-/// pdfplumber 对某些 PDF 会报 "interpreter error: unexpected '<<' in content stream"，
-/// 而 pdfium 作为 Chrome 的 PDF 引擎，能正确解析这些 PDF。
-///
-/// 坐标转换：pdfium 原点在左下角（PDF 标准），pdfplumber 原点在左上角。
-/// 转换公式：top_plumber = page_height - top_pdfium
-fn extract_pdfium_fallback(file_path: &str) -> Result<PdfExtraction, String> {
-    use pdfium_render::prelude::*;
-    use crate::ocr::engine::get_pdfium_path;
-
-    let lib_path = get_pdfium_path()
-        .ok_or_else(|| "PDFium not initialized for text extraction fallback".to_string())?;
-
-    let pdfium = Pdfium::new(
-        Pdfium::bind_to_library(lib_path)
-            .map_err(|e| format!("pdfium bind failed: {:?}", e))?,
-    );
-
-    let document = pdfium
-        .load_pdf_from_file(file_path, None)
-        .map_err(|e| format!("pdfium load PDF failed: {:?}", e))?;
-
-    let mut pages: Vec<OcrPageResult> = Vec::new();
-    let mut word_pages: Vec<OcrPageResult> = Vec::new();
-    let mut all_words: Vec<Word> = Vec::new();
-    let mut total_words: usize = 0;
-
-    for (page_idx, page) in document.pages().iter().enumerate() {
-        let page_height = page.height().value as f64;
-        let page_number = (page_idx + 1) as u32;
-
-        // 提取文本片段（每个片段有 bounds + text，类似 pdfplumber 的 Word）
-        let text = page.text().map_err(|e| format!("pdfium text extract failed: {:?}", e))?;
-        let segments = text.segments();
-
-        let mut page_words: Vec<Word> = Vec::new();
-        for segment in segments.iter() {
-            let seg_text = segment.text().trim().to_string();
-            if seg_text.is_empty() {
-                continue;
-            }
-
-            let bounds = segment.bounds();
-            // pdfium 坐标：原点在左下角，top > bottom
-            // pdfplumber 坐标：原点在左上角，top < bottom
-            let x0 = bounds.left().value as f64;
-            let x1 = bounds.right().value as f64;
-            let top_plumber = page_height - bounds.top().value as f64;
-            let bottom_plumber = page_height - bounds.bottom().value as f64;
-
-            page_words.push(Word {
-                text: seg_text,
-                bbox: BBox::new(x0, top_plumber, x1, bottom_plumber),
-                doctop: top_plumber,
-                direction: TextDirection::Ltr,
-                chars: vec![],
-            });
-        }
-
-        total_words += page_words.len();
-
-        // 克隆一份用于坐标提取器
-        all_words.extend(page_words.clone());
-
-        // word 级文本项（未合并，保留独立坐标，供行程单表格解析）
-        let word_texts: Vec<OcrTextItem> = page_words.iter().map(|w| OcrTextItem {
-            text: w.text.clone(),
-            confidence: 1.0,
-            box_coords: Some(bbox_to_json(w.bbox.x0, w.bbox.top, w.bbox.x1, w.bbox.bottom, 1.0)),
-        }).collect();
-        word_pages.push(OcrPageResult { page: page_number, texts: word_texts });
-
-        // 列感知合并（复用 pdfplumber 的合并逻辑）
-        let lines = column_aware_merge(page_words);
-
-        let texts: Vec<OcrTextItem> = lines
-            .into_iter()
-            .map(|(text, bbox)| OcrTextItem {
-                text,
-                confidence: 1.0,
-                box_coords: Some(bbox_to_json(
-                    bbox.x0, bbox.top, bbox.x1, bbox.bottom, 1.0,
-                )),
-            })
-            .collect();
-
-        pages.push(OcrPageResult {
-            page: page_number,
-            texts,
-        });
-    }
-
-    if pages.is_empty() || total_words == 0 {
-        return Err("pdfium extracted no text".to_string());
-    }
-
-    eprintln!("  [pdfium] 回退提取 {} 个文本项, {} 个原始Word", 
-        pages.iter().map(|p| p.texts.len()).sum::<usize>(), total_words);
-
-    Ok(PdfExtraction {
-        pages,
-        word_pages,
-        raw_words: all_words,
-    })
-}
-
 /// 单次 PDF 打开：列感知合并 + 原始 Word（供坐标提取器使用，无需二次打开）
 #[cfg(feature = "pdfplumber")]
 pub fn extract_pdf_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
-    // 先尝试 pdfplumber
     match extract_pdfplumber_column_aware(file_path) {
         Ok(extraction) => Ok(extraction),
         Err(plumber_err) => {
-            eprintln!("  [pdfplumber] 失败: {}，尝试 pdfium 回退...", plumber_err);
-            // pdfplumber 失败 — 尝试 pdfium（Google PDF 引擎，更健壮）
-            match extract_pdfium_fallback(file_path) {
-                Ok(extraction) => Ok(extraction),
-                Err(pdfium_err) => {
-                    eprintln!("  [pdfium] 也失败: {}，回退到 parangi/OCR", pdfium_err);
-                    Err(plumber_err)
-                }
-            }
+            eprintln!("  [pdfplumber] 失败: {}，回退到 parangi/OCR", plumber_err);
+            Err(plumber_err)
         }
     }
 }

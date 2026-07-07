@@ -1,26 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ocr_rs::OcrEngine as PaddleOcrEngine;
 use std::path::Path;
-use std::path::PathBuf;
-use std::sync::OnceLock;
 use super::structured_output::{OcrStructuredOutput, OcrTextBlock, BoundingBox, TextBlockType, PageLayout, TextRegion, RegionType};
-
-static PDFIUM_PATH: OnceLock<PathBuf> = OnceLock::new();
-
-/// 获取 PDFium 动态库路径（供 crate 内部其他模块使用）
-pub fn get_pdfium_path() -> Option<&'static PathBuf> {
-    PDFIUM_PATH.get()
-}
-
-/// 设置 PDFium 动态库路径（在 Tauri setup 回调中调用）
-pub fn init_pdfium(pdfium_dll_path: &Path) -> Result<(), String> {
-    let path = pdfium_dll_path.to_path_buf();
-    if !path.exists() {
-        return Err(format!("PDFium DLL not found at: {}", path.display()));
-    }
-    PDFIUM_PATH.set(path)
-        .map_err(|_| "PDFium already initialized".to_string())
-}
 
 // 保留原有数据结构（被 parser 和前端使用）
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -61,15 +42,21 @@ pub fn bbox_to_json(x0: f64, y0: f64, x1: f64, y1: f64, score: f64) -> serde_jso
 }
 
 pub struct OcrEngine {
-    engine: PaddleOcrEngine,
+    engine: Option<PaddleOcrEngine>,
 }
 
 impl OcrEngine {
+    /// 创建未初始化的引擎（模型未安装，recognize_* 将返回错误，文本提取不受影响）
+    pub fn uninitialized() -> Self {
+        Self { engine: None }
+    }
+
     /// 创建新的 OCR 引擎并加载模型
     /// models_dir 应包含:
     ///   - PP-OCRv5_mobile_det.mnn (检测模型)
     ///   - PP-OCRv5_mobile_rec.mnn (识别模型)
     ///   - ppocr_keys_v5.txt (字典文件)
+    /// 模型文件不存在时返回未初始化引擎（不报错，OCR 不可用但应用正常运行）
     pub fn new(models_dir: &str) -> Result<Self, String> {
         let det_model = Path::new(models_dir).join("PP-OCRv5_mobile_det.mnn");
         let rec_model = Path::new(models_dir).join("PP-OCRv5_mobile_rec.mnn");
@@ -77,11 +64,8 @@ impl OcrEngine {
 
         for (name, path) in [("det", &det_model), ("rec", &rec_model), ("dict", &dict_file)] {
             if !path.exists() {
-                return Err(format!(
-                    "OCR model file not found: {} ({})",
-                    name,
-                    path.display()
-                ));
+                eprintln!("OCR model file not found: {} ({})", name, path.display());
+                return Ok(Self::uninitialized());
             }
         }
 
@@ -92,20 +76,23 @@ impl OcrEngine {
             None,
         ).map_err(|e| format!("Failed to init PaddleOCR: {:?}", e))?;
 
-        Ok(Self { engine })
+        Ok(Self { engine: Some(engine) })
     }
 
-    /// 健康检查 - 嵌入式引擎始终可用
+    /// 健康检查 - 返回 OCR 引擎是否可用（模型是否已加载）
     pub fn health(&self) -> Result<bool, String> {
-        Ok(true)
+        Ok(self.engine.is_some())
     }
 
     /// 识别图片中的文字
     pub fn recognize_image(&mut self, file_path: &str) -> Result<OcrImageResponse, String> {
+        let engine = self.engine.as_mut()
+            .ok_or("OCR 模型未安装，请先在首页下载 OCR 模型")?;
+
         let image = image::open(file_path)
             .map_err(|e| format!("Failed to open image: {:?}", e))?;
         
-        let results = self.engine.recognize(&image)
+        let results = engine.recognize(&image)
             .map_err(|e| format!("OCR recognition failed: {:?}", e))?;
 
         let texts = results
@@ -136,8 +123,11 @@ impl OcrEngine {
         &mut self,
         img: &image::RgbImage,
     ) -> Result<OcrImageResponse, String> {
+        let engine = self.engine.as_mut()
+            .ok_or("OCR 模型未安装，请先在首页下载 OCR 模型")?;
+
         let dynamic_image = image::DynamicImage::ImageRgb8(img.clone());
-        let results = self.engine.recognize(&dynamic_image)
+        let results = engine.recognize(&dynamic_image)
             .map_err(|e| format!("OCR recognition failed: {:?}", e))?;
 
         let texts = results
@@ -166,8 +156,8 @@ impl OcrEngine {
     /// 识别 PDF 中的文字
     /// 先尝试文字提取，失败则将 PDF 转图片后逐页 OCR
     pub fn recognize_pdf(&mut self, file_path: &str) -> Result<OcrPdfResponse, String> {
-        // 尝试用 pdfium-render 将 PDF 渲染为图片再 OCR
-        match pdfium_render_to_images(file_path) {
+        // 将 PDF 渲染为图片再 OCR（纯 Rust zpdf 引擎）
+        match render_pdf_to_images(file_path) {
             Ok(images) if !images.is_empty() => {
                 let mut all_pages = Vec::new();
                 for img in images {
@@ -377,48 +367,9 @@ fn calculate_region_bbox(blocks: &[OcrTextBlock], indices: &[usize]) -> Bounding
     }
 }
 
-/// 使用 pdfium-render 将 PDF 渲染为图片（自动下载并缓存 PDFium 动态库）
-fn pdfium_render_to_images(pdf_path: &str) -> Result<Vec<image::RgbImage>, String> {
-    use pdfium_render::prelude::*;
-
-    let lib_path = PDFIUM_PATH.get()
-        .ok_or_else(|| "PDFium not initialized. Call init_pdfium() first.".to_string())?;
-    let pdfium = Pdfium::new(
-        Pdfium::bind_to_library(lib_path)
-            .map_err(|e| format!("Failed to bind PDFium: {:?}", e))?,
-    );
-
-    let document = pdfium
-        .load_pdf_from_file(pdf_path, None)
-        .map_err(|e| format!("Failed to load PDF: {:?}", e))?;
-
-    let mut images = Vec::new();
-    for page in document.pages().iter().take(10) {
-        let bitmap = page
-            .render_with_config(
-                &PdfRenderConfig::new()
-                    .set_target_width(2000)
-                    .set_maximum_height(2000)
-                    .render_form_data(false),
-            )
-            .map_err(|e| format!("Failed to render PDF page: {:?}", e))?;
-
-        let width = bitmap.width() as u32;
-        let height = bitmap.height() as u32;
-        let raw = bitmap.as_raw_bytes();
-
-        let rgb_data: Vec<u8> = if raw.len() == (width * height * 4) as usize {
-            raw.chunks_exact(4).flat_map(|px| &px[..3]).copied().collect()
-        } else {
-            raw.to_vec()
-        };
-
-        if let Some(img) = image::RgbImage::from_raw(width, height, rgb_data) {
-            images.push(img);
-        }
-    }
-
-    Ok(images)
+/// 使用 zpdf（纯 Rust）将 PDF 渲染为图片，无需外部 DLL
+fn render_pdf_to_images(pdf_path: &str) -> Result<Vec<image::RgbImage>, String> {
+    crate::pdf::image_embedder::render_pdf_to_rgb_images(pdf_path, 200)
 }
 
 /// 查找 pdftoppm 可执行文件路径（在 PATH 或常见安装目录中搜索）

@@ -325,6 +325,23 @@ pub fn parse_invoice_text(
     if seller_name.is_empty() {
         seller_name = extract_seller_name(&all_text);
     }
+    // ponytail: parangi 列交错回退。双栏发票被 parangi 按字符交错合并时
+    // （"销购"="销售"+"购买"），"名称:"后的文本是乱码，但销售方公司名
+    // 完整出现在"名称:"标签之前。用公司名后缀模式从全文恢复。
+    // PyMuPDF 场景：标签(KaiTi)和值(SimSun)是不同 span，正则可能抓到
+    // 税号而非公司名——含10+位数字或无中文字符的销售方一定是乱码。
+    if seller_name.is_empty()
+        || seller_name.contains("名称")
+        || seller_name.contains("售买")
+        || seller_name.contains('<')
+        || seller_name.contains('>')
+        || !seller_name.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+        || seller_name.chars().filter(|c| c.is_ascii_digit()).count() >= 10
+    {
+        if let Some(name) = extract_company_name_fallback(&all_text) {
+            seller_name = name;
+        }
+    }
     let item_name = extract_item_name(&regions.items);
     let date = extract_date(&all_text);
     let invoice_number = extract_invoice_number(&regions.header);
@@ -1164,6 +1181,21 @@ fn extract_seller_name(text: &str) -> String {
         return caps[1].trim().to_string();
     }
     String::new()
+}
+
+/// 公司名后缀模式回退：parangi 列交错文本中，正常"名称:"提取得到乱码时，
+/// 用公司名后缀（股份有限公司/有限责任公司/有限公司/公司）从全文匹配。
+/// 取最后一个匹配——销售方通常在买方之后，且买方常为非公司主体（个人/大学）。
+/// ponytail: 启发式，买方也是公司时可能取错；升级路径=用坐标区分买/卖方列。
+fn extract_company_name_fallback(text: &str) -> Option<String> {
+    let re = Regex::new(
+        r"([\u4e00-\u9fa5（）()]{2,40}(?:股份有限公司|有限责任公司|有限公司|公司))",
+    )
+    .unwrap();
+    re.captures_iter(text)
+        .filter_map(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+        .filter(|n| n.chars().count() >= 3)
+        .last()
 }
 
 fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {

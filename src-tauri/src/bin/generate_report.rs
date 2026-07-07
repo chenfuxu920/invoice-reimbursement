@@ -36,29 +36,6 @@ fn main() {
     println!("正在初始化 OCR 引擎...");
     let mut engine = OcrEngine::new("models").expect("OCR 初始化失败，请确保 models 目录存在");
 
-    // 初始化 PDFium（用于发票图片渲染）
-    let pdfium_candidates = [
-        std::path::Path::new("pdfium.dll"),
-        std::path::Path::new("..\\pdfium.dll"),
-        &std::path::Path::new(&std::env::current_exe().unwrap_or_default())
-            .parent().unwrap_or(std::path::Path::new("."))
-            .join("pdfium.dll"),
-    ];
-    let mut pdfium_ok = false;
-    for path in &pdfium_candidates {
-        if path.exists() {
-            match invoice_reimbursement_lib::ocr::engine::init_pdfium(path) {
-                Ok(_) => { pdfium_ok = true; break; }
-                Err(_) => continue,
-            }
-        }
-    }
-    if pdfium_ok {
-        println!("  PDFium 已初始化");
-    } else {
-        println!("  PDFium 未初始化，图片渲染功能不可用");
-    }
-
     // 2. 解析所有文件（发票+行程单）
     println!("\n=== 解析文件 ({}) ===", invoice_dir);
     let result = parse_all_from_dir(invoice_dir, &mut engine);

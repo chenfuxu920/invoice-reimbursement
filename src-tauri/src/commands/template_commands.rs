@@ -153,9 +153,7 @@ pub async fn test_template(
             // 回退 OCR
             let state = app.state::<crate::AppState>();
             let mut engine_guard = state.ocr_engine.lock().await;
-            let engine = engine_guard.as_mut()
-                .ok_or("OCR engine not initialized")?;
-            let resp = engine.recognize_pdf(&pdf_path)?;
+            let resp = engine_guard.recognize_pdf(&pdf_path)?;
             resp.pages.iter().flat_map(|p| p.texts.clone()).collect()
         }
     };
@@ -238,9 +236,7 @@ pub async fn ocr_for_annotation(
         _ => {
             let state = app.state::<crate::AppState>();
             let mut engine_guard = state.ocr_engine.lock().await;
-            let engine = engine_guard.as_mut()
-                .ok_or("OCR engine not initialized")?;
-            let resp = engine.recognize_pdf(&pdf_path)?;
+            let resp = engine_guard.recognize_pdf(&pdf_path)?;
             resp.pages.iter().flat_map(|p| p.texts.clone()).collect()
         }
     };

@@ -9,7 +9,8 @@
     "build:check": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "tauri:build": "node scripts/sync-version.mjs && tauri build && pwsh -File scripts/create-portable.ps1",
+    "tauri:build": "node scripts/sync-version.mjs && tauri build --no-bundle && pwsh -File scripts/create-portable.ps1",
+    "tauri:build:installer": "node scripts/sync-version.mjs && tauri build",
     "test": "vitest run"
   },
   "dependencies": {

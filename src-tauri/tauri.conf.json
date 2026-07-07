@@ -40,10 +40,6 @@
       "icons/icon.ico"
     ],
     "resources": [
-      "models/*.onnx",
-      "models/*.mnn",
-      "models/*.txt",
-      "pdfium.dll",
       "builtin_templates/*.json"
     ],
     "category": "Business",
