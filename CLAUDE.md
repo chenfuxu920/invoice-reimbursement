@@ -73,4 +73,3 @@ Skills 位于 `.opencode/skills/` 目录，每个 skill 有独立的 `SKILL.md` 
 - 滴滴page2表头合并块"序号车型上车时间城市"导致provider/time边界过宽
 - parangi对中文发票多列布局会乱序
 - 部分OCR乱码时间（如"A428"、"042708"）无法从OCR本身恢复，依赖parangi交叉验证
-- test_invoice_parser_with_templates 测试偶发超时（Tera模板编译耗时）

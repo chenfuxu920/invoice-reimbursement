@@ -6,7 +6,6 @@
       <router-link to="/import" class="nav-link">导入</router-link>
       <router-link to="/match" class="nav-link">匹配</router-link>
       <router-link to="/export" class="nav-link">导出</router-link>
-      <router-link to="/templates" class="nav-link">模板</router-link>
     </nav>
     <main class="flex-1 overflow-auto p-6">
       <router-view />

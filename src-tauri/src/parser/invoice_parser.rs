@@ -2,15 +2,8 @@ use crate::models::invoice::{HotelDetail, Invoice, InvoiceCategory, InvoiceSourc
 use chrono::{NaiveDate, Datelike};
 use crate::ocr::structured_output::OcrStructuredOutput;
 use crate::ocr::OcrTextItem;
-use crate::parser::field_extractors::{
-    AmountExtractor, DateExtractor, ExtractedField, FieldExtractor, InvoiceNumberExtractor,
-    ItemNameExtractor, SellerNameExtractor,
-};
 use crate::parser::invoice_type_detector::{InvoiceType, InvoiceTypeDetector};
-use crate::parser::template_manager::{InvoiceTemplate, TemplateManager};
 use regex::Regex;
-use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
 use uuid::Uuid;
 
 /// 发票区域结构
@@ -366,7 +359,7 @@ pub fn parse_invoice_text(
         };
         let invoice_type = InvoiceTypeDetector::detect(&ocr_output);
         eprintln!("[hotel_debug] classify_from_regions returned Other, invoice_type={:?}", invoice_type);
-        category = classify_from_full_text(&ocr_output, &None, &None, &invoice_type);
+        category = classify_from_full_text(&ocr_output, &invoice_type);
         eprintln!("[hotel_debug] classify_from_full_text → {:?}", category);
     }
 
@@ -711,237 +704,8 @@ fn classify_from_regions(
     InvoiceCategory::Other
 }
 
-pub fn parse_structured_invoice(
-    ocr_output: &OcrStructuredOutput,
-    source: InvoiceSource,
-) -> Result<Invoice, String> {
-    parse_structured_invoice_with_templates(ocr_output, source, None)
-}
-
-pub fn parse_structured_invoice_with_templates(
-    ocr_output: &OcrStructuredOutput,
-    source: InvoiceSource,
-    template_manager: Option<&TemplateManager>,
-) -> Result<Invoice, String> {
-    if let Some(manager) = template_manager {
-        if let Some(template) = manager.match_template(ocr_output) {
-            if let Ok(invoice) = try_parse_with_template(ocr_output, &source, template, manager) {
-                return Ok(invoice);
-            }
-        }
-    }
-
-    let invoice_type = InvoiceTypeDetector::detect(ocr_output);
-
-    let amount_field = AmountExtractor::new()
-        .extract(ocr_output)
-        .ok_or("无法识别发票金额".to_string())?;
-
-    let amount = amount_field
-        .value
-        .replace(",", "")
-        .parse::<f64>()
-        .map_err(|e| format!("金额解析失败: {}", e))?;
-
-    let seller_field = SellerNameExtractor::new().extract(ocr_output);
-    let item_field = ItemNameExtractor::new().extract(ocr_output);
-    let date_field = DateExtractor::new().extract(ocr_output);
-    let number_field = InvoiceNumberExtractor::new().extract(ocr_output);
-
-    let category = classify_from_full_text(ocr_output, &seller_field, &item_field, &invoice_type);
-
-    let date = date_field
-        .and_then(|f| DateExtractor::new().parse_to_date(&f))
-        .unwrap_or_default();
-
-    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
-    let all_text: String = ocr_output
-        .blocks
-        .iter()
-        .map(|b| b.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
-    let travel_date = extract_ticket_travel_date(&all_text, &category);
-
-    Ok(Invoice {
-        id: Uuid::new_v4().to_string(),
-        invoice_number: number_field.map(|f| f.value).unwrap_or_default(),
-        amount,
-        seller_name: seller_field.map(|f| f.value).unwrap_or_default(),
-        item_name: item_field.map(|f| f.value).unwrap_or_default(),
-        date,
-        travel_date,
-        category,
-        source,
-        itineraries: vec![],
-        itinerary_file: None,
-        remarks: String::new(),
-        hotel_detail: None,
-        departure_city,
-        arrival_city,
-        toll_travel_time: None,
-    })
-}
-
-fn try_parse_with_template(
-    ocr_output: &OcrStructuredOutput,
-    source: &InvoiceSource,
-    template: &InvoiceTemplate,
-    manager: &TemplateManager,
-) -> Result<Invoice, String> {
-    let extracted_values = manager.extract_with_template(ocr_output, template)?;
-
-    // 用模板的分类逻辑，而非硬编码 classify_from_full_text
-    let all_text = ocr_output.blocks.iter()
-        .map(|b| b.text.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let category = match TemplateManager::classify_by_template(template, &all_text) {
-        Some(cat_str) => parse_category_from_str(&cat_str),
-        None => {
-            // 模板无分类配置，回退硬编码
-            let invoice_type = InvoiceTypeDetector::detect(ocr_output);
-            classify_from_full_text(ocr_output, &None, &None, &invoice_type)
-        }
-    };
-
-    let mut amount = 0.0f64;
-    let mut seller_name = String::new();
-    let mut invoice_number = String::new();
-    let mut date = chrono::NaiveDate::default();
-    let mut item_name = String::new();
-
-    for extracted in extracted_values {
-        match extracted.field_name.as_str() {
-            "amount" => {
-                amount = extracted.value.replace(",", "").parse::<f64>()
-                    .map_err(|e| format!("金额解析失败: {}", e))?;
-            }
-            "seller_name" => {
-                seller_name = extracted.value;
-            }
-            "invoice_number" => {
-                invoice_number = extracted.value;
-            }
-            "date" => {
-                date = parse_date_from_string(&extracted.value).unwrap_or_default();
-            }
-            "item_name" => {
-                item_name = extracted.value;
-            }
-            _ => {}
-        }
-    }
-
-    // 提取票据出发/到达城市（仅 Train/Flight 类发票）
-    let all_text: String = ocr_output
-        .blocks
-        .iter()
-        .map(|b| b.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
-    let travel_date = extract_ticket_travel_date(&all_text, &category);
-
-    Ok(Invoice {
-        id: Uuid::new_v4().to_string(),
-        invoice_number,
-        amount,
-        seller_name,
-        item_name,
-        date,
-        travel_date,
-        category,
-        source: source.clone(),
-        itineraries: vec![],
-        itinerary_file: None,
-        remarks: String::new(),
-        hotel_detail: None,
-        departure_city,
-        arrival_city,
-        toll_travel_time: None,
-    })
-}
-
-/// 将分类字符串解析为 InvoiceCategory 枚举
-fn parse_category_from_str(s: &str) -> InvoiceCategory {
-    match s {
-        "Train" => InvoiceCategory::Train,
-        "Flight" => InvoiceCategory::Flight,
-        "Insurance" => InvoiceCategory::Insurance,
-        "TicketChange" => InvoiceCategory::TicketChange,
-        "CityTransport" => InvoiceCategory::CityTransport,
-        "Hotel" => InvoiceCategory::Hotel,
-        "Meal" => InvoiceCategory::Meal,
-        _ => InvoiceCategory::Other,
-    }
-}
-
-fn parse_date_from_string(s: &str) -> Option<chrono::NaiveDate> {
-    let re_cn = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日").ok()?;
-    if let Some(caps) = re_cn.captures(s) {
-        let y: i32 = caps[1].parse().ok()?;
-        let m: u32 = caps[2].parse().ok()?;
-        let d: u32 = caps[3].parse().ok()?;
-        return chrono::NaiveDate::from_ymd_opt(y, m, d);
-    }
-
-    let re_iso = Regex::new(r"(\d{4})-(\d{2})-(\d{2})").ok()?;
-    if let Some(caps) = re_iso.captures(s) {
-        let y: i32 = caps[1].parse().ok()?;
-        let m: u32 = caps[2].parse().ok()?;
-        let d: u32 = caps[3].parse().ok()?;
-        return chrono::NaiveDate::from_ymd_opt(y, m, d);
-    }
-
-    None
-}
-
-pub struct InvoiceParser {
-    template_manager: Arc<RwLock<TemplateManager>>,
-}
-
-impl InvoiceParser {
-    pub fn new() -> Self {
-        Self {
-            template_manager: Arc::new(RwLock::new(TemplateManager::new())),
-        }
-    }
-
-    pub fn with_config_dir<P: Into<PathBuf>>(config_dir: P) -> Result<Self, String> {
-        let manager = TemplateManager::from_config_dir(config_dir.into())?;
-        Ok(Self {
-            template_manager: Arc::new(RwLock::new(manager)),
-        })
-    }
-
-    pub fn parse(&self, ocr_output: &OcrStructuredOutput, source: InvoiceSource) -> Result<Invoice, String> {
-        let manager = self.template_manager.read().map_err(|e| e.to_string())?;
-        parse_structured_invoice_with_templates(ocr_output, source, Some(&manager))
-    }
-
-    pub fn reload_templates<P: Into<PathBuf>>(&self, config_dir: P) -> Result<(), String> {
-        let mut manager = self.template_manager.write().map_err(|e| e.to_string())?;
-        manager.reload_from_config_dir(config_dir.into())
-    }
-
-    pub fn template_manager(&self) -> Arc<RwLock<TemplateManager>> {
-        Arc::clone(&self.template_manager)
-    }
-}
-
-impl Default for InvoiceParser {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub fn classify_from_full_text(
     ocr: &OcrStructuredOutput,
-    seller: &Option<ExtractedField>,
-    item: &Option<ExtractedField>,
     invoice_type: &InvoiceType,
 ) -> InvoiceCategory {
     let all_text = ocr
@@ -1012,26 +776,6 @@ pub fn classify_from_full_text(
     }
     if contains_any(&all_text, &["餐饮", "饭店", "食品", "餐厅", "饭馆"]) {
         return InvoiceCategory::Meal;
-    }
-
-    if let Some(seller_field) = seller {
-        let seller_lower = seller_field.value.to_lowercase();
-        if contains_any(&seller_lower, &["酒店", "宾馆", "住宿"]) {
-            return InvoiceCategory::Hotel;
-        }
-        if contains_any(&seller_lower, &["滴滴", "高德", "网约车"]) {
-            return InvoiceCategory::CityTransport;
-        }
-    }
-
-    if let Some(item_field) = item {
-        let item_lower = item_field.value.to_lowercase();
-        if contains_any(&item_lower, &["住宿", "房费"]) {
-            return InvoiceCategory::Hotel;
-        }
-        if contains_any(&item_lower, &["交通", "打车", "出行"]) {
-            return InvoiceCategory::CityTransport;
-        }
     }
 
     InvoiceCategory::Other
@@ -1436,37 +1180,16 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_structured_invoice_full() {
-        let ocr = create_ocr_output(vec![
-            "销售方信息",
-            "名称：四川景澜酒店管理有限公司",
-            "价税合计：¥1045.24",
-            "项目名称：住宿服务",
-            "开票日期：2025年06月15日",
-        ]);
-
-        let result = parse_structured_invoice(
-            &ocr,
-            InvoiceSource::Pdf("test.pdf".to_string()),
-        );
-        assert!(result.is_ok());
-        let invoice = result.unwrap();
-        assert!((invoice.amount - 1045.24).abs() < 0.01);
-        assert_eq!(invoice.seller_name, "四川景澜酒店管理有限公司");
-        assert_eq!(invoice.category, InvoiceCategory::Hotel);
-    }
-
-    #[test]
     fn test_classify_from_full_text_with_tax_code() {
         let ocr = create_ocr_output(vec!["*住宿服务*", "金额：500.00"]);
-        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::Other);
+        let result = classify_from_full_text(&ocr, &InvoiceType::Other);
         assert_eq!(result, InvoiceCategory::Hotel);
     }
 
     #[test]
     fn test_classify_from_full_text_flight() {
         let ocr = create_ocr_output(vec!["机票行程单", "航班号：CA1234"]);
-        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::FlightInvoice);
+        let result = classify_from_full_text(&ocr, &InvoiceType::FlightInvoice);
         assert_eq!(result, InvoiceCategory::Flight);
     }
 
@@ -1481,7 +1204,7 @@ mod tests {
             "价税合计：¥50.00",
         ]);
         let result =
-            classify_from_full_text(&ocr, &None, &None, &InvoiceType::VatElectronicInvoice);
+            classify_from_full_text(&ocr, &InvoiceType::VatElectronicInvoice);
         assert_eq!(result, InvoiceCategory::Insurance);
     }
 
@@ -1493,7 +1216,7 @@ mod tests {
             "*保险服务*国内机票航空意外险",
             "价税合计：¥50.00",
         ]);
-        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::FlightInvoice);
+        let result = classify_from_full_text(&ocr, &InvoiceType::FlightInvoice);
         assert_eq!(result, InvoiceCategory::Insurance);
     }
 
@@ -1514,22 +1237,15 @@ mod tests {
     fn test_classify_from_full_text_city_transport() {
         let ocr = create_ocr_output(vec!["滴滴出行电子发票", "网约车服务"]);
         let result =
-            classify_from_full_text(&ocr, &None, &None, &InvoiceType::RideHailingInvoice);
+            classify_from_full_text(&ocr, &InvoiceType::RideHailingInvoice);
         assert_eq!(result, InvoiceCategory::CityTransport);
     }
 
     #[test]
     fn test_classify_from_full_text_keywords() {
         let ocr = create_ocr_output(vec!["如家酒店住宿费", "金额：300.00"]);
-        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::Other);
+        let result = classify_from_full_text(&ocr, &InvoiceType::Other);
         assert_eq!(result, InvoiceCategory::Hotel);
-    }
-
-    #[test]
-    fn test_parse_structured_invoice_with_no_amount() {
-        let ocr = create_ocr_output(vec!["发票号码：12345678"]);
-        let result = parse_structured_invoice(&ocr, InvoiceSource::Pdf("test.pdf".to_string()));
-        assert!(result.is_err());
     }
 
     #[test]
@@ -1640,23 +1356,10 @@ mod tests {
     }
 
     #[test]
-    fn test_classify_from_full_text_with_seller_field() {
-        let ocr = create_ocr_output(vec!["其他发票", "金额：100.00"]);
-        let seller = Some(ExtractedField {
-            value: "如家酒店".to_string(),
-            confidence: 0.9,
-            strategy: "test".to_string(),
-            source_position: None,
-        });
-        let result = classify_from_full_text(&ocr, &seller, &None, &InvoiceType::Other);
-        assert_eq!(result, InvoiceCategory::Hotel);
-    }
-
-    #[test]
     fn test_classify_from_full_text_train_with_transport_service_tax_code() {
         // 火车票增值税发票使用 *运输服务* 税收编码，不应误识别为 CityTransport
         let ocr = create_ocr_output(vec!["*运输服务*", "中国铁路", "高铁", "金额：200.00"]);
-        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::TrainInvoice);
+        let result = classify_from_full_text(&ocr, &InvoiceType::TrainInvoice);
         assert_eq!(result, InvoiceCategory::Train);
     }
 
@@ -1664,7 +1367,7 @@ mod tests {
     fn test_classify_from_full_text_train_with_passenger_tax_code() {
         // 火车票使用 *客运服务* 税收编码
         let ocr = create_ocr_output(vec!["*客运服务*", "铁路", "金额：150.00"]);
-        let result = classify_from_full_text(&ocr, &None, &None, &InvoiceType::TrainInvoice);
+        let result = classify_from_full_text(&ocr, &InvoiceType::TrainInvoice);
         assert_eq!(result, InvoiceCategory::Train);
     }
 
@@ -1675,100 +1378,6 @@ mod tests {
         let seller_text = "名称：中国铁路成都局";
         let result = classify_from_regions(items_text, seller_text, "", "中国铁路成都局");
         assert_eq!(result, InvoiceCategory::Train);
-    }
-
-    #[test]
-    fn test_classify_from_full_text_with_item_field() {
-        let ocr = create_ocr_output(vec!["其他发票", "金额：100.00"]);
-        let item = Some(ExtractedField {
-            value: "交通服务费".to_string(),
-            confidence: 0.9,
-            strategy: "test".to_string(),
-            source_position: None,
-        });
-        let result = classify_from_full_text(&ocr, &None, &item, &InvoiceType::Other);
-        assert_eq!(result, InvoiceCategory::CityTransport);
-    }
-
-    #[test]
-    fn test_invoice_parser_new() {
-        let parser = InvoiceParser::new();
-        let ocr = create_ocr_output(vec!["测试发票", "价税合计：¥500.00"]);
-        let result = parser.parse(&ocr, InvoiceSource::Pdf("test.pdf".to_string()));
-        assert!(result.is_ok());
-        let invoice = result.unwrap();
-        assert!((invoice.amount - 500.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_invoice_parser_with_templates() {
-        use crate::parser::template_manager::{FieldDefinition, FieldStrategy, InvoiceTemplate};
-        
-        let parser = InvoiceParser::new();
-        
-        let template = InvoiceTemplate {
-            template_id: "test_template".to_string(),
-            name: "测试模板".to_string(),
-            enabled: true,
-            priority: 0,
-            keywords: vec!["测试发票".to_string()],
-            category: None,
-            category_keywords: None,
-            fields: vec![
-                FieldDefinition {
-                    name: "amount".to_string(),
-                    required: true,
-                    strategies: vec![FieldStrategy {
-                        strategy_type: "regex".to_string(),
-                        pattern: Some("价税合计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)".to_string()),
-                        section_keyword: None,
-                        field_keyword: None,
-                        confidence: 0.9,
-                    }],
-                },
-            ],
-        };
-
-        let tm = parser.template_manager();
-        let mut manager = tm.write().unwrap();
-        manager.add_template(template);
-
-        let ocr = create_ocr_output(vec!["测试发票", "价税合计：¥123.45"]);
-        let result = parser.parse(&ocr, InvoiceSource::Pdf("test.pdf".to_string()));
-        assert!(result.is_ok());
-        let invoice = result.unwrap();
-        assert!((invoice.amount - 123.45).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_parse_date_from_string() {
-        let date1 = parse_date_from_string("2025年08月15日");
-        assert!(date1.is_some());
-        assert_eq!(date1.unwrap(), chrono::NaiveDate::from_ymd_opt(2025, 8, 15).unwrap());
-
-        let date2 = parse_date_from_string("2025-08-15");
-        assert!(date2.is_some());
-        assert_eq!(date2.unwrap(), chrono::NaiveDate::from_ymd_opt(2025, 8, 15).unwrap());
-
-        let date3 = parse_date_from_string("invalid");
-        assert!(date3.is_none());
-    }
-
-    #[test]
-    fn test_backward_compatibility_with_template_manager() {
-        let parser = InvoiceParser::new();
-        let ocr = create_ocr_output(vec![
-            "销售方信息",
-            "名称：四川景澜酒店管理有限公司",
-            "价税合计：¥1045.24",
-            "项目名称：住宿服务",
-        ]);
-
-        let result = parser.parse(&ocr, InvoiceSource::Pdf("test.pdf".to_string()));
-        assert!(result.is_ok());
-        let invoice = result.unwrap();
-        assert!((invoice.amount - 1045.24).abs() < 0.01);
-        assert_eq!(invoice.category, InvoiceCategory::Hotel);
     }
 
     #[test]
@@ -1806,171 +1415,6 @@ mod tests {
     fn test_station_to_city_mapping() {
         assert_eq!(station_to_city("虹桥"), "上海");
         assert_eq!(station_to_city("宝安"), "深圳");
-    }
-
-    #[test]
-    fn test_template_classification_overrides_hardcoded() {
-        use std::collections::HashMap;
-        use crate::parser::template_manager::{FieldDefinition, FieldStrategy};
-
-        let blocks = vec![OcrTextBlock {
-            text: "增值税普通发票 价税合计：¥100.00 名称：测试餐饮店".to_string(),
-            confidence: 0.95,
-            bbox: BoundingBox { x: 0.0, y: 0.0, width: 200.0, height: 20.0 },
-            line_index: 0,
-            block_type: TextBlockType::KeyValue,
-        }];
-        let ocr = OcrStructuredOutput { blocks, layout: PageLayout::default() };
-
-        // 模板带 category_keywords，应返回模板分类
-        let template = InvoiceTemplate {
-            template_id: "test_cat".to_string(),
-            name: "测试分类".to_string(),
-            enabled: true,
-            priority: 100,
-            keywords: vec!["增值税普通发票".to_string()],
-            category: Some("Other".to_string()),
-            category_keywords: Some(HashMap::from([
-                ("Meal".to_string(), vec!["餐饮".to_string()]),
-            ])),
-            fields: vec![FieldDefinition {
-                name: "amount".to_string(),
-                required: true,
-                strategies: vec![FieldStrategy {
-                    strategy_type: "regex".to_string(),
-                    pattern: Some("价税合计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)".to_string()),
-                    section_keyword: None,
-                    field_keyword: None,
-                    confidence: 0.9,
-                }],
-            }],
-        };
-
-        let mut manager = TemplateManager::new();
-        manager.add_template(template);
-
-        let invoice = parse_structured_invoice_with_templates(
-            &ocr,
-            InvoiceSource::Pdf("test.pdf".to_string()),
-            Some(&manager),
-        ).unwrap();
-
-        assert_eq!(invoice.category, InvoiceCategory::Meal);
-        assert!((invoice.amount - 100.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_fallback_to_hardcoded_when_no_template_matches() {
-        let blocks = vec![OcrTextBlock {
-            text: "某未知格式发票 金额：¥200.00".to_string(),
-            confidence: 0.95,
-            bbox: BoundingBox { x: 0.0, y: 0.0, width: 200.0, height: 20.0 },
-            line_index: 0,
-            block_type: TextBlockType::KeyValue,
-        }];
-        let ocr = OcrStructuredOutput { blocks, layout: PageLayout::default() };
-
-        // 空模板管理器，无模板匹配
-        let manager = TemplateManager::new();
-        let invoice = parse_structured_invoice_with_templates(
-            &ocr,
-            InvoiceSource::Pdf("test.pdf".to_string()),
-            Some(&manager),
-        ).unwrap();
-
-        // 应回退到硬编码逻辑
-        assert!((invoice.amount - 200.0).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_regression_template_vs_hardcoded_same_result() {
-        use std::collections::HashMap;
-        use crate::parser::template_manager::{FieldDefinition, FieldStrategy};
-
-        // 模拟一张增值税普通发票的 OCR 文本
-        let blocks = vec![
-            OcrTextBlock {
-                text: "增值税普通发票".to_string(),
-                confidence: 0.95,
-                bbox: BoundingBox { x: 0.0, y: 0.0, width: 200.0, height: 20.0 },
-                line_index: 0,
-                block_type: TextBlockType::Other,
-            },
-            OcrTextBlock {
-                text: "价税合计：¥1,234.56".to_string(),
-                confidence: 0.95,
-                bbox: BoundingBox { x: 0.0, y: 100.0, width: 200.0, height: 20.0 },
-                line_index: 5,
-                block_type: TextBlockType::KeyValue,
-            },
-            OcrTextBlock {
-                text: "名称：测试酒店".to_string(),
-                confidence: 0.95,
-                bbox: BoundingBox { x: 0.0, y: 150.0, width: 200.0, height: 20.0 },
-                line_index: 7,
-                block_type: TextBlockType::KeyValue,
-            },
-            OcrTextBlock {
-                text: "2024年05月20日".to_string(),
-                confidence: 0.95,
-                bbox: BoundingBox { x: 0.0, y: 200.0, width: 200.0, height: 20.0 },
-                line_index: 9,
-                block_type: TextBlockType::KeyValue,
-            },
-        ];
-        let ocr = OcrStructuredOutput { blocks, layout: PageLayout::default() };
-        let source = InvoiceSource::Pdf("test.pdf".to_string());
-
-        // 无模板：走硬编码
-        let hardcoded = parse_structured_invoice_with_templates(&ocr, source.clone(), None).unwrap();
-
-        // 有模板（等价正则）：走模板
-        let template = InvoiceTemplate {
-            template_id: "regression_test".to_string(),
-            name: "回归测试".to_string(),
-            enabled: true,
-            priority: 10,
-            keywords: vec!["增值税普通发票".to_string()],
-            category: Some("Other".to_string()),
-            category_keywords: Some(HashMap::from([
-                ("Hotel".to_string(), vec!["酒店".to_string()]),
-            ])),
-            fields: vec![
-                FieldDefinition {
-                    name: "amount".to_string(),
-                    required: true,
-                    strategies: vec![FieldStrategy {
-                        strategy_type: "regex".to_string(),
-                        pattern: Some("价税合计[：:￥¥]*\\s*([\\d,]+\\.?\\d*)".to_string()),
-                        section_keyword: None,
-                        field_keyword: None,
-                        confidence: 0.9,
-                    }],
-                },
-                FieldDefinition {
-                    name: "seller_name".to_string(),
-                    required: false,
-                    strategies: vec![FieldStrategy {
-                        strategy_type: "regex".to_string(),
-                        pattern: Some("名称[：:]\\s*(\\S+)".to_string()),
-                        section_keyword: None,
-                        field_keyword: None,
-                        confidence: 0.85,
-                    }],
-                },
-            ],
-        };
-        let mut manager = TemplateManager::new();
-        manager.add_template(template);
-        let templated = parse_structured_invoice_with_templates(&ocr, source, Some(&manager)).unwrap();
-
-        // 金额应一致
-        assert!((hardcoded.amount - templated.amount).abs() < 0.001,
-            "金额不一致: 硬编码={} 模板={}", hardcoded.amount, templated.amount);
-        assert!((hardcoded.amount - 1234.56).abs() < 0.001);
-
-        // 销售方应一致
-        assert!(!templated.seller_name.is_empty(), "模板模式销售方不应为空");
     }
 
     #[test]

@@ -604,15 +604,7 @@ pub fn run() {
             batch_global_import,
             render_pdf_preview,
             open_file_with_system,
-            commands::template_commands::list_templates,
-            commands::template_commands::get_template,
-            commands::template_commands::save_template,
-            commands::template_commands::delete_template,
-            commands::template_commands::toggle_template,
-            commands::template_commands::test_template,
-            commands::template_commands::ocr_for_annotation,
-            commands::template_commands::reload_templates,
-            commands::template_commands::generate_regex_skeleton,
+
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
