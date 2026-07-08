@@ -85,9 +85,7 @@ invoice-reimbursement/
 │   │   ├── parser/               # 文档解析器
 │   │   │   ├── invoice_parser.rs # 发票文本解析
 │   │   │   ├── itinerary_parser.rs # 行程单解析
-│   │   │   ├── field_extractors.rs # 多策略字段提取
 │   │   │   ├── invoice_type_detector.rs # 发票类型检测
-│   │   │   ├── template_manager.rs # 模板管理器
 │   │   │   ├── alipay_parser.rs  # 支付宝账单解析
 │   │   │   ├── wechat_parser.rs  # 微信账单解析
 │   │   │   ├── dedup.rs          # 发票去重
