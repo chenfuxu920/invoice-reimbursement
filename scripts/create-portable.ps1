@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-# ponytail: 便携版打包 — exe + builtin_templates，无需安装，无外部 DLL
+# ponytail: 便携版打包 — exe，无需安装，无外部 DLL
 $root = Resolve-Path "$PSScriptRoot/.."
 $releaseDir = "$root/src-tauri/target/release"
 $portableDir = "$releaseDir/portable"
@@ -19,9 +19,6 @@ New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
 
 # 复制 exe
 Copy-Item "$releaseDir/invoice-reimbursement.exe" $portableDir
-
-# 复制内置模板（resource_dir 在便携模式下指向 exe 所在目录）
-Copy-Item -Recurse "$root/src-tauri/builtin_templates" $portableDir
 
 # 用版本号重命名 exe
 $version = (Get-Content "$root/package.json" | ConvertFrom-Json).version
