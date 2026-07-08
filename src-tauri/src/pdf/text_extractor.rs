@@ -60,39 +60,15 @@ pub fn classify_pdf_document_type(text_items: &[OcrTextItem]) -> PdfDocumentType
 }
 
 /// 从 PDF 文件中直接提取文字（适用于文字型 PDF）
-/// 优先使用 parangi（Apache PDFBox 移植，完整 CJK 支持），
-/// 失败时回退到 pdf-extract。
+/// 使用 parangi（Apache PDFBox 移植，完整 CJK 支持，处理 UniGB-UCS2-H 等中文编码）。
 /// 返回提取到的文字行列表，如果 PDF 是扫描件（无可提取文字）则返回空 Vec
 pub fn extract_text_from_pdf(file_path: &str) -> Result<Vec<OcrTextItem>, String> {
     let path = Path::new(file_path);
-
-    // 优先使用 parangi（支持 UniGB-UCS2-H 等中文编码）
-    match parangi::extract_text(path) {
-        Ok(text) => {
-            let items = text_to_items(&text);
-            if !items.is_empty() {
-                return Ok(items);
-            }
-            // parangi 返回空文本，尝试 pdf-extract
-        }
-        Err(e) => {
-            eprintln!("  [parangi] 失败: {}, 尝试 pdf-extract...", e);
-        }
-    }
-
-    // 回退到 pdf-extract（可能 panic，需要捕获）
-    let result = std::panic::catch_unwind(|| pdf_extract::extract_text(file_path));
-
-    let text = match result {
-        Ok(Ok(text)) => text,
-        Ok(Err(e)) => return Err(format!("PDF 文字提取失败: {}", e)),
-        Err(_) => return Err("PDF 文字提取失败: 不支持的编码或格式".to_string()),
-    };
-
+    let text = parangi::extract_text(path).map_err(|e| format!("PDF 文字提取失败: {:?}", e))?;
     Ok(text_to_items(&text))
 }
 
-/// zpdf 文字提取：当 parangi/pdfplumber/pdf-extract 都无法提取完整文字时
+/// zpdf 文字提取：当 parangi/pdfplumber 都无法提取完整文字时
 /// （典型场景：发票值在 Form XObject 中，parangi 只读到标签），
 /// 用 zpdf 的 ContentInterpreter 遍历完整内容流（含 Form XObject）提取文字。
 /// zpdf 是纯 Rust 库，已是项目依赖，无需 Python 或外部 DLL。
@@ -366,7 +342,7 @@ pub fn merge_words_into_lines(words: Vec<Word>) -> Vec<(String, BBox)> {
 #[cfg(feature = "pdfplumber")]
 pub fn extract_text_with_coords(file_path: &str) -> Result<Vec<OcrPageResult>, String> {
     // Wrap pdfplumber in catch_unwind — it may panic on non-standard PDFs
-    // (CID font parsing, encrypted PDFs, etc.). Same pattern as pdf-extract.
+    // (CID font parsing, encrypted PDFs, etc.).
     let result = std::panic::catch_unwind(|| {
         extract_text_with_coords_inner(file_path)
     });
