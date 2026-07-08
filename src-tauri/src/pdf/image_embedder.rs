@@ -33,11 +33,13 @@ pub fn render_pdf_to_rgb_images(pdf_path: &str, dpi: u32) -> Result<Vec<image::R
             .page_content_bytes(&page)
             .map_err(|e| format!("获取页面 {} 内容失败: {:?}", i, e))?;
 
+        let annotations = doc.page_annotations(&page);
         let display_list = ContentInterpreter::new(page.effective_box())
             .with_page_rotation(page.rotate)
             .with_fonts(&mut fonts)
             .with_document(doc.file(), &page.resources)
             .with_images(&mut img_cache)
+            .with_annotations(&annotations)
             .interpret(&content);
 
         let mut renderer = zpdf::cpu::CpuRenderer::new()
