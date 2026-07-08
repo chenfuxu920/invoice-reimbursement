@@ -1,8 +1,10 @@
 $ErrorActionPreference = "Stop"
 
 # ponytail: 便携版打包 — exe，无需安装，无外部 DLL
+# 用法: create-portable.ps1 [profile]  (默认 release)
+$profile = if ($args.Length -gt 0 -and $args[0]) { $args[0] } else { "release" }
 $root = Resolve-Path "$PSScriptRoot/.."
-$releaseDir = "$root/src-tauri/target/release"
+$releaseDir = "$root/src-tauri/target/$profile"
 $portableDir = "$releaseDir/portable"
 
 Write-Host "Creating portable version..."

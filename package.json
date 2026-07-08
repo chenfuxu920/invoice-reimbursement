@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:build": "node scripts/sync-version.mjs && tauri build --no-bundle && pwsh -File scripts/create-portable.ps1",
+    "tauri:build:fast": "node scripts/sync-version.mjs && tauri build --no-bundle -- --profile release-fast && pwsh -File scripts/create-portable.ps1 release-fast",
     "tauri:build:installer": "node scripts/sync-version.mjs && tauri build",
     "test": "vitest run"
   },
