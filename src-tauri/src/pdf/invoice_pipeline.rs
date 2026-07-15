@@ -6,6 +6,8 @@ use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 #[cfg(feature = "pdfplumber")]
 use crate::parser::layout_extractor;
+#[cfg(feature = "pdfplumber")]
+use crate::parser::cell_extractor;
 use std::path::{Path, PathBuf};
 
 /// Check if a seller name looks garbled (failed extraction).
@@ -78,25 +80,25 @@ pub struct ParseResult {
 pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<Invoice, String> {
     let source = InvoiceSource::Pdf(pdf_path.to_string());
 
-    // 单次 PDF 打开：列感知合并 + 原始 Word（供坐标提取器使用，无需二次打开）
+    // 单次 PDF 打开：列感知合并 + 原始 Word + 表格单元格（供坐标/单元格提取器使用，无需二次打开）
     #[cfg(feature = "pdfplumber")]
-    let (text_items, cached_words) = {
+    let (text_items, cached_words, cached_tables) = {
         match text_extractor::extract_pdf_column_aware(pdf_path) {
             Ok(extraction) => {
                 let items: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
                 if text_extractor::has_sufficient_text(&items, 20) {
-                    eprintln!("  [pdfplumber] 列感知提取 {} 个文本项, {} 个原始Word", items.len(), extraction.raw_words.len());
-                    (items, Some(extraction.raw_words))
+                    eprintln!("  [pdfplumber] 列感知提取 {} 个文本项, {} 个原始Word, {} 页表格", items.len(), extraction.raw_words.len(), extraction.tables.len());
+                    (items, Some(extraction.raw_words), Some(extraction.tables))
                 } else {
                     eprintln!("  [pdfplumber] 文本不足，回退到 parangi/OCR");
                     let fallback = extract_text(pdf_path, engine)?;
-                    (fallback, None)
+                    (fallback, None, None)
                 }
             }
             Err(e) => {
                 eprintln!("  [pdfplumber] 失败: {}，回退到 parangi/OCR", e);
                 let fallback = extract_text(pdf_path, engine)?;
-                (fallback, None)
+                (fallback, None, None)
             }
         }
     };
@@ -124,8 +126,53 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
     }
 
     match check_and_parse(text_items, source.clone()) {
-        Ok(invoice) if !invoice.seller_name.is_empty() && !is_likely_garbled_seller(&invoice.seller_name) && !invoice.invoice_number.is_empty() => Ok(invoice),
         Ok(mut invoice) => {
+            // 单元格引导提取：用 find_tables 的表格结构补充/修正字段。
+            // 注：不设提前返回守卫——即使 parse_invoice_text 成功提取了
+            // seller/invoice_number，其金额可能误取商品详情行数值（Step 2.5 取最大裸小数），
+            // 需用单元格从价税合计标签定位的正确金额覆盖。
+            #[cfg(feature = "pdfplumber")]
+            {
+                if let Some(ref tables) = cached_tables {
+                    let cell_fields = cell_extractor::extract_fields_from_tables(tables);
+                    if invoice.seller_name.is_empty() {
+                        if let Some(seller) = cell_fields.seller_name {
+                            if !is_likely_garbled_seller(&seller) {
+                                eprintln!("  [cell] seller补全: {}", seller);
+                                invoice.seller_name = seller;
+                            }
+                        }
+                    }
+                    // 单元格提取的金额来自"价税合计"标签定位的值单元格，
+                    // 比 parse_invoice_text 的全文正则（可能误取商品详情行金额）更可靠。
+                    if let Some(amt) = cell_fields.amount {
+                        if amt > 0.0 {
+                            eprintln!("  [cell] amount: {} (cell)", amt);
+                            invoice.amount = amt;
+                        }
+                    }
+                    if invoice.item_name.is_empty() {
+                        if let Some(item) = cell_fields.item_name {
+                            invoice.item_name = item;
+                        }
+                    }
+                    if invoice.remarks.is_empty() {
+                        if let Some(remarks) = cell_fields.remarks {
+                            invoice.remarks = remarks;
+                        }
+                    }
+                    if invoice.hotel_detail.is_none() {
+                        invoice.hotel_detail = cell_fields.hotel_detail;
+                    }
+                    // 单元格提取后如果 seller + invoice_number 都有效，直接返回
+                    if !invoice.seller_name.is_empty()
+                        && !is_likely_garbled_seller(&invoice.seller_name)
+                        && !invoice.invoice_number.is_empty()
+                    {
+                        return Ok(invoice);
+                    }
+                }
+            }
             // Seller 空/乱码或 invoice_number 缺失 — 先尝试 pdfplumber 原始 Word 坐标提取（比 OCR 快且准）
             #[cfg(feature = "pdfplumber")]
             {
@@ -433,19 +480,20 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
     // 无坐标 — 走 OCR 获取坐标用于表格重建
     let ocr_pages = extract_ocr_text(pdf_path, engine)?;
     let mut itineraries = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
-    if itineraries.is_empty() || has_incomplete_entries(&itineraries) {
-        if !itineraries.is_empty() {
-            eprintln!("  [parangi/OCR] 有缺失字段，尝试纯文本回退");
-        }
+
+    // 坐标解析有结果时保留——即使部分条目时间乱码（OCR 质量问题），
+    // 坐标解析的起点/终点/金额仍远优于纯文本回退。
+    // 仅当坐标解析完全无结果时才回退到纯文本。
+    if itineraries.is_empty() {
+        eprintln!("  [parangi/OCR] 坐标解析无结果，尝试纯文本回退");
         itineraries = parse_itinerary_text(&texts);
     }
 
-    // 最后手段：所有回退都已尝试
     if itineraries.is_empty() {
         return Err("行程单中未解析到行程明细".to_string());
     }
     if has_incomplete_entries(&itineraries) {
-        eprintln!("  [最终回退] 仍有缺失字段，但无更多回退路径");
+        eprintln!("  [警告] 部分行程有时间字段不完整（OCR 乱码），已保留其余完整条目");
     }
     build_itinerary_doc(itineraries, &texts, pdf_path)
 }

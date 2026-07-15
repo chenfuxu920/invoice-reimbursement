@@ -24,3 +24,5 @@ pub mod alipay_parser;
 pub use alipay_parser::parse_alipay_bill;
 
 pub mod layout_extractor;
+
+pub mod cell_extractor;

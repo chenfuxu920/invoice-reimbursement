@@ -458,6 +458,8 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
             .captures(&amount_text)
             .and_then(|c| c[1].parse().ok())
             .unwrap_or(0.0);
+        // ponytail: OCR 有时丢失金额小数点（"30.60"→"3060"），>=1000 且无小数点时除以 100
+        let amount = if amount >= 1000.0 && !amount_text.contains('.') { amount / 100.0 } else { amount };
 
         let (pickup, dropoff, provider) = if let (Some(_px), Some(_dx)) = (pickup_x, dropoff_x) {
             let pickup_text = collect_text_main_cont(

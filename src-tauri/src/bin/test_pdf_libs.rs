@@ -4,7 +4,6 @@
 //! 用法: test_pdf_libs [pdf_dir]  (默认 data 目录)
 //! 构建: cargo run --release --bin test_pdf_libs
 
-use invoice_reimbursement_lib::ocr::OcrTextItem;
 use invoice_reimbursement_lib::pdf::text_extractor::{
     extract_text_with_zpdf, is_garbled_text,
 };
@@ -270,7 +269,7 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
             let cell = match r {
                 Some(r) if r.ok && r.garbled => "G".to_string(),
                 Some(r) if r.ok => format!("{}", r.chars),
-                Some(r) => "✗".to_string(),
+                Some(_) => "✗".to_string(),
                 None => "?".to_string(),
             };
             print!(" {:>11}", cell);

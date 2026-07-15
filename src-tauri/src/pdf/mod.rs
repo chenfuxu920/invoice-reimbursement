@@ -8,6 +8,7 @@ pub mod image_embedder;
 pub mod invoice_pipeline;
 pub mod text_extractor;
 pub mod comparison_xlsx_generator;
+pub mod debug_extract;
 pub mod form_xlsx_generator;
 
 pub use comparison_xlsx_generator::generate_comparison_xlsx;

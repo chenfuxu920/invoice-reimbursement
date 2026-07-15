@@ -3,9 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 #[cfg(feature = "pdfplumber")]
-use pdfplumber::{Pdf, WordOptions, Word, BBox};
-#[cfg(feature = "pdfplumber")]
-use pdfplumber::TextDirection;
+use pdfplumber::{Pdf, WordOptions, Word, BBox, TableSettings};
 #[cfg(feature = "pdfplumber")]
 use crate::ocr::engine::bbox_to_json;
 #[cfg(feature = "pdfplumber")]
@@ -413,10 +411,28 @@ pub fn extract_raw_words_debug(
     file_path: &str,
 ) -> Result<Vec<(String, f64, f64, f64, f64, u32)>, String> {
     let result = std::panic::catch_unwind(|| {
-        let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
+        // ponytail: 读字节后用 Pdf::open（与 zpdf 同路径），open 失败回退 open_with_repair
+        // ——zpdf 容忍的 broken xref/stream length，lopdf 会拒绝，repair 专治此症
+        let bytes = std::fs::read(file_path).map_err(|e| format!("pdfplumber read: {}", e))?;
+        let pdf = match Pdf::open(&bytes, None) {
+            Ok(p) => p,
+            Err(e) => {
+                let (p, _) = Pdf::open_with_repair(&bytes, None, None)
+                    .map_err(|e2| format!("pdfplumber open 失败: {e}; repair 也失败: {e2}"))?;
+                p
+            }
+        };
         let mut out: Vec<(String, f64, f64, f64, f64, u32)> = Vec::new();
+        let mut page_errors: Vec<String> = Vec::new();
         for page_result in pdf.pages_iter() {
-            let page = page_result.map_err(|e| format!("pdfplumber page: {}", e))?;
+            // ponytail: 逐页容错——pages_iter 每页独立 Result，一页坏不该丢掉后续好页
+            let page = match page_result {
+                Ok(p) => p,
+                Err(e) => {
+                    page_errors.push(format!("pdfplumber page: {e}"));
+                    continue;
+                }
+            };
             let pn = page.page_number() as u32;
             let words = page.extract_words(&WordOptions::default());
             for w in &words {
@@ -429,6 +445,19 @@ pub fn extract_raw_words_debug(
                     pn,
                 ));
             }
+        }
+        if out.is_empty() {
+            let mut msg = if page_errors.is_empty() {
+                "pdfplumber 打开成功但 extract_words 返回 0 words（疑似 CID 字体无 ToUnicode）"
+                    .to_string()
+            } else {
+                page_errors.join("; ")
+            };
+            // ponytail: 0.2.0 tokenizer 遇 << 硬失败（PR#214 已修但未发布），提示用户
+            if msg.contains("unexpected '<<'") {
+                msg.push_str("（pdfplumber-rs 0.2.0 已知限制：tokenizer 拒绝内容流中的 <<，上游 PR#214 已修但未发版）");
+            }
+            return Err(msg);
         }
         Ok(out)
     });
@@ -465,6 +494,28 @@ pub fn extract_words_raw(file_path: &str) -> Result<Vec<Word>, String> {
 // Column-aware extraction (P1: fixes multi-column merging)
 // ──────────────────────────────────────────────
 
+/// pdfplumber find_tables() 返回的单元格信息（文本 + 坐标）
+#[cfg(feature = "pdfplumber")]
+#[derive(Debug, Clone)]
+pub struct TableCellInfo {
+    pub text: String,
+    pub x0: f64,
+    pub top: f64,
+    pub x1: f64,
+    pub bottom: f64,
+}
+
+/// pdfplumber find_tables() 返回的表格信息（行 × 单元格）
+#[cfg(feature = "pdfplumber")]
+#[derive(Debug, Clone)]
+pub struct TableInfo {
+    pub rows: Vec<Vec<TableCellInfo>>,
+    pub x0: f64,
+    pub top: f64,
+    pub x1: f64,
+    pub bottom: f64,
+}
+
 /// 单次 PDF 打开的完整提取结果，包含合并后的行文本和原始 Word 列表。
 ///
 /// 解决两个问题：
@@ -478,6 +529,8 @@ pub struct PdfExtraction {
     pub word_pages: Vec<OcrPageResult>,
     /// 全部原始 Word（未经合并，保留完整坐标，供坐标提取器使用）
     pub raw_words: Vec<Word>,
+    /// 按页组织的表格（find_tables 结果，供单元格引导提取使用）
+    pub tables: Vec<Vec<TableInfo>>,
 }
 
 /// 列感知合并：检测列布局，在每列内独立合并 Word 为行。
@@ -554,6 +607,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
         let mut pages: Vec<OcrPageResult> = Vec::new();
         let mut word_pages: Vec<OcrPageResult> = Vec::new();
         let mut all_words: Vec<Word> = Vec::new();
+        let mut all_tables: Vec<Vec<TableInfo>> = Vec::new();
         let mut total_words: usize = 0;
 
         for page_result in pdf.pages_iter() {
@@ -564,6 +618,37 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
 
             // 克隆一份用于坐标提取器（column_aware_merge 消费原始 Vec）
             all_words.extend(words.clone());
+
+            // 表格单元格提取（find_tables 填充单元格文本，供 cell_extractor 使用）
+            let tables = page.find_tables(&TableSettings::default());
+            let table_infos: Vec<TableInfo> = tables
+                .iter()
+                .map(|t| {
+                    let rows: Vec<Vec<TableCellInfo>> = t
+                        .rows
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .map(|c| TableCellInfo {
+                                    text: c.text.clone().unwrap_or_default(),
+                                    x0: c.bbox.x0,
+                                    top: c.bbox.top,
+                                    x1: c.bbox.x1,
+                                    bottom: c.bbox.bottom,
+                                })
+                                .collect()
+                        })
+                        .collect();
+                    TableInfo {
+                        rows,
+                        x0: t.bbox.x0,
+                        top: t.bbox.top,
+                        x1: t.bbox.x1,
+                        bottom: t.bbox.bottom,
+                    }
+                })
+                .collect();
+            all_tables.push(table_infos);
 
             // word 级文本项（未合并，保留独立坐标，供行程单表格解析）
             let word_texts: Vec<OcrTextItem> = words.iter().map(|w| OcrTextItem {
@@ -601,6 +686,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
             pages,
             word_pages,
             raw_words: all_words,
+            tables: all_tables,
         })
     });
     match result {

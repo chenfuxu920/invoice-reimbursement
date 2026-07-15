@@ -38,7 +38,12 @@ parangi = "0.1.0"
 printpdf = { version = "0.7", features = ["embedded_images"] }
 base64 = "0.22"
 rust_xlsxwriter = "0.82"
-pdfplumber = { version = "0.2", optional = true }
+# ponytail: fork branch cjk-safe-lenient
+# = 0a436bf (0.2.0+bbox, CJK 0%) + PR#214 (tokenize_lenient <<修复) + PR#243 (word split >= 语义)
+# + 9e59889 (fill 路径自动闭合 + 近似矩形) + c2ab510 (bar-rect 单边 + 按行成格，修复发票单元格提取)
+# 上游 a8dc8b1 破坏 Identity-H CID fallback（CID 当 Unicode → 中文乱码），jacob-cotten fork 同样回归
+# PR#206 Adobe CID 表对 subset 字体有害（中国发票几乎都是 subset），不合入
+pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "cjk-safe-lenient", optional = true }
 
 [features]
 default = ["pdfplumber"]

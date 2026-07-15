@@ -69,7 +69,8 @@ pub fn save_config(app: &AppHandle, config: &OcrModelConfig) -> Result<(), Strin
 }
 
 /// 下载 OCR 模型文件到 app_data_dir/models/，返回模型目录路径。
-/// 通过 `ocr-download-progress` 事件报告进度，完成后发 `ocr-download-complete`。
+/// 通过 `ocr-download-progress` 事件报告进度。
+/// 注意：`ocr-download-complete` 由调用方在引擎热替换完成后发出，避免前端过早健康检查读到旧引擎。
 pub async fn download_models(app: &AppHandle) -> Result<PathBuf, String> {
     let config = load_config(app);
     let base_url = config.model_base_url.trim_end_matches('/');
@@ -110,6 +111,5 @@ pub async fn download_models(app: &AppHandle) -> Result<PathBuf, String> {
             .map_err(|e| format!("写入 {} 失败: {}", file, e))?;
     }
 
-    let _ = app.emit("ocr-download-complete", ());
     Ok(models_dir)
 }

@@ -113,8 +113,8 @@ fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<Stri
         return (None, None);
     }
 
-    let mut departure: Option<String> = None;
-    let mut arrival: Option<String> = None;
+    let mut departure: Option<String>;
+    let mut arrival: Option<String>;
 
     if *category == InvoiceCategory::Train {
         // 火车票：出发站/发站（带标签）
@@ -450,7 +450,7 @@ pub fn parse_invoice_text(
 /// 从备注栏解析住宿发票详情
 /// 直接匹配日期范围模式 "M-DD至M-DD"，不依赖前缀标签
 /// 支持: "订单日期:4-24至4-27"、"入离日期:5-25至5-29"、"入住时间:6-1至6-3" 等
-fn parse_hotel_detail(remarks: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
+pub(crate) fn parse_hotel_detail(remarks: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
     // 在备注中搜索第一个 "M-DD至M-DD" 模式（不要求特定前缀）
     let date_re = Regex::new(r"(\d{1,2})-(\d{1,2})\s*至\s*(\d{1,2})-(\d{1,2})").ok()?;
     let caps = date_re.captures(remarks)?;
@@ -758,7 +758,7 @@ pub fn classify_from_full_text(
     if contains_any(&all_text, &["酒店", "宾馆", "住宿", "招待所", "民宿"]) {
         return InvoiceCategory::Hotel;
     }
-    if contains_any(&all_text, &["滴滴", "网约车", "高德", "t3", "曹操", "出租"]) {
+    if contains_any(&all_text, &["滴滴", "网约车", "高德", "t3", "曹操", "出租", "地铁", "轨道"]) {
         return InvoiceCategory::CityTransport;
     }
     // 保险/退改签优先于航班检查（防止"机票航空意外险"误判为机票）
@@ -768,7 +768,8 @@ pub fn classify_from_full_text(
     if contains_any(&all_text, &["退票", "改签"]) {
         return InvoiceCategory::TicketChange;
     }
-    if contains_any(&all_text, &["航空", "机票", "机场", "航班"]) {
+    // "机场"是地名/站名（地铁票、高速费备注都会出现"双流机场站"），不能作为机票判定词
+    if contains_any(&all_text, &["航空", "机票", "航班"]) {
         return InvoiceCategory::Flight;
     }
     if contains_any(&all_text, &["铁路", "高铁", "火车", "客运站"]) {
@@ -804,7 +805,7 @@ pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> 
     None
 }
 
-fn extract_amount(text: &str) -> Result<f64, String> {
+pub(crate) fn extract_amount(text: &str) -> Result<f64, String> {
     // 多步策略：每个匹配强制要求两位小数，排除整数匹配（如2026、168、税号）
 
     // Step 0: 数字在关键字前 — "6.30价税合计" / "13.00价税合计"
@@ -884,7 +885,7 @@ fn extract_amount(text: &str) -> Result<f64, String> {
     Err("无法识别发票金额".to_string())
 }
 
-fn extract_seller_name(text: &str) -> String {
+pub(crate) fn extract_seller_name(text: &str) -> String {
     // 精确匹配（原逻辑）
     let re = Regex::new(r"名称[：:]\s*(.+?)(?:\s+统一社会信用代码|\s+$)").unwrap();
     if let Some(caps) = re.captures(text) {
@@ -931,7 +932,7 @@ fn extract_seller_name(text: &str) -> String {
 /// 用公司名后缀（股份有限公司/有限责任公司/有限公司/公司）从全文匹配。
 /// 取最后一个匹配——销售方通常在买方之后，且买方常为非公司主体（个人/大学）。
 /// ponytail: 启发式，买方也是公司时可能取错；升级路径=用坐标区分买/卖方列。
-fn extract_company_name_fallback(text: &str) -> Option<String> {
+pub(crate) fn extract_company_name_fallback(text: &str) -> Option<String> {
     let re = Regex::new(
         r"([\u4e00-\u9fa5（）()]{2,40}(?:股份有限公司|有限责任公司|有限公司|公司))",
     )
@@ -1043,7 +1044,7 @@ fn extract_toll_remarks_by_coords(texts: &[OcrTextItem]) -> String {
     parts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(" ")
 }
 
-fn extract_item_name(text: &str) -> String {
+pub(crate) fn extract_item_name(text: &str) -> String {
     // 从商品明细区域提取项目名称
     // 匹配 *服务类型* 格式
     let re_star = Regex::new(r"\*(.+?)\*").unwrap();
@@ -1120,11 +1121,12 @@ pub fn classify_invoice(seller_name: &str, item_name: &str) -> InvoiceCategory {
         InvoiceCategory::Insurance
     } else if contains_any(&combined_lower, &["退票", "改签"]) {
         InvoiceCategory::TicketChange
-    } else if contains_any(&combined_lower, &["航空", "机票", "机场", "航班"]) {
+    // "机场"是地名/站名，不能作为机票判定词（地铁票含"双流机场站"会误判）
+    } else if contains_any(&combined_lower, &["航空", "机票", "航班"]) {
         InvoiceCategory::Flight
     } else if contains_any(
         &combined_lower,
-        &["出租", "网约车", "滴滴", "高德", "t3", "曹操"],
+        &["出租", "网约车", "滴滴", "高德", "t3", "曹操", "地铁", "轨道"],
     ) {
         InvoiceCategory::CityTransport
     } else if contains_any(&combined_lower, &["酒店", "宾馆", "住宿", "招待所", "民宿"]) {
@@ -1321,6 +1323,59 @@ mod tests {
     fn test_classify_taxi() {
         assert!(matches!(
             classify_invoice("滴滴出行", ""),
+            InvoiceCategory::CityTransport
+        ));
+    }
+
+    #[test]
+    fn test_classify_metro_to_airport_not_flight() {
+        // Bug: 去机场的地铁票含"机场"站名（如"双流机场站"），被误判为机票发票
+        // 真实场景：地铁增值税电子发票，销售方"XX轨道交通公司"，站名含"机场"
+        let ocr = create_ocr_output(vec![
+            "电子发票（普通发票）",
+            "成都市轨道交通集团有限公司",
+            "地铁",
+            "双流机场站",
+            "价税合计：¥6.00",
+        ]);
+        let result = classify_from_full_text(&ocr, &InvoiceType::VatElectronicInvoice);
+        assert_eq!(
+            result,
+            InvoiceCategory::CityTransport,
+            "去机场的地铁票应归为市内交通，而非机票"
+        );
+    }
+
+    #[test]
+    fn test_classify_metro_station_name_not_flight() {
+        // 边界：全文只有"机场"站名、无地铁/轨道特征词时，不应误判为机票
+        let ocr = create_ocr_output(vec!["机场北站", "价税合计：¥3.00"]);
+        let result = classify_from_full_text(&ocr, &InvoiceType::Other);
+        assert_ne!(
+            result,
+            InvoiceCategory::Flight,
+            "仅含机场站名不应误判为机票"
+        );
+    }
+
+    #[test]
+    fn test_classify_invoice_metro_seller() {
+        // 地铁/轨道交通公司销售方应归为市内交通
+        assert!(matches!(
+            classify_invoice("成都市轨道交通集团有限公司", "地铁"),
+            InvoiceCategory::CityTransport
+        ));
+        assert!(matches!(
+            classify_invoice("长沙地铁有限责任公司", ""),
+            InvoiceCategory::CityTransport
+        ));
+    }
+
+    #[test]
+    fn test_classify_invoice_metro_station_not_flight() {
+        // 商品名含"机场"站名的地铁票不应误判为机票
+        assert!(matches!(
+            classify_invoice("成都市轨道交通集团有限公司", "地铁 双流机场站"),
             InvoiceCategory::CityTransport
         ));
     }

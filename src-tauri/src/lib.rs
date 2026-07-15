@@ -24,7 +24,7 @@ use crate::pdf::form_xlsx_generator;
 use crate::pdf::comparison_xlsx_generator;
 use crate::pdf::invoice_pipeline::{self, ParseResult};
 use tokio::sync::Mutex as AsyncMutex;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 // 应用状态
 pub struct AppState {
@@ -60,7 +60,7 @@ async fn ocr_recognize_pdf(
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
 }
 
-// 下载 OCR 模型（识别扫描件/图片发票，完成后初始化引擎）
+// 下载 OCR 模型（识别扫描件/图片发票，完成后热替换引擎并通知前端）
 #[tauri::command]
 async fn download_ocr_models(
     app: tauri::AppHandle,
@@ -71,6 +71,8 @@ async fn download_ocr_models(
     let engine = OcrEngine::new(&dir_str)
         .map_err(|e| format!("模型下载完成但初始化失败: {}", e))?;
     *state.ocr_engine.lock().await = engine;
+    // 引擎已热替换，此时发出完成事件，前端健康检查可读到新引擎
+    let _ = app.emit("ocr-download-complete", ());
     Ok(())
 }
 
@@ -506,6 +508,36 @@ async fn render_pdf_preview(file_path: String) -> Result<Vec<String>, String> {
     Err(format!("不支持的文件类型: {}", ext))
 }
 
+// 调试：提取 PDF 文字并返回三引擎坐标对比数据
+#[tauri::command]
+async fn debug_extract_texts(
+    state: tauri::State<'_, AppState>,
+    file_path: String,
+    dpi: Option<u32>,
+) -> Result<crate::pdf::debug_extract::DebugTextResult, String> {
+    let dpi = dpi.unwrap_or(200);
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("文件不存在: {}", file_path));
+    }
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if ext != "pdf" {
+        return Err(format!("调试界面仅支持 PDF，收到: .{}", ext));
+    }
+    // OCR 引擎可能未初始化（模型未下载），传 Some 让后端自行降级
+    let mut engine = state.ocr_engine.lock().await;
+    let engine_ref: Option<&mut OcrEngine> = if engine.health().unwrap_or(false) {
+        Some(&mut *engine)
+    } else {
+        None
+    };
+    crate::pdf::debug_extract::debug_extract_texts(&file_path, dpi, engine_ref)
+}
+
 // 调用系统默认程序打开文件
 #[tauri::command]
 async fn open_file_with_system(file_path: String) -> Result<(), String> {
@@ -603,6 +635,7 @@ pub fn run() {
             collect_files,
             batch_global_import,
             render_pdf_preview,
+            debug_extract_texts,
             open_file_with_system,
 
         ])

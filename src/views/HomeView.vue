@@ -67,7 +67,7 @@
     <!-- 快速操作 -->
     <div class="bg-white rounded-lg border p-5 shadow-sm">
       <h3 class="font-medium text-lg mb-4">快速操作</h3>
-      <div class="grid grid-cols-3 gap-4">
+      <div class="grid grid-cols-4 gap-4">
         <router-link to="/import"
           class="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-blue-400 hover:bg-blue-50 transition-colors">
           <span class="text-2xl">📤</span>
@@ -82,6 +82,11 @@
           class="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-purple-400 hover:bg-purple-50 transition-colors">
           <span class="text-2xl">🔗</span>
           <span class="text-sm font-medium">开始匹配</span>
+        </router-link>
+        <router-link to="/debug"
+          class="flex flex-col items-center gap-2 p-4 rounded-lg border-2 border-dashed border-gray-200 hover:border-amber-400 hover:bg-amber-50 transition-colors">
+          <span class="text-2xl">🔍</span>
+          <span class="text-sm font-medium">文字提取调试</span>
         </router-link>
       </div>
     </div>
@@ -126,6 +131,12 @@ async function downloadModels() {
   downloadingModels.value = true
   try {
     await invoke('download_ocr_models')
+    // 后端已热替换引擎，刷新状态
+    try { ocrOnline.value = await invoke('ocr_health') } catch { /* ignore */ }
+    downloadingModels.value = false
+    alert(ocrOnline.value
+      ? 'OCR 模型下载完成，识别服务已就绪，可直接使用，无需重启。'
+      : 'OCR 模型下载完成，但引擎未就绪，请重启应用后使用。')
   } catch (e) {
     downloadingModels.value = false
     alert(`下载失败: ${e}`)

@@ -28,7 +28,7 @@
       <!-- 从票据提取 -->
       <div class="mb-4">
         <button
-          @click="extractTripFromTickets"
+          @click="extractTripFromTickets()"
           class="px-4 py-2 rounded bg-green-500 text-white hover:bg-green-600 transition-colors text-sm"
         >
           🎫 从票据提取
@@ -36,7 +36,7 @@
       </div>
 
       <!-- 报销信息表单 -->
-      <ReimbursementForm :model-value="formInfo" @update="handleFormUpdate" class="mb-6" />
+      <ReimbursementForm :model-value="matchStore.exportForm" @update="handleFormUpdate" class="mb-6" />
 
       <!-- 预览 -->
       <div class="flex gap-3 mb-6">
@@ -71,35 +71,28 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useMatchStore } from '../stores/match'
 import ReimbursementForm from '../components/ReimbursementForm.vue'
 import ExportButton from '../components/ExportButton.vue'
 
 const matchStore = useMatchStore()
 
-const formInfo = reactive({
-  destination: '',
-  travelStart: '',
-  travelEnd: '',
-  hotelLevel: '其他人员',
-})
-
 const exportFormInfo = computed(() => ({
   name: '',
   department: '',
-  destination: formInfo.destination,
-  travelStart: formInfo.travelStart,
-  travelEnd: formInfo.travelEnd,
+  destination: matchStore.exportForm.destination,
+  travelStart: matchStore.exportForm.travelStart,
+  travelEnd: matchStore.exportForm.travelEnd,
   companions: 0,
-  hotelLevel: formInfo.hotelLevel,
+  hotelLevel: matchStore.exportForm.hotelLevel,
 }))
 
 function handleFormUpdate(val: { destination: string; travelStart: string; travelEnd: string; hotelLevel: string }) {
-  formInfo.destination = val.destination
-  formInfo.travelStart = val.travelStart
-  formInfo.travelEnd = val.travelEnd
-  formInfo.hotelLevel = val.hotelLevel
+  matchStore.exportForm.destination = val.destination
+  matchStore.exportForm.travelStart = val.travelStart
+  matchStore.exportForm.travelEnd = val.travelEnd
+  matchStore.exportForm.hotelLevel = val.hotelLevel
 }
 
 async function previewForm() {
@@ -111,7 +104,12 @@ async function previewForm() {
   }
 }
 
-function extractTripFromTickets() {
+// 首次进入且无城市信息时自动从票据提取；用户已修改则 destination 非空，跳过以保留修改
+onMounted(() => {
+  if (!matchStore.exportForm.destination) extractTripFromTickets(true)
+})
+
+function extractTripFromTickets(silent = false) {
   // 过滤 Train/Flight 类且有到达城市的发票
   const tickets = matchStore.matches
     .filter(m => {
@@ -121,7 +119,7 @@ function extractTripFromTickets() {
     .map(m => m.invoice)
 
   if (tickets.length === 0) {
-    alert('未找到可提取的火车票或机票')
+    if (!silent) alert('未找到可提取的火车票或机票')
     return
   }
 
@@ -131,13 +129,13 @@ function extractTripFromTickets() {
   // 目的地 = 最早一张票的到达城市
   const dest = tickets[0].arrival_city
   if (!dest) {
-    alert('票据数据异常：缺少到达城市')
+    if (!silent) alert('票据数据异常：缺少到达城市')
     return
   }
-  formInfo.destination = dest
+  matchStore.exportForm.destination = dest
 
   // 日期范围 = min/max
-  formInfo.travelStart = tickets[0].travel_date!
-  formInfo.travelEnd = tickets[tickets.length - 1].travel_date!
+  matchStore.exportForm.travelStart = tickets[0].travel_date!
+  matchStore.exportForm.travelEnd = tickets[tickets.length - 1].travel_date!
 }
 </script>

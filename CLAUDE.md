@@ -52,6 +52,56 @@ Skills 位于 `.opencode/skills/` 目录，每个 skill 有独立的 `SKILL.md` 
 - **src-tauri/src/parser/itinerary_parser.rs** — 行程单解析（OCR坐标表格解析 + parangi交叉验证）
 - **src-tauri/src/pdf/invoice_pipeline.rs** — 发票/行程单解析入口、配对逻辑
 - **src-tauri/src/ocr/engine.rs** — PaddleOCR v5 封装（PDFium RGBA→RGB已修复）
+- **src-tauri/src/pdf/text_extractor.rs** — pdfplumber 文字提取封装（含 `extract_raw_words_debug` 调试接口）
+- **src-tauri/src/pdf/debug_extract.rs** — PDF 提取调试界面后端（三引擎坐标统一：pdfplumber/zpdf/OCR）
+
+### pdfplumber 依赖（自建 fork，必要时可直接改 pdfplumber 源码）
+
+**依赖声明** (`src-tauri/Cargo.toml`):
+```toml
+pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "cjk-safe-lenient", optional = true }
+```
+
+**Fork 仓库**: https://github.com/chenfuxu920/pdfplumber-rs · 分支 `cjk-safe-lenient`
+
+**为什么不用上游 crates.io 0.2.0**:
+- 上游 0.2.0 tokenizer 遇内容流中的 `<<` 硬失败（`unexpected '<<' in content stream`），中国发票 PDF 普遍触发
+- 上游 PR#214 修了 `<<`（`tokenize_lenient`），但 PR#206/208 破坏了 CJK CID→Unicode 映射（Identity-H 字体 CID 当 Unicode → 中文乱码 77.55%）
+- jacob-cotten fork 所有分支也含 PR#206/208，同样回归
+- **无现成上游版本兼得 `<<` 修复 + CJK 正确**，故自建 fork
+
+**Fork 分支构成** (5 commits):
+```
+c2ab510 fix(table): bar-rect 单边 + 按行成格，修复发票单元格提取
+9e59889 fix(shapes): fill 路径自动闭合 + 近似矩形边界框提取
+4315b0b fix(words): >= 语义 word split tolerance (PR#243, jacob-cotten)
+93c14cb feat: tokenize_lenient <<修复 (PR#214 cherry-pick, 适配 0.2.0 API)
+0a436bf fix: char bbox and word grouping (0.2.0 base, CJK 0% mismatch)
+```
+
+**发票单元格提取修复** (c2ab510 + 9e59889): 中国发票/行程单表格线是细填充矩形（~0.75pt bar，`m+l+l+l+f` 路径），不是描边线。三处协同修复：
+- `shapes.rs`: fill 路径自动闭合 + 近似矩形用边界框 → bar 成为 Rect
+- `edges.rs`: `edges_from_rect` 检测细条（min 维 ≤ 2.0pt）→ 沿长轴发 1 条边（旧 4 边产出 2 重复长边 + 2 桩被 `edge_min_length` 过滤，删掉了角点线段）
+- `table.rs`: `intersections_to_cells` 按行收集 x（竖边同时穿过上下行界）→ 避免幽灵 x 坐标把宽单元格切成缺角相邻对
+
+**不合入的上游 PR 及原因**:
+- PR#206 (Adobe-GB1/CNS1/Korea1 CID→Unicode 表): subset 字体 CID 是 glyph ID 不是 Adobe CID，查表产生乱码
+- PR#208 (Identity-H CID fallback): CID 当 Unicode `char::from_u32`，对中文 CID 字体错误
+- PR#215/216 (Arabic CID / CJK vertical vmtx): 在 PR#208 之后，依赖其改动
+
+**修改 pdfplumber 源码的流程**:
+1. Clone fork: `git clone -b cjk-safe-lenient git@github.com:chenfuxu920/pdfplumber-rs.git`
+2. 改代码（表格/边/形状在 `crates/pdfplumber-core/src/{table,edges,shapes}.rs`；tokenizer/解释器在 `crates/pdfplumber-parse/src/{tokenizer,interpreter}.rs`）
+3. `cargo check -p pdfplumber` 确认编译
+4. 用 path 依赖测试: `pdfplumber = { path = "<local>/pdfplumber-rs/crates/pdfplumber" }`
+5. 跑 `cargo test --features pdfplumber --test pdfplumber_cjk_fidelity_test --test debug_extract_test --test pdfplumber_cell_debug_test`
+6. Push 到 fork: `git push origin cjk-safe-lenient`
+7. 项目里 `cargo update -p pdfplumber` 更新 Cargo.lock
+
+**关键测试** (CJK fidelity 5/5 必须全过):
+- `pdfplumber_cjk_fidelity_test`: VAT 发票 mismatch 必须 0.00%（验证无 CID 回归）
+- `debug_extract_test`: 验证 `<<` tokenizer 修复 + 坐标缩放
+- `pdfplumber_cell_debug_test`: 发票单元格提取诊断（`verify_find_tables_text_population` 断言 7 列行程单表；`diagnose_*` 打印逐阶段证据）
 
 ### 近期重大改进 (2026-05)
 

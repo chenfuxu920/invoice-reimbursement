@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory, ItineraryPaymentPair } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -9,6 +9,14 @@ export const useMatchStore = defineStore('match', () => {
   const unmatchedPayments = ref<PaymentRecord[]>([])
   const loading = ref(false)
   const reimbursementHtml = ref<string | null>(null)
+
+  // 报销表单信息：放在 store 中跨视图持久化，避免切换导出页时组件重挂载导致城市/日期被清空
+  const exportForm = reactive({
+    destination: '',
+    travelStart: '',
+    travelEnd: '',
+    hotelLevel: '其他人员',
+  })
 
   async function autoMatch(invoices: Invoice[], payments: PaymentRecord[], tolerance = 1.0) {
     loading.value = true
@@ -137,10 +145,15 @@ export const useMatchStore = defineStore('match', () => {
     unmatchedInvoices.value = []
     unmatchedPayments.value = []
     reimbursementHtml.value = null
+    // 清空导入时一并重置报销表单，避免残留旧城市/日期
+    exportForm.destination = ''
+    exportForm.travelStart = ''
+    exportForm.travelEnd = ''
+    exportForm.hotelLevel = '其他人员'
   }
 
   return {
-    matches, unmatchedInvoices, unmatchedPayments, loading, reimbursementHtml,
+    matches, unmatchedInvoices, unmatchedPayments, loading, reimbursementHtml, exportForm,
     autoMatch, unmatchInvoice, manualMatch, removePayment, updateInvoiceCategory,
     renderReimbursementHtml, saveReimbursementHtml, clearMatches,
   }
