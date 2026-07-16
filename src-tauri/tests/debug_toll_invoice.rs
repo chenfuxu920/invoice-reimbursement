@@ -1,7 +1,7 @@
 /// 调试测试：验证高速通行费发票能否被正确识别
 /// 运行: cargo test --test debug_toll_invoice debug_toll_invoice_real -- --nocapture --ignored
 use invoice_reimbursement_lib::ocr::OcrEngine;
-use invoice_reimbursement_lib::pdf::invoice_pipeline::parse_invoice_from_pdf;
+use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_invoice_from_pdf, ExtractionConfig};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
 
@@ -24,7 +24,7 @@ fn debug_toll_invoice_real() {
         }
     };
 
-    match parse_invoice_from_pdf(TOLL_PDF, &mut engine) {
+    match parse_invoice_from_pdf(TOLL_PDF, &mut engine, &ExtractionConfig::default()) {
         Ok(inv) => {
             println!("✓ pipeline 解析成功");
             print_invoice(&inv);

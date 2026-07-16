@@ -103,7 +103,7 @@ async fn recognize_invoice(
 ) -> Result<Invoice, String> {
     let mut engine = state.ocr_engine.lock().await;
     if file_type == "pdf" {
-        invoice_pipeline::parse_invoice_from_pdf(&file_path, &mut engine)
+        invoice_pipeline::parse_invoice_from_pdf(&file_path, &mut engine, &Default::default())
     } else {
         invoice_pipeline::parse_invoice_from_image(&file_path, &mut engine)
     }
@@ -116,7 +116,7 @@ async fn batch_recognize(
     file_paths: Vec<String>,
 ) -> Result<ParseResult, String> {
     let mut engine = state.ocr_engine.lock().await;
-    Ok(invoice_pipeline::parse_all_from_files(&file_paths, &mut engine))
+    Ok(invoice_pipeline::parse_all_from_files(&file_paths, &mut engine, &Default::default()))
 }
 
 // 行程单识别与解析命令
@@ -405,7 +405,7 @@ async fn batch_global_import(
     // PDF 复用已有的 batch 解析逻辑（含发票→行程单→配对）
     let mut pdf_duplicates = Vec::new();
     if !pdf_files.is_empty() {
-        let result = invoice_pipeline::parse_all_from_files(&pdf_files, &mut engine);
+        let result = invoice_pipeline::parse_all_from_files(&pdf_files, &mut engine, &Default::default());
         invoices.extend(result.invoices);
         pdf_duplicates = result.duplicates;
         for (name, err) in result.errors {

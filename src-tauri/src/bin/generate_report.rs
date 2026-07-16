@@ -5,7 +5,7 @@ use invoice_reimbursement_lib::parser::wechat_parser;
 use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
 use invoice_reimbursement_lib::pdf::comparison_image_pdf_generator;
-use invoice_reimbursement_lib::pdf::invoice_pipeline::parse_all_from_dir;
+use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_all_from_dir, ExtractionConfig};
 use std::path::Path;
 
 fn main() {
@@ -38,7 +38,7 @@ fn main() {
 
     // 2. 解析所有文件（发票+行程单）
     println!("\n=== 解析文件 ({}) ===", invoice_dir);
-    let result = parse_all_from_dir(invoice_dir, &mut engine);
+    let result = parse_all_from_dir(invoice_dir, &mut engine, &ExtractionConfig::default());
     let invoices = result.invoices;
     println!("  成功: {}, 失败: {}", invoices.len(), result.errors.len());
     for inv in &invoices {

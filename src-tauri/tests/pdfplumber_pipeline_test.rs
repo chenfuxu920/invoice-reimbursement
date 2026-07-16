@@ -1,7 +1,7 @@
 #![cfg(feature = "pdfplumber")]
 
 use invoice_reimbursement_lib::ocr::OcrEngine;
-use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_invoice_from_pdf, parse_itinerary_from_pdf};
+use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_invoice_from_pdf, parse_itinerary_from_pdf, ExtractionConfig};
 use std::path::Path;
 
 /// Resolves to project-root/data/
@@ -134,7 +134,7 @@ fn test_invoice_impl(
     };
 
     eprintln!("\n    Parsing: {}", file);
-    match parse_invoice_from_pdf(&pdf_path, engine) {
+    match parse_invoice_from_pdf(&pdf_path, engine, &ExtractionConfig::default()) {
         Ok(invoice) => {
             let seller = if invoice.seller_name.is_empty() {
                 "(empty)".to_string()
@@ -316,7 +316,7 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
             .to_string();
 
         eprintln!("\n    Parsing: {}", file_name);
-        match parse_invoice_from_pdf(pdf_path, &mut engine) {
+        match parse_invoice_from_pdf(pdf_path, &mut engine, &ExtractionConfig::default()) {
             Ok(invoice) => {
                 let seller = if invoice.seller_name.is_empty() {
                     "(empty)".to_string()
@@ -507,7 +507,7 @@ fn test_pipeline_summary() {
             .to_string();
 
         eprintln!("\n    Parsing (VAT): {}", file_name);
-        match parse_invoice_from_pdf(pdf_path, &mut engine) {
+        match parse_invoice_from_pdf(pdf_path, &mut engine, &ExtractionConfig::default()) {
             Ok(invoice) => {
                 let seller = if invoice.seller_name.is_empty() {
                     "(empty)".to_string()
@@ -668,7 +668,7 @@ fn test_pipeline_original_invoice_dir() {
         eprintln!("\n    Processing: {}", file_name);
 
         // Try invoice first
-        match parse_invoice_from_pdf(pdf_path, &mut engine) {
+        match parse_invoice_from_pdf(pdf_path, &mut engine, &ExtractionConfig::default()) {
             Ok(invoice) => {
                 let seller = if invoice.seller_name.is_empty() {
                     "(empty)".to_string()

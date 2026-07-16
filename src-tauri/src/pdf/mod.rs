@@ -18,4 +18,5 @@ pub use image_embedder::{render_pdf_page_to_png, render_pdf_all_pages_to_pngs, i
 pub use invoice_pipeline::{
     parse_invoice_from_pdf, parse_invoice_from_image, parse_itinerary_from_pdf,
     parse_all_from_dir, pair_invoices_with_itineraries, ItineraryDoc, ParseResult,
+    ExtractionConfig,
 };

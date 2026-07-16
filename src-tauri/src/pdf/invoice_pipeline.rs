@@ -10,7 +10,26 @@ use crate::parser::layout_extractor;
 use crate::parser::cell_extractor;
 use std::path::{Path, PathBuf};
 
+/// 提取策略配置：控制单元格提取失败时的回退逻辑
+///
+/// 默认两个回退均关闭，仅使用单元格提取。
+/// 调试时可按需打开 word/文本回退以对比识别率。
+#[derive(Debug, Clone)]
+pub struct ExtractionConfig {
+    /// 启用原始 Word 坐标提取回退（layout_extractor）
+    pub enable_word_fallback: bool,
+    /// 启用纯文本正则提取回退（OCR 重解析 parse_invoice_text）
+    pub enable_text_fallback: bool,
+}
 
+impl Default for ExtractionConfig {
+    fn default() -> Self {
+        Self {
+            enable_word_fallback: false,
+            enable_text_fallback: false,
+        }
+    }
+}
 
 /// 从行程单解析出的行程明细集合
 #[derive(Debug, Clone, serde::Serialize)]
@@ -34,7 +53,7 @@ pub struct ParseResult {
 
 /// 解析单个发票 PDF：先尝试文字提取，失败或缺销售方信息则 OCR（多页）
 /// 如果文档分类为行程单/结账单，直接返回错误（不应当发票处理）
-pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<Invoice, String> {
+pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine, config: &ExtractionConfig) -> Result<Invoice, String> {
     let source = InvoiceSource::Pdf(pdf_path.to_string());
 
     // 单次 PDF 打开：列感知合并 + 原始 Word + 表格单元格（供坐标/单元格提取器使用，无需二次打开）
@@ -118,39 +137,44 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                     }
                 }
             }
-            // Seller 空/乱码或 invoice_number 缺失 — 先尝试 pdfplumber 原始 Word 坐标提取（比 OCR 快且准）
-            #[cfg(feature = "pdfplumber")]
-            {
-                // 优先使用已缓存的 raw_words（单次 PDF 打开），无缓存时才重新提取
-                let words_result = match &cached_words {
-                    Some(w) => Ok(w.clone()),
-                    None => text_extractor::extract_words_raw(pdf_path),
-                };
-                if let Ok(words) = words_result {
-                    // 1. 坐标 seller 提取
-                    let seller = layout_extractor::extract_seller_by_raw_coords(&words);
-                    if !seller.is_empty() && seller.chars().count() >= 4 {
-                        invoice.seller_name = seller;
-                    }
+            // Word 坐标提取回退（可配置关闭）
+            if config.enable_word_fallback {
+                #[cfg(feature = "pdfplumber")]
+                {
+                    let words_result = match &cached_words {
+                        Some(w) => Ok(w.clone()),
+                        None => text_extractor::extract_words_raw(pdf_path),
+                    };
+                    if let Ok(words) = words_result {
+                        let seller = layout_extractor::extract_seller_by_raw_coords(&words);
+                        if !seller.is_empty() && seller.chars().count() >= 4 {
+                            invoice.seller_name = seller;
+                        }
 
-                    // 2. 坐标 amount 提取（紧凑 Y 带排除 items 表格的不含税金额）
-                    if let Some(amt) = layout_extractor::extract_amount_by_coords(&words) {
-                        if amt > 0.0 {
-                            invoice.amount = amt;
+                        if let Some(amt) = layout_extractor::extract_amount_by_coords(&words) {
+                            if amt > 0.0 {
+                                invoice.amount = amt;
+                            }
+                        }
+
+                        if !invoice.seller_name.is_empty()
+                            && invoice.seller_name.chars().count() >= 4
+                            && !invoice.invoice_number.is_empty()
+                        {
+                            return Ok(invoice);
                         }
                     }
-
-                    // 3. 如果 seller 和 invoice_number 都有效，直接返回
-                    if !invoice.seller_name.is_empty()
-                        && invoice.seller_name.chars().count() >= 4
-                        && !invoice.invoice_number.is_empty()
-                    {
-                        return Ok(invoice);
-                    }
                 }
+            } else {
+                eprintln!("  [pipeline] Word坐标回退已关闭");
             }
 
-            // OCR 回退
+            // OCR 文本回退（可配置关闭）
+            if !config.enable_text_fallback {
+                eprintln!("  [pipeline] 文本回退已关闭，返回当前提取结果");
+                return Ok(invoice);
+            }
+
             // ponytail: OCR 不可用时返回文字提取结果（invoice_number/amount 通常已正确），
             // 而非硬报错。升级路径=安装 OCR 模型后自动走 OCR 补全 seller。
             if !engine.health().unwrap_or(false) {
@@ -166,7 +190,10 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
             check_and_parse(ocr_items, source)
         }
         Err(_) => {
-            // OCR 回退
+            // OCR 文本回退（可配置关闭）
+            if !config.enable_text_fallback {
+                return Err(format!("文字提取解析失败，且文本回退已关闭"));
+            }
             if !engine.health().unwrap_or(false) {
                 return Err("文字提取解析失败，且 OCR 模型未安装".to_string());
             }
@@ -350,6 +377,7 @@ fn build_itinerary_doc(
 pub fn parse_all_from_dir(
     dir: &str,
     engine: &mut OcrEngine,
+    config: &ExtractionConfig,
 ) -> ParseResult {
     let mut invoices = Vec::new();
     let mut errors = Vec::new();
@@ -367,7 +395,7 @@ pub fn parse_all_from_dir(
     for path in &pdf_files {
         let name = path.file_name().unwrap().to_str().unwrap().to_string();
         // 先尝试以发票解析
-        match parse_invoice_from_pdf(path.to_str().unwrap(), engine) {
+        match parse_invoice_from_pdf(path.to_str().unwrap(), engine, config) {
             Ok(inv) => { invoices.push(inv); continue; }
             Err(_) => {}
         }
@@ -391,6 +419,7 @@ pub fn parse_all_from_dir(
 pub fn parse_all_from_files(
     files: &[String],
     engine: &mut OcrEngine,
+    config: &ExtractionConfig,
 ) -> ParseResult {
     let mut invoices = Vec::new();
     let mut errors = Vec::new();
@@ -400,7 +429,7 @@ pub fn parse_all_from_files(
         let path = Path::new(path_str);
         let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         // 先尝试以发票解析
-        match parse_invoice_from_pdf(path_str, engine) {
+        match parse_invoice_from_pdf(path_str, engine, config) {
             Ok(inv) => { invoices.push(inv); continue; }
             Err(_) => {}
         }

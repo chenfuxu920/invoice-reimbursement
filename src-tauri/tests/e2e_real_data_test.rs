@@ -7,7 +7,7 @@ use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
 use invoice_reimbursement_lib::pdf::form_generator::generate_reimbursement_pdf;
 use invoice_reimbursement_lib::pdf::comparison_generator::generate_comparison_pdf;
-use invoice_reimbursement_lib::pdf::invoice_pipeline::parse_all_from_dir;
+use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_all_from_dir, ExtractionConfig};
 use std::path::Path;
 
 const MODELS_DIR: &str = "models";
@@ -21,7 +21,7 @@ fn e2e_full_pipeline_from_real_files() {
     let mut engine = OcrEngine::new(MODELS_DIR).expect("OCR init failed");
 
     // 2. 解析所有文件（发票+行程单），行程单自动配对到对应发票
-    let result = parse_all_from_dir(INVOICE_DIR, &mut engine);
+    let result = parse_all_from_dir(INVOICE_DIR, &mut engine, &ExtractionConfig::default());
     let invoices = result.invoices;
     println!("\n=== 解析结果 ===");
     println!("  成功: {}, 失败: {}", invoices.len(), result.errors.len());

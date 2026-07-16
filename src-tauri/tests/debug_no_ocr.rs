@@ -1,7 +1,7 @@
 /// 调试：3个失败发票的文字提取诊断（不依赖 OCR）
 /// 运行: cargo test --test debug_no_ocr -- --nocapture --ignored
 use invoice_reimbursement_lib::ocr::OcrEngine;
-use invoice_reimbursement_lib::pdf::invoice_pipeline::parse_invoice_from_pdf;
+use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_invoice_from_pdf, ExtractionConfig};
 use invoice_reimbursement_lib::pdf::text_extractor::{
     has_sufficient_text, is_garbled_items,
     extract_pdf_column_aware,
@@ -42,7 +42,7 @@ fn debug_three_files_no_ocr() {
         // 2. 完整 pipeline（用未初始化引擎 = 模拟无 OCR）
         println!("\n--- Step 2: 完整 pipeline (parse_invoice_from_pdf, 无OCR) ---");
         let mut engine = OcrEngine::uninitialized();
-        match parse_invoice_from_pdf(path, &mut engine) {
+        match parse_invoice_from_pdf(path, &mut engine, &ExtractionConfig::default()) {
             Ok(inv) => {
                 println!("✓ pipeline 解析成功（无OCR）");
                 println!("  invoice_number : '{}'", inv.invoice_number);
