@@ -1,9 +1,8 @@
 use crate::ocr::OcrTextItem;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 
 #[cfg(feature = "pdfplumber")]
-use pdfplumber::{Pdf, WordOptions, Word, BBox, TableSettings};
+use pdfplumber::{Pdf, WordOptions, Word, BBox, TableSettings, TextDirection};
 #[cfg(feature = "pdfplumber")]
 use crate::ocr::engine::bbox_to_json;
 #[cfg(feature = "pdfplumber")]
@@ -55,82 +54,6 @@ pub fn classify_pdf_document_type(text_items: &[OcrTextItem]) -> PdfDocumentType
     }
 
     PdfDocumentType::Unknown
-}
-
-/// 从 PDF 文件中直接提取文字（适用于文字型 PDF）
-/// 使用 parangi（Apache PDFBox 移植，完整 CJK 支持，处理 UniGB-UCS2-H 等中文编码）。
-/// 返回提取到的文字行列表，如果 PDF 是扫描件（无可提取文字）则返回空 Vec
-pub fn extract_text_from_pdf(file_path: &str) -> Result<Vec<OcrTextItem>, String> {
-    let path = Path::new(file_path);
-    let text = parangi::extract_text(path).map_err(|e| format!("PDF 文字提取失败: {:?}", e))?;
-    Ok(text_to_items(&text))
-}
-
-/// zpdf 文字提取：当 parangi/pdfplumber 都无法提取完整文字时
-/// （典型场景：发票值在 Form XObject 中，parangi 只读到标签），
-/// 用 zpdf 的 ContentInterpreter 遍历完整内容流（含 Form XObject）提取文字。
-/// zpdf 是纯 Rust 库，已是项目依赖，无需 Python 或外部 DLL。
-pub fn extract_text_with_zpdf(file_path: &str) -> Result<Vec<OcrTextItem>, String> {
-    use zpdf::{ContentInterpreter, ImageCache, PdfDocument};
-
-    let data = std::fs::read(file_path).map_err(|e| format!("读取 PDF 失败: {}", e))?;
-    let doc = PdfDocument::open(data).map_err(|e| format!("解析 PDF 失败: {:?}", e))?;
-
-    let mut all_items = Vec::new();
-    for i in 0..doc.page_count() {
-        let page = doc.page(i).map_err(|e| format!("获取页面 {} 失败: {:?}", i, e))?;
-        let mut fonts = doc.load_page_fonts(&page);
-        let mut img_cache = ImageCache::new();
-        let content = doc
-            .page_content_bytes(&page)
-            .map_err(|e| format!("获取页面 {} 内容失败: {:?}", i, e))?;
-
-        let mut spans: Vec<zpdf::TextSpan> = Vec::new();
-        let page_rect = page.effective_box();
-        let _ = ContentInterpreter::new(page_rect)
-            .with_page_rotation(page.rotate)
-            .with_fonts(&mut fonts)
-            .with_document(doc.file(), &page.resources)
-            .with_images(&mut img_cache)
-            .with_text_sink(&mut spans)
-            .interpret(&content);
-
-        // zpdf TextSpan 坐标是 PDF 用户空间（y-up），parser 期望屏幕坐标（y-down）。
-        // 翻转 Y: screen_y = page_rect.y1 - pdf_y
-        for span in &spans {
-            let text = span.text.trim();
-            if !text.is_empty() {
-                let x0 = span.x;
-                let y_top = page_rect.y1 - (span.y + span.size as f64);
-                let x1 = span.x + span.advance;
-                let y_bottom = page_rect.y1 - span.y;
-                all_items.push(OcrTextItem {
-                    text: text.to_string(),
-                    confidence: 1.0,
-                    box_coords: Some(crate::ocr::engine::bbox_to_json(
-                        x0, y_top, x1, y_bottom, 1.0,
-                    )),
-                });
-            }
-        }
-    }
-
-    if all_items.is_empty() {
-        return Err("zpdf 提取到 0 个文本项".to_string());
-    }
-    Ok(all_items)
-}
-
-fn text_to_items(text: &str) -> Vec<OcrTextItem> {
-    text.lines()
-        .map(|line| line.trim())
-        .filter(|line| !line.is_empty())
-        .map(|line| OcrTextItem {
-            text: line.to_string(),
-            confidence: 1.0,
-            box_coords: None,
-        })
-        .collect()
 }
 
 /// 判断提取到的文字是否足够用于发票解析

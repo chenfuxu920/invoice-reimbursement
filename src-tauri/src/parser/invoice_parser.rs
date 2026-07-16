@@ -318,23 +318,7 @@ pub fn parse_invoice_text(
     if seller_name.is_empty() {
         seller_name = extract_seller_name(&all_text);
     }
-    // ponytail: parangi 列交错回退。双栏发票被 parangi 按字符交错合并时
-    // （"销购"="销售"+"购买"），"名称:"后的文本是乱码，但销售方公司名
-    // 完整出现在"名称:"标签之前。用公司名后缀模式从全文恢复。
-    // PyMuPDF 场景：标签(KaiTi)和值(SimSun)是不同 span，正则可能抓到
-    // 税号而非公司名——含10+位数字或无中文字符的销售方一定是乱码。
-    if seller_name.is_empty()
-        || seller_name.contains("名称")
-        || seller_name.contains("售买")
-        || seller_name.contains('<')
-        || seller_name.contains('>')
-        || !seller_name.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
-        || seller_name.chars().filter(|c| c.is_ascii_digit()).count() >= 10
-    {
-        if let Some(name) = extract_company_name_fallback(&all_text) {
-            seller_name = name;
-        }
-    }
+
     let item_name = extract_item_name(&regions.items);
     let date = extract_date(&all_text);
     let invoice_number = extract_invoice_number(&regions.header);
@@ -894,7 +878,7 @@ pub(crate) fn extract_seller_name(text: &str) -> String {
             return name.to_string();
         }
     }
-    // 容空格：parangi 在 CJK 字符间插入空格，如"名 称:" → 用 find_iter 找到所有"名称:"位置
+    // 容空格：pdfplumber 在 CJK 字符间插入空格，如"名 称:" → 用 find_iter 找到所有"名称:"位置
     // 手动提取每个候选（regex 不支持 lookahead）
     let re_start = Regex::new(r"名\s*称\s*[：:]").unwrap();
     let re_end = Regex::new(r"\s*(?:名\s*称|统一|纳税人|电话|开户|地址|销|买|售|备)|$").unwrap();
@@ -926,21 +910,6 @@ pub(crate) fn extract_seller_name(text: &str) -> String {
         return caps[1].trim().to_string();
     }
     String::new()
-}
-
-/// 公司名后缀模式回退：parangi 列交错文本中，正常"名称:"提取得到乱码时，
-/// 用公司名后缀（股份有限公司/有限责任公司/有限公司/公司）从全文匹配。
-/// 取最后一个匹配——销售方通常在买方之后，且买方常为非公司主体（个人/大学）。
-/// ponytail: 启发式，买方也是公司时可能取错；升级路径=用坐标区分买/卖方列。
-pub(crate) fn extract_company_name_fallback(text: &str) -> Option<String> {
-    let re = Regex::new(
-        r"([\u4e00-\u9fa5（）()]{2,40}(?:股份有限公司|有限责任公司|有限公司|公司))",
-    )
-    .unwrap();
-    re.captures_iter(text)
-        .filter_map(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
-        .filter(|n| n.chars().count() >= 3)
-        .last()
 }
 
 fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
@@ -1561,7 +1530,7 @@ mod tests {
 
     #[test]
     fn test_extract_seller_name_with_spaces() {
-        // Bug: parangi inserts spaces in CJK text "名 称:"
+        // Bug: pdfplumber inserts spaces in CJK text "名 称:"
         let text = "名 称: 长沙市轨道交通运营有限公司销 备纳税人识别号";
         let result = extract_seller_name(text);
         assert_eq!(result, "长沙市轨道交通运营有限公司");

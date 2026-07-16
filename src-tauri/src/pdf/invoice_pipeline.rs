@@ -1,7 +1,7 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
 use crate::ocr::OcrEngine;
 use crate::parser::invoice_parser::parse_invoice_text;
-use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback, cross_validate_amounts, enrich_itinerary_years, cross_validate_with_printed_total, extract_itinerary_printed_total, has_incomplete_entries, compute_incomplete_fields};
+use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback, enrich_itinerary_years, has_incomplete_entries, compute_incomplete_fields};
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 #[cfg(feature = "pdfplumber")]
@@ -10,50 +10,7 @@ use crate::parser::layout_extractor;
 use crate::parser::cell_extractor;
 use std::path::{Path, PathBuf};
 
-/// Check if a seller name looks garbled (failed extraction).
-/// Used to trigger fallback even when seller_name is non-empty
-/// but clearly wrong (e.g., contains the label itself or is too short).
-fn is_likely_garbled_seller(name: &str) -> bool {
-    let trimmed = name.trim();
-    // Too short to be a real company name (Chinese company names are typically 4+ chars)
-    if trimmed.chars().count() < 3 {
-        return true;
-    }
-    // Contains the label itself — extraction got "名称：" but not the actual name
-    if trimmed.contains("名称：") || trimmed.contains("名称:") {
-        return true;
-    }
-    // Contains only punctuation, whitespace, or common label characters
-    if trimmed.chars().all(|c| {
-        c.is_whitespace() || "名称：:，,。.、；;（）()".contains(c)
-    }) {
-        return true;
-    }
-    // Cipher field contamination — Chinese company names never contain < or >.
-    // These characters come from invoice anti-forgery cipher fields (防伪码)
-    // like "7*>+8-86923<505329>4-9*20-4" that get merged into the seller name
-    // when pdfplumber's word merging mixes columns.
-    if trimmed.contains('<') || trimmed.contains('>') {
-        return true;
-    }
-    // Multi-line mixing — a legitimate seller name is a single line.
-    // Newlines indicate words from different Y-rows were incorrectly merged.
-    if trimmed.contains('\n') || trimmed.contains('\r') {
-        return true;
-    }
-    // Label artifact detection — if the name contains single-char label tokens
-    // (购/买/售/销/方/密) as separate whitespace-delimited words, it's likely
-    // column mixing from pdfplumber's word merging.
-    let label_chars = "购买售销方密";
-    let words: Vec<&str> = trimmed.split_whitespace().collect();
-    if words
-        .iter()
-        .any(|w| w.chars().count() == 1 && w.chars().all(|c| label_chars.contains(c)))
-    {
-        return true;
-    }
-    false
-}
+
 
 /// 从行程单解析出的行程明细集合
 #[derive(Debug, Clone, serde::Serialize)]
@@ -90,34 +47,22 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                     eprintln!("  [pdfplumber] 列感知提取 {} 个文本项, {} 个原始Word, {} 页表格", items.len(), extraction.raw_words.len(), extraction.tables.len());
                     (items, Some(extraction.raw_words), Some(extraction.tables))
                 } else {
-                    eprintln!("  [pdfplumber] 文本不足，回退到 parangi/OCR");
-                    let fallback = extract_text(pdf_path, engine)?;
+                    eprintln!("  [pdfplumber] 文本不足，回退到 OCR");
+                    let fallback = extract_ocr_text_only(pdf_path, engine)?;
                     (fallback, None, None)
                 }
             }
             Err(e) => {
-                eprintln!("  [pdfplumber] 失败: {}，回退到 parangi/OCR", e);
-                let fallback = extract_text(pdf_path, engine)?;
+                eprintln!("  [pdfplumber] 失败: {}，回退到 OCR", e);
+                let fallback = extract_ocr_text_only(pdf_path, engine)?;
                 (fallback, None, None)
             }
         }
     };
     #[cfg(not(feature = "pdfplumber"))]
-    let text_items = extract_text(pdf_path, engine)?;
+    let text_items = extract_ocr_text_only(pdf_path, engine)?;
 
-    // 乱码检测：pdfplumber 对 CID 字体 PDF 可能输出乱码（如铁路电子客票），
-    // 检测到乱码时回退到 parangi（有 UCS2 CMap 回退，能正确提取 CID 字体）
-    let text_items = if text_extractor::is_garbled_items(&text_items, 0.3) {
-        eprintln!("  [pdfplumber] 检测到CID乱码，回退到parangi");
-        match text_extractor::extract_text_from_pdf(pdf_path) {
-            Ok(parangi_items) if !text_extractor::is_garbled_items(&parangi_items, 0.3) => {
-                parangi_items
-            }
-            _ => text_items, // parangi 也乱码或失败，保留原结果走后续解析/OCR
-        }
-    } else {
-        text_items
-    };
+
 
     // 先检查文档类型 — 行程单/结账单不应走发票解析
     let doc_type = classify_pdf_document_type(&text_items);
@@ -137,7 +82,7 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                     let cell_fields = cell_extractor::extract_fields_from_tables(tables);
                     if invoice.seller_name.is_empty() {
                         if let Some(seller) = cell_fields.seller_name {
-                            if !is_likely_garbled_seller(&seller) {
+                            if seller.chars().count() >= 4 {
                                 eprintln!("  [cell] seller补全: {}", seller);
                                 invoice.seller_name = seller;
                             }
@@ -166,7 +111,7 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                     }
                     // 单元格提取后如果 seller + invoice_number 都有效，直接返回
                     if !invoice.seller_name.is_empty()
-                        && !is_likely_garbled_seller(&invoice.seller_name)
+                        && invoice.seller_name.chars().count() >= 4
                         && !invoice.invoice_number.is_empty()
                     {
                         return Ok(invoice);
@@ -184,7 +129,7 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                 if let Ok(words) = words_result {
                     // 1. 坐标 seller 提取
                     let seller = layout_extractor::extract_seller_by_raw_coords(&words);
-                    if !seller.is_empty() && !is_likely_garbled_seller(&seller) {
+                    if !seller.is_empty() && seller.chars().count() >= 4 {
                         invoice.seller_name = seller;
                     }
 
@@ -195,91 +140,16 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
                         }
                     }
 
-                    // 3. 如果 seller 和 invoice_number 都有效，直接返回（不走 parangi/OCR）
+                    // 3. 如果 seller 和 invoice_number 都有效，直接返回
                     if !invoice.seller_name.is_empty()
-                        && !is_likely_garbled_seller(&invoice.seller_name)
+                        && invoice.seller_name.chars().count() >= 4
                         && !invoice.invoice_number.is_empty()
                     {
                         return Ok(invoice);
                     }
                 }
             }
-            // seller 或 invoice_number 仍缺失 — 尝试 parangi 纯文本交叉验证（比 OCR 快得多）
-            let needs_seller = invoice.seller_name.is_empty() || is_likely_garbled_seller(&invoice.seller_name);
-            let needs_invoice_number = invoice.invoice_number.is_empty();
-            if needs_seller || needs_invoice_number {
-                eprintln!("  [parangi] 交叉验证: seller_needed={}, invoice_number_needed={}", needs_seller, needs_invoice_number);
-                if let Ok(parangi_items) = text_extractor::extract_text_from_pdf(pdf_path) {
-                    if !text_extractor::is_garbled_items(&parangi_items, 0.3) {
-                        let parangi_doc_type = classify_pdf_document_type(&parangi_items);
-                        if parangi_doc_type == PdfDocumentType::Invoice {
-                            if let Ok(parangi_invoice) =
-                                parse_invoice_text(&parangi_items, source.clone())
-                            {
-                                // 合并：从 parangi 补全缺失字段，保留坐标提取的有效字段
-                                if needs_seller
-                                    && !parangi_invoice.seller_name.is_empty()
-                                    && !is_likely_garbled_seller(&parangi_invoice.seller_name)
-                                {
-                                    invoice.seller_name = parangi_invoice.seller_name.clone();
-                                    eprintln!("  [parangi] seller补全: {}", invoice.seller_name);
-                                }
-                                if needs_invoice_number
-                                    && !parangi_invoice.invoice_number.is_empty()
-                                {
-                                    invoice.invoice_number = parangi_invoice.invoice_number.clone();
-                                    eprintln!("  [parangi] invoice_number补全: {}", invoice.invoice_number);
-                                }
-                                // 日期补全：pdfplumber 多栏合并可能导致日期解析失败（默认 1970-01-01）
-                                if invoice.date == chrono::NaiveDate::default()
-                                    && parangi_invoice.date != chrono::NaiveDate::default()
-                                {
-                                    invoice.date = parangi_invoice.date;
-                                    eprintln!("  [parangi] date补全: {}", invoice.date);
-                                }
-                                // 坐标提取的 amount 更可靠（多栏布局），但若为 0 则用 parangi 的
-                                if invoice.amount <= 0.0 && parangi_invoice.amount > 0.0 {
-                                    invoice.amount = parangi_invoice.amount;
-                                }
-                                // pdfplumber 多栏可能丢失备注区域 → hotel_detail 为 None/nights=1
-                                // parangi 正确提取时覆盖
-                                let pdf_nights = invoice.hotel_detail.as_ref().map(|d| d.nights).unwrap_or(1);
-                                let parangi_nights = parangi_invoice.hotel_detail.as_ref().map(|d| d.nights).unwrap_or(1);
-                                if parangi_nights > 1 && pdf_nights <= 1 {
-                                    invoice.hotel_detail = parangi_invoice.hotel_detail.clone();
-                                    eprintln!("  [parangi] hotel_detail补全: nights={}", parangi_nights);
-                                }
-                                // 如果 seller 现在有效，返回合并结果
-                                if !invoice.seller_name.is_empty()
-                                    && !is_likely_garbled_seller(&invoice.seller_name)
-                                {
-                                    eprintln!("  [parangi] 交叉验证完成");
-                                    return Ok(invoice);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // parangi 也未命中 — 尝试 zpdf（Form XObject 中的文字，带坐标）
-            if let Ok(z_items) = text_extractor::extract_text_with_zpdf(pdf_path) {
-                eprintln!("  [zpdf] 交叉验证: {} 个文本项", z_items.len());
-                if let Ok(z_invoice) = parse_invoice_text(&z_items, source.clone()) {
-                    if !z_invoice.seller_name.is_empty()
-                        && !is_likely_garbled_seller(&z_invoice.seller_name)
-                    {
-                        eprintln!("  [zpdf] seller补全: {}", z_invoice.seller_name);
-                        invoice.seller_name = z_invoice.seller_name;
-                        if invoice.amount <= 0.0 && z_invoice.amount > 0.0 {
-                            invoice.amount = z_invoice.amount;
-                        }
-                        if invoice.invoice_number.is_empty() && !z_invoice.invoice_number.is_empty() {
-                            invoice.invoice_number = z_invoice.invoice_number;
-                        }
-                        return Ok(invoice);
-                    }
-                }
-            }
+
             // OCR 回退
             // ponytail: OCR 不可用时返回文字提取结果（invoice_number/amount 通常已正确），
             // 而非硬报错。升级路径=安装 OCR 模型后自动走 OCR 补全 seller。
@@ -296,19 +166,6 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
             check_and_parse(ocr_items, source)
         }
         Err(_) => {
-            // 解析失败 — 尝试 zpdf（Form XObject 中的文字）
-            match text_extractor::extract_text_with_zpdf(pdf_path) {
-                Ok(z_items) => {
-                    eprintln!("  [zpdf] 提取到 {} 个文本项（parse失败回退）", z_items.len());
-                    let z_doc_type = classify_pdf_document_type(&z_items);
-                    if z_doc_type != PdfDocumentType::Itinerary && z_doc_type != PdfDocumentType::Bill {
-                        if let Ok(invoice) = check_and_parse(z_items, source.clone()) {
-                            return Ok(invoice);
-                        }
-                    }
-                }
-                Err(e) => eprintln!("  [zpdf] 失败: {}", e),
-            }
             // OCR 回退
             if !engine.health().unwrap_or(false) {
                 return Err("文字提取解析失败，且 OCR 模型未安装".to_string());
@@ -324,30 +181,12 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<
     }
 }
 
-fn extract_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
-    match text_extractor::extract_text_from_pdf(pdf_path) {
-        Ok(items) if text_extractor::has_sufficient_text(&items, 20) => {
-            eprintln!("  [parangi] 提取到 {} 个文本项", items.len());
-            Ok(items)
-        }
-        Ok(items) => {
-            eprintln!("  [parangi] 文本不足 ({} 字符)，回退到 OCR", items.iter().map(|i| i.text.len()).sum::<usize>());
-            // ponytail: OCR 不可用时返回不足的文本，让后续解析尝试（可能部分成功）
-            if !engine.health().unwrap_or(false) {
-                return Ok(items);
-            }
-            let resp = engine.recognize_pdf(pdf_path)?;
-            Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
-        }
-        Err(e) => {
-            eprintln!("  [parangi] 失败: {}，回退到 OCR", e);
-            if !engine.health().unwrap_or(false) {
-                return Err(format!("文字提取失败且 OCR 不可用: {}", e));
-            }
-            let resp = engine.recognize_pdf(pdf_path)?;
-            Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
-        }
+fn extract_ocr_text_only(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
+    if !engine.health().unwrap_or(false) {
+        return Err("OCR 模型未安装".to_string());
     }
+    let resp = engine.recognize_pdf(pdf_path)?;
+    Ok(resp.pages.iter().flat_map(|p| p.texts.clone()).collect())
 }
 
 fn extract_ocr_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrPageResult>, String> {
@@ -355,7 +194,7 @@ fn extract_ocr_text(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate:
     Ok(resp.pages)
 }
 
-/// 带坐标的文字提取：优先使用 pdfplumber（feature-gated），回退到 parangi/OCR
+/// 带坐标的文字提取：优先使用 pdfplumber（feature-gated），回退到 OCR
 #[cfg(feature = "pdfplumber")]
 pub fn extract_text_with_coords_or_fallback(
     pdf_path: &str,
@@ -367,8 +206,8 @@ pub fn extract_text_with_coords_or_fallback(
             Ok(items)
         }
         _ => {
-            eprintln!("  [pdfplumber] 不可用或无文本，回退到 parangi/OCR");
-            extract_text(pdf_path, engine)
+            eprintln!("  [pdfplumber] 不可用或无文本，回退到 OCR");
+            extract_ocr_text_only(pdf_path, engine)
         }
     }
 }
@@ -378,7 +217,7 @@ pub fn extract_text_with_coords_or_fallback(
     pdf_path: &str,
     engine: &mut OcrEngine,
 ) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
-    extract_text(pdf_path, engine)
+    extract_ocr_text_only(pdf_path, engine)
 }
 
 /// 解析单个发票图片：OCR 识别后分类检查
@@ -436,7 +275,6 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
                             }
                             let mut text_result = parse_itinerary_text(&flat_texts);
                             if !text_result.is_empty() {
-                                cross_validate_amounts(&mut text_result, &flat_texts);
                                 let fb_text: String = flat_texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
                                 enrich_itinerary_years(&mut text_result, &fb_text);
                                 if !has_incomplete_entries(&text_result) {
@@ -462,31 +300,27 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
                     }
                     return build_itinerary_doc(itineraries, &flat_texts, pdf_path);
                 }
-                eprintln!("  [pdfplumber] 文本不足，回退到 parangi/OCR");
+                eprintln!("  [pdfplumber] 文本不足，回退到 OCR");
             }
             Err(e) => {
-                eprintln!("  [pdfplumber] 失败: {}，回退到 parangi/OCR", e);
+                eprintln!("  [pdfplumber] 失败: {}，回退到 OCR", e);
             }
         }
     }
 
-    // 回退路径：parangi/OCR（无坐标，纯文本）
-    let texts = extract_text(pdf_path, engine)?;
-    let doc_type = classify_pdf_document_type(&texts);
+    // 回退路径：OCR（无 pdfplumber 时）
+    let ocr_pages = extract_ocr_text(pdf_path, engine)?;
+    let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
+    let doc_type = classify_pdf_document_type(&ocr_items);
     if doc_type != PdfDocumentType::Itinerary && doc_type != PdfDocumentType::Invoice {
         return Err(format!("非行程单类型: {:?}", doc_type));
     }
 
-    // 无坐标 — 走 OCR 获取坐标用于表格重建
-    let ocr_pages = extract_ocr_text(pdf_path, engine)?;
-    let mut itineraries = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&texts));
+    let mut itineraries = parse_itinerary_with_coords_pages_and_fallback(&ocr_pages, Some(&ocr_items));
 
-    // 坐标解析有结果时保留——即使部分条目时间乱码（OCR 质量问题），
-    // 坐标解析的起点/终点/金额仍远优于纯文本回退。
-    // 仅当坐标解析完全无结果时才回退到纯文本。
     if itineraries.is_empty() {
-        eprintln!("  [parangi/OCR] 坐标解析无结果，尝试纯文本回退");
-        itineraries = parse_itinerary_text(&texts);
+        eprintln!("  [OCR] 坐标解析无结果，尝试纯文本回退");
+        itineraries = parse_itinerary_text(&ocr_items);
     }
 
     if itineraries.is_empty() {
@@ -495,23 +329,16 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
     if has_incomplete_entries(&itineraries) {
         eprintln!("  [警告] 部分行程有时间字段不完整（OCR 乱码），已保留其余完整条目");
     }
-    build_itinerary_doc(itineraries, &texts, pdf_path)
+    build_itinerary_doc(itineraries, &ocr_items, pdf_path)
 }
 
-/// 构建 ItineraryDoc，提取印制合计金额并交叉验证
+/// 构建 ItineraryDoc
 fn build_itinerary_doc(
     mut itineraries: Vec<Itinerary>,
-    texts: &[crate::ocr::OcrTextItem],
+    _texts: &[crate::ocr::OcrTextItem],
     pdf_path: &str,
 ) -> Result<ItineraryDoc, String> {
     compute_incomplete_fields(&mut itineraries);
-    let printed_total = extract_itinerary_printed_total(texts);
-    if let Some(pt) = printed_total {
-        cross_validate_with_printed_total(&mut itineraries, pt);
-        let file_name = Path::new(pdf_path).file_name()
-            .unwrap_or_default().to_string_lossy().to_string();
-        return Ok(ItineraryDoc { file_name, itineraries, total_amount: pt, printed_total: Some(pt) });
-    }
     let total_amount: f64 = itineraries.iter().map(|i| i.amount).sum();
     let file_name = Path::new(pdf_path).file_name()
         .unwrap_or_default().to_string_lossy().to_string();

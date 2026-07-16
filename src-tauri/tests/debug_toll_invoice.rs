@@ -2,7 +2,6 @@
 /// 运行: cargo test --test debug_toll_invoice debug_toll_invoice_real -- --nocapture --ignored
 use invoice_reimbursement_lib::ocr::OcrEngine;
 use invoice_reimbursement_lib::pdf::invoice_pipeline::parse_invoice_from_pdf;
-use invoice_reimbursement_lib::pdf::text_extractor::{classify_pdf_document_type, extract_text_from_pdf, has_sufficient_text};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
 
@@ -15,39 +14,8 @@ fn debug_toll_invoice_real() {
     println!("=== 高速通行费发票识别调试 ===");
     println!("文件: {}", TOLL_PDF);
 
-    // 1. 先看 parangi 文字提取结果
-    println!("\n--- Step 1: parangi 文字提取 ---");
-    let text_items = match extract_text_from_pdf(TOLL_PDF) {
-        Ok(items) => {
-            println!("提取到 {} 条文本", items.len());
-            println!("sufficient_text(20): {}", has_sufficient_text(&items, 20));
-            for (i, t) in items.iter().enumerate() {
-                println!("  [{}] '{}'", i, t.text);
-            }
-            items
-        }
-        Err(e) => {
-            println!("parangi 提取失败: {}", e);
-            Vec::new()
-        }
-    };
-
-    // 2. 文档类型分类
-    println!("\n--- Step 2: 文档类型分类 ---");
-    let doc_type = classify_pdf_document_type(&text_items);
-    println!("分类结果: {:?}", doc_type);
-
-    // 3. 直接用 parse_invoice_text 解析 parangi 文本
-    if !text_items.is_empty() {
-        println!("\n--- Step 3: parse_invoice_text (parangi 文本) ---");
-        match parse_invoice_text(&text_items, InvoiceSource::Pdf("toll.pdf".to_string())) {
-            Ok(inv) => print_invoice(&inv),
-            Err(e) => println!("解析失败: {}", e),
-        }
-    }
-
-    // 4. 用实际 pipeline 解析（含 OCR 回退）
-    println!("\n--- Step 4: 完整 pipeline (parse_invoice_from_pdf) ---");
+    // 1. 用实际 pipeline 解析（含 OCR 回退）
+    println!("\n--- Step 1: 完整 pipeline (parse_invoice_from_pdf) ---");
     let mut engine = match OcrEngine::new(MODELS_DIR) {
         Ok(e) => e,
         Err(e) => {
@@ -64,8 +32,8 @@ fn debug_toll_invoice_real() {
         Err(e) => println!("✗ pipeline 解析失败: {}", e),
     }
 
-    // 5. 单独看 OCR 原始输出（如果 pipeline 失败，这里帮助诊断）
-    println!("\n--- Step 5: OCR 原始输出 ---");
+    // 2. 单独看 OCR 原始输出（如果 pipeline 失败，这里帮助诊断）
+    println!("\n--- Step 2: OCR 原始输出 ---");
     match engine.recognize_pdf(TOLL_PDF) {
         Ok(resp) => {
             println!("OCR 页数: {}", resp.pages.len());
@@ -77,8 +45,8 @@ fn debug_toll_invoice_real() {
                 }
             }
 
-            // 6. 用 OCR 文本再跑一次 parse_invoice_text
-            println!("\n--- Step 6: parse_invoice_text (OCR 文本) ---");
+            // 3. 用 OCR 文本再跑一次 parse_invoice_text
+            println!("\n--- Step 3: parse_invoice_text (OCR 文本) ---");
             let ocr_items: Vec<_> = resp.pages.iter().flat_map(|p| p.texts.clone()).collect();
             match parse_invoice_text(&ocr_items, InvoiceSource::Pdf("toll.pdf".to_string())) {
                 Ok(inv) => print_invoice(&inv),

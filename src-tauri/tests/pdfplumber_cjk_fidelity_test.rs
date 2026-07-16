@@ -17,14 +17,6 @@ fn normalize_text(text: &str) -> String {
         .collect()
 }
 
-/// Extract text via parangi, normalize, and return.
-fn extract_parangi(path: &Path) -> Result<String, String> {
-    match parangi::extract_text(path) {
-        Ok(text) => Ok(normalize_text(&text)),
-        Err(e) => Err(format!("parangi error: {:?}", e)),
-    }
-}
-
 /// Extract text via pdfplumber, normalize, and return.
 /// Uses catch_unwind to handle panics on problematic PDFs (e.g. CID font parsing).
 fn extract_pdfplumber(path: &Path) -> Result<String, String> {
@@ -52,74 +44,31 @@ fn extract_pdfplumber(path: &Path) -> Result<String, String> {
     Ok(normalize_text(&all_text))
 }
 
-/// Compute character-level mismatch rate between two normalized strings.
-///
-/// To isolate character-level garbling from layout ordering differences
-/// (parangi and pdfplumber may produce different reading orders for
-/// multi-column CJK PDFs), we first sort the characters in each string.
-/// The comparison is then position-by-position on the sorted strings:
-/// compares up to min length, counts remaining chars as mismatches.
-///
-/// Returns mismatch_count / max(len_a, len_b).
-fn mismatch_rate(a: &str, b: &str) -> f64 {
-    let mut a_sorted: Vec<char> = a.chars().collect();
-    let mut b_sorted: Vec<char> = b.chars().collect();
-    a_sorted.sort_unstable();
-    b_sorted.sort_unstable();
-
-    let max_len = a_sorted.len().max(b_sorted.len());
-    if max_len == 0 {
-        return 0.0;
-    }
-
-    let min_len = a_sorted.len().min(b_sorted.len());
-    let mut mismatches = 0usize;
-
-    for (ca, cb) in a_sorted.iter().zip(b_sorted.iter()) {
-        if ca != cb {
-            mismatches += 1;
-        }
-    }
-
-    // Remaining characters (from the longer string) are all mismatches
-    mismatches += (a_sorted.len() - min_len) + (b_sorted.len() - min_len);
-
-    mismatches as f64 / max_len as f64
-}
-
-/// Compare a single PDF using both extractors. Returns (parangi_text, pdfplumber_text, mismatch_rate).
-fn compare_extraction(pdf_path: &Path) -> (String, String, f64) {
-    let parangi_text = extract_parangi(pdf_path).unwrap_or_else(|e| {
-        eprintln!("  [WARN] parangi failed: {}", e);
-        String::new()
-    });
-
-    let pdfplumber_text = extract_pdfplumber(pdf_path).unwrap_or_else(|e| {
+/// Extract text via pdfplumber only. Returns (text, 0.0) — 0.0 is a dummy placeholder
+/// since there is no longer a reference extractor to compare against.
+fn compare_extraction(pdf_path: &Path) -> (String, f64) {
+    let text = extract_pdfplumber(pdf_path).unwrap_or_else(|e| {
         eprintln!("  [WARN] pdfplumber failed: {}", e);
         String::new()
     });
-
-    let rate = mismatch_rate(&parangi_text, &pdfplumber_text);
-    (parangi_text, pdfplumber_text, rate)
+    (text, 0.0)
 }
 
-/// Shared test runner: find a PDF, run comparison, assert mismatch < threshold.
+/// Shared test runner: find a PDF, run pdfplumber extraction, assert non-empty result.
 fn run_fidelity_test(
     pdf_name: &str,
-    pdf_search: Option<&str>, // glob fragment for read_dir search (e.g. "dzfp_", "飞猪")
-    threshold: f64,
-    results: &mut Vec<(String, usize, usize, f64)>,
+    pdf_search: Option<&str>,
+    results: &mut Vec<(String, usize, f64)>,
 ) {
     let base_dir = Path::new("../data/发票与行程单");
 
     // Determine the actual PDF path
     let pdf_path = if let Some(search) = pdf_search {
-        // Search via read_dir
         let dir = match std::fs::read_dir(base_dir) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("  [SKIP] Cannot read directory {:?}: {}", base_dir, e);
-                results.push((pdf_name.to_string(), 0, 0, 1.0));
+                results.push((pdf_name.to_string(), 0, 1.0));
                 return;
             }
         };
@@ -138,16 +87,15 @@ fn run_fidelity_test(
 
         if found.is_empty() {
             eprintln!("  [SKIP] No file containing '{}' found in {:?}", search, base_dir);
-            results.push((format!("{}* (NOT FOUND)", search), 0, 0, 1.0));
+            results.push((format!("{}* (NOT FOUND)", search), 0, 1.0));
             return;
         }
         found[0].clone()
     } else {
-        // Exact filename
         let path = base_dir.join(pdf_name);
         if !path.exists() {
             eprintln!("  [SKIP] {} not found at {:?}", pdf_name, path);
-            results.push((pdf_name.to_string(), 0, 0, 1.0));
+            results.push((pdf_name.to_string(), 0, 1.0));
             return;
         }
         path
@@ -159,34 +107,19 @@ fn run_fidelity_test(
         .unwrap_or_else(|| pdf_name.to_string());
 
     eprintln!("  Testing: {}", display_name);
-    let (p_text, pp_text, rate) = compare_extraction(&pdf_path);
+    let (text, _rate) = compare_extraction(&pdf_path);
 
     results.push((
         display_name.clone(),
-        p_text.chars().count(),
-        pp_text.chars().count(),
-        rate,
+        text.chars().count(),
+        0.0,
     ));
 
-    // Diagnostic output
-    eprintln!(
-        "    parangi chars: {}, pdfplumber chars: {}, mismatch: {:.2}%",
-        p_text.chars().count(),
-        pp_text.chars().count(),
-        rate * 100.0
-    );
-
-    if rate > threshold {
-        eprintln!("    WARN: mismatch rate {:.2}% exceeds threshold {:.2}%", rate * 100.0, threshold * 100.0);
-        eprintln!("    First 100 chars (parangi):    {:?}", &p_text.chars().take(100).collect::<String>());
-        eprintln!("    First 100 chars (pdfplumber): {:?}", &pp_text.chars().take(100).collect::<String>());
-    }
+    eprintln!("    pdfplumber chars: {}", text.chars().count());
 
     assert!(
-        rate <= threshold,
-        "mismatch rate {:.2}% exceeds threshold {:.2}% for {}",
-        rate * 100.0,
-        threshold * 100.0,
+        !text.is_empty(),
+        "pdfplumber returned empty text for {}",
         display_name
     );
 }
@@ -196,35 +129,33 @@ fn run_fidelity_test(
 #[test]
 fn test_cjk_fidelity_didi_invoice() {
     let mut results = Vec::new();
-    run_fidelity_test("滴滴电子发票A.pdf", None, 0.05, &mut results);
+    run_fidelity_test("滴滴电子发票A.pdf", None, &mut results);
 }
 
 #[test]
 fn test_cjk_fidelity_vat_invoice() {
     let mut results = Vec::new();
-    run_fidelity_test("dzfp_ (glob)", Some("dzfp_"), 0.05, &mut results);
+    run_fidelity_test("dzfp_ (glob)", Some("dzfp_"), &mut results);
 }
 
 #[test]
 fn test_cjk_fidelity_itinerary() {
     let mut results = Vec::new();
-    run_fidelity_test("天府通电子行程单.pdf", None, 0.05, &mut results);
+    run_fidelity_test("天府通电子行程单.pdf", None, &mut results);
 }
 
 #[test]
 fn test_cjk_fidelity_flight_ticket() {
     let mut results = Vec::new();
-    run_fidelity_test("飞猪 (glob)", Some("飞猪"), 0.05, &mut results);
+    run_fidelity_test("飞猪 (glob)", Some("飞猪"), &mut results);
 }
 
 // ─── Summary test ───────────────────────────────────────────────────────────
 
 #[test]
 fn test_cjk_fidelity_summary() {
-    let mut results: Vec<(String, usize, usize, f64)> = Vec::new();
-    let threshold = 0.05;
+    let mut results: Vec<(String, usize, f64)> = Vec::new();
 
-    // Run all tests (exact filenames from data directory listing)
     let test_cases: Vec<(&str, Option<&str>)> = vec![
         ("滴滴电子发票A.pdf", None),
         ("dzfp_ (glob)", Some("dzfp_")),
@@ -233,42 +164,31 @@ fn test_cjk_fidelity_summary() {
     ];
 
     for (name, search) in &test_cases {
-        run_fidelity_test(name, *search, threshold, &mut results);
+        run_fidelity_test(name, *search, &mut results);
     }
 
     // Print summary table
     println!();
-    println!("=== CJK Fidelity Summary ===");
-    println!("{:<32} {:>8} {:>11} {:>10}", "PDF", "parangi", "pdfplumber", "mismatch");
-    println!("{:-<32}-{:-<8}-{:-<11}-{:-<10}", "", "", "", "");
+    println!("=== pdfplumber CJK Extraction Summary ===");
+    println!("{:<32} {:>11}", "PDF", "pdfplumber");
+    println!("{:-<32}-{:-<11}", "", "");
 
     let mut all_ok = true;
-    for (name, p_count, pp_count, rate) in &results {
-        if *p_count == 0 && *pp_count == 0 {
-            println!("{:<32} {:>8} {:>11} {:>10}", name, "SKIP", "SKIP", "SKIP");
+    for (name, pp_count, _rate) in &results {
+        if *pp_count == 0 {
+            println!("{:<32} {:>11}", name, "SKIP");
+            all_ok = false;
             continue;
         }
-        let ok = *rate <= threshold;
-        if !ok {
-            all_ok = false;
-        }
-        let marker = if ok { " " } else { " FAIL" };
-        println!(
-            "{:<32} {:>8} {:>11} {:>8.1}%{}",
-            name,
-            p_count,
-            pp_count,
-            rate * 100.0,
-            marker
-        );
+        println!("{:<32} {:>11}", name, pp_count);
     }
     println!();
 
     if all_ok {
-        println!("All CJK fidelity tests PASSED (threshold: {:.0}%)", threshold * 100.0);
+        println!("All pdfplumber CJK extraction tests PASSED");
     } else {
-        println!("Some CJK fidelity tests FAILED (threshold: {:.0}%)", threshold * 100.0);
+        println!("Some pdfplumber CJK extraction tests FAILED (empty text)");
     }
 
-    assert!(all_ok, "One or more CJK fidelity tests exceeded the {:.0}% mismatch threshold", threshold * 100.0);
+    assert!(all_ok, "One or more pdfplumber CJK extraction tests returned empty text");
 }

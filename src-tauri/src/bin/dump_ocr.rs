@@ -1,5 +1,4 @@
 use invoice_reimbursement_lib::ocr::OcrEngine;
-use invoice_reimbursement_lib::pdf::text_extractor::extract_text_from_pdf;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -9,15 +8,7 @@ fn main() {
     }
     let pdf_path = &args[1];
 
-    println!("=== parangi 纯文本 ===");
-    match extract_text_from_pdf(pdf_path) {
-        Ok(items) => {
-            for (i, item) in items.iter().enumerate() {
-                println!("  [{}] {}", i, item.text);
-            }
-        }
-        Err(e) => println!("失败: {}", e),
-    }
+    println!("=== OCR 文本 ===");
 
     let mut engine = OcrEngine::new("models").expect("OCR init failed");
     match engine.recognize_pdf(pdf_path) {

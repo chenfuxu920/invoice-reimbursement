@@ -1,12 +1,10 @@
-//! 诊断工具：对 data 目录下每个 PDF 逐一测试 4 个文本提取库，
-//! 报告各自的成功/失败、文本长度、乱码率、首段文本。
+//! 诊断工具：对 data 目录下每个 PDF 逐一测试 pdfplumber 文本提取，
+//! 报告成功/失败、文本长度、乱码率、首段文本。
 //!
 //! 用法: test_pdf_libs [pdf_dir]  (默认 data 目录)
 //! 构建: cargo run --release --bin test_pdf_libs
 
-use invoice_reimbursement_lib::pdf::text_extractor::{
-    extract_text_with_zpdf, is_garbled_text,
-};
+use invoice_reimbursement_lib::pdf::text_extractor::is_garbled_text;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -33,15 +31,6 @@ impl LibResult {
     }
 }
 
-/// parangi 独立测试
-fn test_parangi(path: &Path) -> LibResult {
-    let t = Instant::now();
-    match parangi::extract_text(path) {
-        Ok(text) => LibResult::ok("parangi", text, t.elapsed().as_millis()),
-        Err(e) => LibResult::fail("parangi", format!("{:?}", e), t.elapsed().as_millis()),
-    }
-}
-
 /// pdfplumber 独立测试（带坐标，flatten 为纯文本）
 #[cfg(feature = "pdfplumber")]
 fn test_pdfplumber(path: &str) -> LibResult {
@@ -59,18 +48,6 @@ fn test_pdfplumber(path: &str) -> LibResult {
 #[cfg(not(feature = "pdfplumber"))]
 fn test_pdfplumber(_path: &str) -> LibResult {
     LibResult::fail("pdfplumber", "feature disabled".to_string(), 0)
-}
-
-/// zpdf 独立测试（Form XObject 遍历）
-fn test_zpdf(path: &str) -> LibResult {
-    let t = Instant::now();
-    match extract_text_with_zpdf(path) {
-        Ok(items) => {
-            let text: String = items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join(" ");
-            LibResult::ok("zpdf", text, t.elapsed().as_millis())
-        }
-        Err(e) => LibResult::fail("zpdf", e, t.elapsed().as_millis()),
-    }
 }
 
 /// 递归收集目录下所有 PDF
@@ -100,18 +77,8 @@ fn process_pdf(path: &Path) -> Vec<LibResult> {
 
     let mut results = Vec::new();
 
-    // parangi
-    let r = test_parangi(path);
-    print_result(&r);
-    results.push(r);
-
     // pdfplumber
     let r = test_pdfplumber(&path_str);
-    print_result(&r);
-    results.push(r);
-
-    // zpdf
-    let r = test_zpdf(&path_str);
     print_result(&r);
     results.push(r);
 
@@ -163,7 +130,7 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
 
     // 统计：每个库的成功数、乱码数、总字符数
     let mut stats: std::collections::HashMap<&str, (usize, usize, usize)> = std::collections::HashMap::new();
-    for lib in &["parangi", "pdfplumber", "zpdf"] {
+    for lib in &["pdfplumber"] {
         stats.insert(lib, (0, 0, 0));
     }
 
@@ -196,12 +163,10 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
     println!("╠═══════════════╪═══════════╪═══════╪════════╪═══════════════════╣");
 
     let total = pdfs.len();
-    for lib in &["parangi", "pdfplumber", "zpdf"] {
+    for lib in &["pdfplumber"] {
         let s = stats.get(lib).unwrap_or(&(0, 0, 0));
         let desc = match *lib {
-            "parangi" => "PDFBox移植, CJK",
             "pdfplumber" => "坐标感知, Word级",
-            "zpdf" => "Form XObject+渲染",
             _ => "",
         };
         println!("║ {:<13} │ {:>3}/{:<5}  │ {:>5} │ {:>6} │ {} ║", lib, s.0, total, s.1, s.2, desc);
@@ -210,7 +175,7 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
 
     // ── 哪些 PDF 只有特定库能提取 ──
     println!("\n── 独占成功（某库是唯一能提取的）──");
-    let libs = ["parangi", "pdfplumber", "zpdf"];
+    let libs = ["pdfplumber"];
     let mut any_exclusive = false;
     for (name, results) in &all_results {
         let ok_libs: Vec<&str> = results.iter().filter(|r| r.ok).map(|r| r.lib).collect();

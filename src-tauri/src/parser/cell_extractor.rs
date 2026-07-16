@@ -130,10 +130,6 @@ fn extract_seller_value(text: &str) -> Option<String> {
             return Some(name.to_string());
         }
     }
-    // 格式2：公司名在"名称："之前 — 用公司名后缀模式提取
-    if let Some(name) = crate::parser::invoice_parser::extract_company_name_fallback(text) {
-        return Some(name);
-    }
     // 回退：复用 invoice_parser 的 extract_seller_name
     let seller = crate::parser::invoice_parser::extract_seller_name(text);
     if seller.is_empty() {

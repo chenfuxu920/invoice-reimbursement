@@ -1,4 +1,4 @@
-//! 诊断工具：对目录下每个 PDF 同时输出 pdfplumber(带坐标) 与 parangi(纯文本) 提取结果，
+//! 诊断工具：对目录下每个 PDF 输出 pdfplumber(带坐标) 提取结果，
 //! 并分别用 parse_invoice_text 解析，便于交叉核对当前发票提取错误。
 //!
 //! 用法: dump_extraction <pdf_dir>
@@ -7,7 +7,7 @@
 use invoice_reimbursement_lib::models::invoice::{Invoice, InvoiceSource};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::pdf::text_extractor::{
-    classify_pdf_document_type, extract_text_from_pdf, has_sufficient_text, is_garbled_items, PdfDocumentType,
+    classify_pdf_document_type, has_sufficient_text, is_garbled_items, PdfDocumentType,
 };
 use invoice_reimbursement_lib::ocr::OcrTextItem;
 use std::path::Path;
@@ -88,20 +88,7 @@ fn process_pdf(path: &Path) {
     println!("FILE: {}", name);
     println!("================================================================");
 
-    // parangi 纯文本
-    let parangi_items = match extract_text_from_pdf(&path_str) {
-        Ok(items) => items,
-        Err(e) => {
-            println!("[parangi] 失败: {}", e);
-            Vec::new()
-        }
-    };
-    print_items("parangi (纯文本)", &parangi_items);
-    println!("  parangi 文本充足(>=20): {}", has_sufficient_text(&parangi_items, 20));
-    println!("  parangi 乱码检测: {}", is_garbled_items(&parangi_items, 0.3));
-    println!("  分类(parangi): {}", doc_type_str(&classify_pdf_document_type(&parangi_items)));
     let src = InvoiceSource::Pdf(path_str.clone());
-    print_invoice("解析(parangi)", &parse_invoice_text(&parangi_items, src.clone()));
 
     #[cfg(feature = "pdfplumber")]
     {

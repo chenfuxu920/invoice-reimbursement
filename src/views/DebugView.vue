@@ -27,10 +27,6 @@
           <span class="text-blue-600">pdfplumber</span>
         </label>
         <label class="flex items-center gap-1 text-sm">
-          <input type="checkbox" v-model="showZpdf" class="accent-green-500">
-          <span class="text-green-600">zpdf</span>
-        </label>
-        <label class="flex items-center gap-1 text-sm">
           <input type="checkbox" v-model="showOcr" class="accent-red-500">
           <span class="text-red-600">OCR</span>
         </label>
@@ -120,7 +116,7 @@
     </p>
 
     <!-- 日志面板 -->
-    <div v-if="logs.pdfplumber.length || logs.zpdf.length || logs.ocr.length" class="mt-4">
+    <div v-if="logs.pdfplumber.length || logs.ocr.length" class="mt-4">
       <button @click="showLogs = !showLogs"
         class="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
         <span>{{ showLogs ? '▼' : '▶' }}</span>
@@ -129,7 +125,7 @@
       <div v-if="showLogs" class="bg-gray-900 rounded-lg border mt-2">
         <!-- 引擎 tab -->
         <div class="flex border-b border-gray-700">
-          <button v-for="eng in (['pdfplumber', 'zpdf', 'ocr'] as const)" :key="eng"
+          <button v-for="eng in (['pdfplumber', 'ocr'] as const)" :key="eng"
             @click="activeLogTab = eng"
             class="px-3 py-1.5 text-xs font-mono transition-colors"
             :class="activeLogTab === eng ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-200'">
@@ -190,7 +186,6 @@ interface DebugPage {
   width: number
   height: number
   pdfplumber: DebugTextItem[]
-  zpdf: DebugTextItem[]
   ocr: DebugTextItem[]
   lines: DebugLine[]
   rects: DebugRect[]
@@ -198,7 +193,6 @@ interface DebugPage {
 }
 interface DebugLogs {
   pdfplumber: string[]
-  zpdf: string[]
   ocr: string[]
 }
 interface DebugTextResult {
@@ -208,7 +202,6 @@ interface DebugTextResult {
 
 const ENGINE_COLOR_HEX = {
   pdfplumber: '#2563eb',
-  zpdf: '#16a34a',
   ocr: '#dc2626',
 }
 
@@ -220,7 +213,6 @@ const currentPage = ref(0)
 const displayWidth = ref(900)
 
 const showPdfplumber = ref(true)
-const showZpdf = ref(true)
 const showOcr = ref(true)
 const showShapes = ref(true)
 const showCells = ref(true)
@@ -231,8 +223,8 @@ const hoveredCell = ref(-1)
 const stageRef = ref<HTMLElement | null>(null)
 const hoverPos = ref({ x: 0, y: 0 })
 
-const logs = ref<DebugLogs>({ pdfplumber: [], zpdf: [], ocr: [] })
-const activeLogTab = ref<'pdfplumber' | 'zpdf' | 'ocr'>('pdfplumber')
+const logs = ref<DebugLogs>({ pdfplumber: [], ocr: [] })
+const activeLogTab = ref<'pdfplumber' | 'ocr'>('pdfplumber')
 const showLogs = ref(false)
 
 // 拖动状态：每个引擎独立的偏移量（按 engine+index 标识）
@@ -280,7 +272,6 @@ const visibleBoxes = computed<VisibleBox[]>(() => {
     }
   }
   if (showPdfplumber.value) push(p.pdfplumber, 'pdfplumber')
-  if (showZpdf.value) push(p.zpdf, 'zpdf')
   if (showOcr.value) push(p.ocr, 'ocr')
   return out
 })
@@ -431,13 +422,13 @@ async function pickPdf() {
     currentPage.value = 0
     dragOffsets.value = {}
     selectedShape.value = ''
-    logs.value = { pdfplumber: [], zpdf: [], ocr: [] }
+    logs.value = { pdfplumber: [], ocr: [] }
     const result = await invoke<DebugTextResult>('debug_extract_texts', {
       filePath,
       dpi: 200,
     })
     pages.value = result.pages
-    logs.value = result.logs ?? { pdfplumber: [], zpdf: [], ocr: [] }
+    logs.value = result.logs ?? { pdfplumber: [], ocr: [] }
     if (!result.pages.length) error.value = '未提取到任何页面'
   } catch (e) {
     error.value = String(e)

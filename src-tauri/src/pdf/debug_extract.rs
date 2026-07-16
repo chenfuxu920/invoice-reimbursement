@@ -58,7 +58,6 @@ pub struct DebugPage {
     pub width: u32,
     pub height: u32,
     pub pdfplumber: Vec<DebugTextItem>,
-    pub zpdf: Vec<DebugTextItem>,
     pub ocr: Vec<DebugTextItem>,
     pub lines: Vec<DebugLine>,
     pub rects: Vec<DebugRect>,
@@ -69,7 +68,6 @@ pub struct DebugPage {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DebugLogs {
     pub pdfplumber: Vec<String>,
-    pub zpdf: Vec<String>,
     pub ocr: Vec<String>,
 }
 
@@ -87,7 +85,6 @@ pub fn debug_extract_texts(
     ocr_engine: Option<&mut OcrEngine>,
 ) -> Result<DebugTextResult, String> {
     let mut logs_pdfplumber: Vec<String> = Vec::new();
-    let mut logs_zpdf: Vec<String> = Vec::new();
     let mut logs_ocr: Vec<String> = Vec::new();
 
     // 1. 渲染各页为图片 → base64
@@ -96,7 +93,6 @@ pub fn debug_extract_texts(
     let page_count = images.len();
     let render_log = format!("[渲染] DPI={dpi} 页数={page_count} 耗时={:.0}ms", render_start.elapsed().as_millis());
     logs_pdfplumber.push(render_log.clone());
-    logs_zpdf.push(render_log.clone());
     logs_ocr.push(render_log);
 
     // 2. pdfplumber 原始 word（PDF 点坐标），按页分组
@@ -129,26 +125,7 @@ pub fn debug_extract_texts(
     let cells_total: usize = cells_by_page.iter().map(|v| v.len()).sum();
     logs_pdfplumber.push(format!("[表格] cells={cells_total}"));
 
-    // 3. zpdf 文字（PDF 点坐标，已 y-down），按页分组
-    let zpdf_start = std::time::Instant::now();
-    let zpdf_by_page = match extract_zpdf_by_page(pdf_path, page_count) {
-        Ok(pages) => {
-            let total: usize = pages.iter().map(|v| v.len()).sum();
-            logs_zpdf.push(format!("[提取] zpdf spans={total} 耗时={:.0}ms", zpdf_start.elapsed().as_millis()));
-            for (i, items) in pages.iter().enumerate() {
-                if !items.is_empty() {
-                    logs_zpdf.push(format!("[页{i}] {} spans", items.len()));
-                }
-            }
-            pages
-        }
-        Err(e) => {
-            logs_zpdf.push(format!("[提取] zpdf 失败: {e} → 降级为空"));
-            vec![Vec::new(); page_count]
-        }
-    };
-
-    // 4. OCR（200DPI 像素坐标），按页分组
+    // 3. OCR（200DPI 像素坐标），按页分组
     let ocr_by_page = if let Some(engine) = ocr_engine {
         let ocr_start = std::time::Instant::now();
         match extract_ocr_by_page(engine, pdf_path, page_count) {
@@ -194,16 +171,6 @@ pub fn debug_extract_texts(
                         h: (bottom - top) * scale_pt,
                         confidence: 1.0,
                     })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let zpdf: Vec<DebugTextItem> = zpdf_by_page
-            .get(i)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|it| parse_box_to_debug(it, scale_pt))
                     .collect()
             })
             .unwrap_or_default();
@@ -269,7 +236,6 @@ pub fn debug_extract_texts(
             width: w,
             height: h,
             pdfplumber,
-            zpdf,
             ocr,
             lines,
             rects,
@@ -281,7 +247,6 @@ pub fn debug_extract_texts(
         pages,
         logs: DebugLogs {
             pdfplumber: logs_pdfplumber,
-            zpdf: logs_zpdf,
             ocr: logs_ocr,
         },
     })
@@ -428,61 +393,6 @@ fn extract_pdfplumber_tables_by_page(
     page_count: usize,
 ) -> Vec<Vec<(f64, f64, f64, f64, String)>> {
     vec![Vec::new(); page_count]
-}
-
-/// zpdf 文字按页分组。extract_text_with_zpdf 返回扁平 Vec<OcrTextItem>，
-/// 无页码字段，按顺序无法分页——这里内联按页提取。
-fn extract_zpdf_by_page(
-    pdf_path: &str,
-    page_count: usize,
-) -> Result<Vec<Vec<OcrTextItem>>, String> {
-    // ponytail: 复用 extract_text_with_zpdf 会丢失页码分组，内联按页提取
-    use zpdf::{ContentInterpreter, ImageCache, PdfDocument};
-
-    let data = std::fs::read(pdf_path).map_err(|e| format!("读取 PDF 失败: {}", e))?;
-    let doc = PdfDocument::open(data).map_err(|e| format!("解析 PDF 失败: {:?}", e))?;
-
-    let mut by_page: Vec<Vec<OcrTextItem>> = Vec::with_capacity(page_count);
-    for i in 0..page_count {
-        let page = doc
-            .page(i)
-            .map_err(|e| format!("获取页面 {} 失败: {:?}", i, e))?;
-        let mut fonts = doc.load_page_fonts(&page);
-        let mut img_cache = ImageCache::new();
-        let content = doc
-            .page_content_bytes(&page)
-            .map_err(|e| format!("获取页面 {} 内容失败: {:?}", i, e))?;
-
-        let mut spans: Vec<zpdf::TextSpan> = Vec::new();
-        let page_rect = page.effective_box();
-        let _ = ContentInterpreter::new(page_rect)
-            .with_page_rotation(page.rotate)
-            .with_fonts(&mut fonts)
-            .with_document(doc.file(), &page.resources)
-            .with_images(&mut img_cache)
-            .with_text_sink(&mut spans)
-            .interpret(&content);
-
-        let mut items = Vec::new();
-        for span in &spans {
-            let text = span.text.trim();
-            if !text.is_empty() {
-                let x0 = span.x;
-                let y_top = page_rect.y1 - (span.y + span.size as f64);
-                let x1 = span.x + span.advance;
-                let y_bottom = page_rect.y1 - span.y;
-                items.push(OcrTextItem {
-                    text: text.to_string(),
-                    confidence: 1.0,
-                    box_coords: Some(crate::ocr::engine::bbox_to_json(
-                        x0, y_top, x1, y_bottom, 1.0,
-                    )),
-                });
-            }
-        }
-        by_page.push(items);
-    }
-    Ok(by_page)
 }
 
 /// OCR 按页分组（recognize_pdf 返回 OcrPdfResponse { pages: [{page, texts}] }）

@@ -122,8 +122,8 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
         return itineraries;
     }
 
-    // 格式4：回退，找 ¥ 金额
-    parse_fallback_format(&all_text)
+    // 格式4：回退（无匹配）
+    itineraries
 }
 
 /// 利用 OCR 坐标信息解析行程单表格（通用，不限于天府通）
@@ -153,7 +153,6 @@ pub fn parse_itinerary_with_coords_pages_and_fallback(
     }
     if !all.is_empty() {
         if let Some(fb) = fallback_texts {
-            cross_validate_amounts(&mut all, fb);
             // 用 fallback 文本（含行程单顶部时间区间）补全无年份的行程 date_time
             let fb_text: String = fb.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
             enrich_itinerary_years(&mut all, &fb_text);
@@ -842,192 +841,6 @@ pub fn enrich_itinerary_years(entries: &mut [Itinerary], all_text: &str) {
     }
 }
 
-pub fn cross_validate_amounts(entries: &mut [Itinerary], fallback_texts: &[OcrTextItem]) {
-    let all_text: String = fallback_texts
-        .iter()
-        .map(|t| t.text.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let ref_amounts = extract_reference_amounts_ordered(&all_text);
-    if !ref_amounts.is_empty() && ref_amounts.len() == entries.len() {
-        for (i, entry) in entries.iter_mut().enumerate() {
-            let ref_amt = ref_amounts[i];
-            if ref_amt > 0.0 && (entry.amount - ref_amt).abs() > 0.005 {
-                entry.amount = ref_amt;
-            }
-        }
-    }
-
-    let ref_providers = extract_reference_providers_ordered(&all_text);
-    if !ref_providers.is_empty() && ref_providers.len() == entries.len() {
-        for (i, entry) in entries.iter_mut().enumerate() {
-            let ref_pv = &ref_providers[i];
-            if !ref_pv.is_empty()
-                && (entry.provider.is_empty()
-                    || entry.provider.chars().all(|c| c.is_ascii_digit())
-                    || entry.provider.chars().count() <= 1
-                    || ref_pv.starts_with(&entry.provider.as_str()))
-            {
-                entry.provider = ref_pv.clone();
-            }
-        }
-    }
-
-    let ref_times = extract_reference_times_ordered(&all_text);
-    if !ref_times.is_empty() && ref_times.len() == entries.len() {
-        for (i, entry) in entries.iter_mut().enumerate() {
-            if is_time_garbled(&entry.date_time) {
-                entry.date_time = ref_times[i].clone();
-            }
-        }
-    }
-}
-
-fn extract_reference_amounts_ordered(all_text: &str) -> Vec<f64> {
-    let mut results = Vec::new();
-
-    let re_didi = Regex::new(
-        r"(?m)^\d+\s+\S+\s+\d{2}-\d{2}\s+\d{1,2}[:：].*?([\d.]+)\s*$"
-    ).unwrap();
-    for cap in re_didi.captures_iter(all_text) {
-        if let Ok(amount) = cap[1].parse::<f64>() {
-            results.push(amount);
-        }
-    }
-
-    if !results.is_empty() {
-        return results;
-    }
-
-    let re_gaode = Regex::new(
-        r"(?m)(?:^|\n)\d+\s+\S+.*?([\d.]+)元"
-    ).unwrap();
-    for cap in re_gaode.captures_iter(all_text) {
-        if let Ok(amount) = cap[1].parse::<f64>() {
-            results.push(amount);
-        }
-    }
-
-    results
-}
-
-fn extract_reference_providers_ordered(all_text: &str) -> Vec<String> {
-    let re_didi_main = Regex::new(
-        r"(?m)^(\d+)\s+(\S+)\s+\d{2}-\d{2}\s+\d{1,2}[:：]"
-    ).unwrap();
-    let re_didi_cont = Regex::new(
-        r"^\s*(轻享|特快|甄选|快车)\s"
-    ).unwrap();
-
-    let main_matches: Vec<(u32, String)> = re_didi_main
-        .captures_iter(all_text)
-        .filter_map(|cap| {
-            let seq: u32 = cap[1].parse().ok()?;
-            let pv = cap[2].to_string();
-            Some((seq, pv))
-        })
-        .collect();
-
-    if !main_matches.is_empty() {
-        let cont_suffixes: HashMap<u32, String> = {
-            let mut map = HashMap::new();
-            let lines: Vec<&str> = all_text.lines().collect();
-            let mut last_seq: Option<u32> = None;
-            for line in &lines {
-                if let Some(cap) = re_didi_main.captures(line) {
-                    if let Ok(seq) = cap[1].parse::<u32>() {
-                        last_seq = Some(seq);
-                    }
-                    continue;
-                }
-                if let Some(cap) = re_didi_cont.captures(line) {
-                    if let Some(seq) = last_seq {
-                        map.insert(seq, cap[1].to_string());
-                    }
-                }
-            }
-            map
-        };
-
-        let mut results = Vec::new();
-        for (seq, main_pv) in &main_matches {
-            if let Some(suffix) = cont_suffixes.get(seq) {
-                results.push(format!("{}{}", main_pv, suffix));
-            } else {
-                results.push(main_pv.clone());
-            }
-        }
-        return results;
-    }
-
-    let mut results = Vec::new();
-    let re_gaode = Regex::new(
-        r"(?m)^\d+\s+(\S+)\s+(\S+)\s+\d{4}-\d{2}-\d{2}"
-    ).unwrap();
-    for cap in re_gaode.captures_iter(all_text) {
-        results.push(format!("{}{}", &cap[1], &cap[2]));
-    }
-
-    results
-}
-
-fn extract_reference_times_ordered(all_text: &str) -> Vec<String> {
-    let mut results = Vec::new();
-
-    let re_main = Regex::new(
-        r"(?m)^(\d+)\s+\S+\s+(\d{2}-\d{2})\s+(\d{1,2})(:\d{2})?[:：]?"
-    ).unwrap();
-    let re_cont_min = Regex::new(
-        // ponytail: 2+ tokens to handle "39 周二" continuation lines (was 3+)
-        r"^(?:\S+\s+)?(\d{1,2})\s+\S+"
-    ).unwrap();
-
-    let lines: Vec<&str> = all_text.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        if let Some(cap) = re_main.captures(lines[i]) {
-            let date = &cap[2];
-            let hour = &cap[3];
-            let mut minutes = cap.get(4).map(|m| m.as_str().to_string());
-            if minutes.is_none() && i + 1 < lines.len() {
-                if let Some(cm) = re_cont_min.captures(lines[i + 1]) {
-                    let m = &cm[1];
-                    if m.len() <= 2 && m.parse::<u32>().map_or(false, |n| n < 60) {
-                        minutes = Some(format!(":{}", m));
-                    }
-                }
-            }
-            match minutes {
-                Some(m) => results.push(format!("{} {}{}", date, hour, m)),
-                None => results.push(format!("{} {}:??", date, hour)),
-            }
-        }
-        i += 1;
-    }
-
-    if !results.is_empty() {
-        return results;
-    }
-
-    let re_gaode = Regex::new(
-        r"(?m)^\d+\s+\S+\s+\S+\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})"
-    ).unwrap();
-    for cap in re_gaode.captures_iter(all_text) {
-        results.push(format!("{} {}", &cap[1], &cap[2]));
-    }
-
-    results
-}
-
-fn is_time_garbled(dt: &str) -> bool {
-    // 检查是否为合法的日期+时间格式（允许短格式 "MM-DD HH:MM" 和完整格式 "YYYY-MM-DD HH:MM"）
-    // 只有真正乱码的时间（OCR 错误如 "成都A428"、"042708"）才需替换
-    let re_valid = Regex::new(r"\d{1,2}:\d{2}").unwrap();
-    let re_short = Regex::new(r"\d{2}-\d{2}\s+\d{1,2}:\d{2}").unwrap();
-    let re_full = Regex::new(r"\d{2,4}-\d{2}-\d{2}").unwrap();
-    !(re_short.is_match(dt) || (re_full.is_match(dt) && re_valid.is_match(dt)))
-}
 
 fn extract_pickup(text: &str) -> String {
     let re_tft = Regex::new(r"进站[：:]\s*([^\s~出]+)").unwrap();
@@ -1178,131 +991,6 @@ fn extract_trailing_numbers(line: &str) -> Vec<f64> {
     numbers
 }
 
-fn parse_fallback_format(text: &str) -> Vec<Itinerary> {
-    let mut results = Vec::new();
-    let re_amount = Regex::new(r"[¥￥]\s*([\d.]+)").unwrap();
-    // ponytail: pdfplumber 列感知输出金额无 ¥ 前缀，兜底匹配独立数字行
-    let re_plain_amount = Regex::new(r"^\s*([\d.]+)\s*$").unwrap();
-    let re_time_full = Regex::new(r"(\d{2}-\d{2}\s+\d{1,2}:\d{2})").unwrap();
-    let re_time_single = Regex::new(r"(\d{1,2}:\d{2})").unwrap();
-
-    let lines: Vec<&str> = text.lines().collect();
-
-    // 回退金额匹配：先找 ¥，找不到则取独立数字行（排除里程、序号等非金额数字）
-    let find_amount = |i: usize| -> Option<f64> {
-        // 优先 ¥ 标记
-        if let Some(c) = re_amount.captures(lines[i]) {
-            return c[1].parse().ok().filter(|&a: &f64| a > 0.0);
-        }
-        // 兜底：纯数字行，但排除紧接另一个纯数字行的（保留最后一个，即金额而非里程）
-        if let Some(c) = re_plain_amount.captures(lines[i]) {
-            let val: f64 = c[1].parse().ok()?;
-            // 排除小整数（序号 1,2,3...），金额必有小数或较大值
-            if val < 1.0 || val > 100000.0 || (val.fract() == 0.0 && val < 100.0) {
-                return None;
-            }
-            // 检查下一行：如果也是独立数字，跳过（当前是里程）
-            if i + 1 < lines.len() && re_plain_amount.is_match(lines[i + 1]) {
-                return None;
-            }
-            return Some(val);
-        }
-        None
-    };
-
-    for i in 0..lines.len() {
-        if let Some(amount) = find_amount(i) {
-                // 先看同一行
-                let time = re_time_full
-                    .captures(lines[i])
-                    .map(|c| c[1].to_string())
-                    .or_else(|| re_time_single.captures(lines[i]).map(|c| c[1].to_string()));
-
-                // 同行没找到，向上最多回看 6 行找时间
-                let time = time.unwrap_or_else(|| {
-                    for j in (0..i).rev().take(6) {
-                        if let Some(c) = re_time_full.captures(lines[j]) {
-                            return c[1].to_string();
-                        }
-                        if let Some(c) = re_time_single.captures(lines[j]) {
-                            return c[1].to_string();
-                        }
-                    }
-                    String::new()
-                });
-
-                results.push(Itinerary {
-                    date_time: time,
-                    provider: String::new(),
-                    pickup: String::new(),
-                    dropoff: String::new(),
-                    amount,
-                    incomplete_fields: Vec::new(),
-                });
-            }
-        }
-    results
-}
-
-/// 从行程单 OCR 文本中提取印制的"合计"总金额
-/// 格式示例:
-///   滴滴: "合计 100.00 元"或"合计：100.00"
-///   高德: "合计金额：100.00"
-///   天府通: "合计 3.00 元"
-pub fn extract_itinerary_printed_total(texts: &[OcrTextItem]) -> Option<f64> {
-    let all_text: String = texts
-        .iter()
-        .map(|t| t.text.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    // 格式1: "合计 XXX.XX 元"或"合计XXX.XX元"（滴滴/天府通）
-    let re1 = regex::Regex::new(r"合计\s*([\d,]+\.\d{2})\s*元").unwrap();
-    if let Some(cap) = re1.captures(&all_text) {
-        let amount_str = cap[1].replace(',', "");
-        if let Ok(amount) = amount_str.parse::<f64>() {
-            if amount > 0.0 {
-                return Some(amount);
-            }
-        }
-    }
-
-    // 格式2: "合计金额：XXX.XX"或"合计：XXX.XX"（高德）
-    let re2 = regex::Regex::new(r"合计[金额]*[：:]\s*([\d,]+\.\d{2})").unwrap();
-    if let Some(cap) = re2.captures(&all_text) {
-        let amount_str = cap[1].replace(',', "");
-        if let Ok(amount) = amount_str.parse::<f64>() {
-            if amount > 0.0 {
-                return Some(amount);
-            }
-        }
-    }
-
-    None
-}
-
-/// 用行程单印制的合计金额交叉验证并修正单条 OCR 行程金额
-/// 当 OCR 累加和 != 合计金额时，按比例分摊差额到各条行程
-pub fn cross_validate_with_printed_total(entries: &mut [Itinerary], printed_total: f64) {
-    if entries.is_empty() {
-        return;
-    }
-    let ocr_sum: f64 = entries.iter().map(|e| e.amount).sum();
-    if ocr_sum <= 0.0 || printed_total <= 0.0 {
-        return;
-    }
-    let diff = (printed_total - ocr_sum).abs();
-    // 如果差额很小（<0.5元），认为是浮点舍入，不修正
-    if diff < 0.5 {
-        // 将所有金额统一到合计金额的小数位精度
-        return;
-    }
-    // 按比例分摊差额
-    let ratio = printed_total / ocr_sum;
-    for entry in entries.iter_mut() {
-        entry.amount = (entry.amount * ratio * 100.0).round() / 100.0;
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1342,16 +1030,6 @@ mod tests {
         assert_eq!(result[0].amount, 35.0);
         assert_eq!(result[0].provider, "滴滴出行");
         assert_eq!(result[1].amount, 28.5);
-    }
-
-    #[test]
-    fn test_parse_fallback_format() {
-        let texts = vec![
-            make_text_item("行程1 09:30 ¥35.00"),
-            make_text_item("行程2 14:20 ¥28.50"),
-        ];
-        let result = parse_itinerary_text(&texts);
-        assert!(!result.is_empty());
     }
 
     #[test]
@@ -1572,24 +1250,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_reference_times_cont_2tokens() {
-        let text = "1 特惠 06-23 09: 长沙 ... 41.7 51.30\n39 周二\n2 专车 07-03 17: 长沙 ... 25.1 114.10\n22 周五";
-        let result = extract_reference_times_ordered(text);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], "06-23 09:39");
-        assert_eq!(result[1], "07-03 17:22");
-    }
-
-    #[test]
-    fn test_extract_reference_times_cont_3tokens() {
-        let text = "1 专车 04-22 21: 成都 ... 60.6 195.37\n轻享 30 成都\n2 专车 04-25 08: 成都 ... 55.2 180.50\n8 成都";
-        let result = extract_reference_times_ordered(text);
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0], "04-22 21:30");
-        assert_eq!(result[1], "04-25 08:8");
-    }
-
-    #[test]
     fn test_complete_entry_is_valid() {
         let entries = vec![
             Itinerary { date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
@@ -1691,36 +1351,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fallback_with_split_time() {
-        // 模拟 column-aware 文本格式：每格一行，时间跨行
-        let texts = vec![
-            make_text_item("1"),
-            make_text_item("专车"),
-            make_text_item("06-07 20:"),
-            make_text_item("17 周日"),
-            make_text_item("长沙"),
-            make_text_item("芙蓉北路|..."),
-            make_text_item("¥195.37"),
-            make_text_item("2"),
-            make_text_item("专车"),
-            make_text_item("06-12 21:"),
-            make_text_item("41 周五"),
-            make_text_item("长沙"),
-            make_text_item("长沙火车站"),
-            make_text_item("¥114.10"),
-        ];
-        let result = parse_itinerary_text(&texts);
-        assert_eq!(result.len(), 2, "应解析出 2 条行程");
-        assert_eq!(result[0].amount, 195.37);
-        assert_eq!(result[1].amount, 114.10);
-        // 时间应已合并
-        assert!(!result[0].date_time.is_empty(), "时间不应为空");
-        assert!(!result[0].date_time.ends_with(':'), "时间不应以冒号结尾");
-        assert!(!result[1].date_time.is_empty(), "时间不应为空");
-        assert!(!result[1].date_time.ends_with(':'), "时间不应以冒号结尾");
-    }
-
-    #[test]
     fn test_parse_fallback_split_time_no_mins() {
         // 无冒号结尾的时间 — 不应错误合并
         let input = "06-07\n无分钟\n¥35.00";
@@ -1754,23 +1384,6 @@ mod tests {
         let merged = merge_split_times(input);
         assert!(merged.contains("06-07 20:17"), "word-level 应合并为 06-07 20:17，实际: {merged}");
         assert!(merged.contains("06-12 21:41"), "word-level 应合并为 06-12 21:41");
-    }
-
-    #[test]
-    fn test_parse_fallback_plain_amount_no_yen() {
-        // pdfplumber 列感知输出金额无 ¥ 前缀：纯数字行
-        let texts = vec![
-            make_text_item("06-07 20:17 周日"),
-            make_text_item("195.37"),
-            make_text_item("06-12 21:41 周五"),
-            make_text_item("114.10"),
-        ];
-        let result = parse_itinerary_text(&texts);
-        assert_eq!(result.len(), 2, "应解析出 2 条行程");
-        assert_eq!(result[0].amount, 195.37);
-        assert_eq!(result[1].amount, 114.10);
-        assert!(!result[0].date_time.is_empty());
-        assert!(!result[1].date_time.is_empty());
     }
 
     #[test]

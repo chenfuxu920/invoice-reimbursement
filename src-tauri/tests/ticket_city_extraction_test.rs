@@ -1,7 +1,7 @@
 /// 验证火车票/机票城市自动提取功能
-/// 直接使用 parangi 文本提取（无需 OCR），适合 Windows 无 pdftoppm 环境
+/// 使用 pdfplumber 文本提取（无需 OCR），适合 Windows 无 pdftoppm 环境
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
-use invoice_reimbursement_lib::pdf::text_extractor;
+use invoice_reimbursement_lib::pdf::text_extractor::{extract_pdf_column_aware, has_sufficient_text};
 
 #[test]
 fn test_extract_cities_from_real_tickets() {
@@ -17,13 +17,14 @@ fn test_extract_cities_from_real_tickets() {
         println!("--- {} ---", label);
         println!("  文件: {}", path);
 
-        // Step 1: 用 parangi 提取文本
-        match text_extractor::extract_text_from_pdf(path) {
-            Ok(items) => {
+        // Step 1: 用 pdfplumber 提取文本
+        match extract_pdf_column_aware(path) {
+            Ok(extraction) => {
+                let items: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
                 let char_count: usize = items.iter().map(|t| t.text.chars().count()).sum();
-                println!("  parangi 提取成功: {} 段文字, {} 字符", items.len(), char_count);
+                println!("  pdfplumber 提取成功: {} 段文字, {} 字符", items.len(), char_count);
 
-                if !text_extractor::has_sufficient_text(&items, 20) {
+                if !has_sufficient_text(&items, 20) {
                     println!("  ⚠ 文本不足 20 字符，跳过");
                     continue;
                 }
@@ -62,7 +63,7 @@ fn test_extract_cities_from_real_tickets() {
                 }
             }
             Err(e) => {
-                println!("  ✗ parangi 文本提取失败: {}", e);
+                println!("  ✗ pdfplumber 文本提取失败: {}", e);
             }
         }
         println!();
