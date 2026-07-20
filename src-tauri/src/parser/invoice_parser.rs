@@ -16,6 +16,19 @@ struct InvoiceRegions {
     remarks: String,     // 备注
 }
 
+/// 将全角数字 ０-９ 归一化为半角 0-9（不变其他字符）。
+/// 火车票等票据的日期/发票号常混用全角数字，使正则 `\d` 匹配失败。
+fn normalize_fullwidth_digits(s: &str) -> String {
+    s.chars().map(|c| {
+        if ('\u{FF10}'..='\u{FF19}').contains(&c) {
+            // 全角 ０ (U+FF10) → 半角 '0' (U+0030)
+            char::from_u32(c as u32 - 0xFF10 + 0x30).unwrap_or(c)
+        } else {
+            c
+        }
+    }).collect()
+}
+
 /// 从 OcrTextItem 提取 Y 坐标（取顶部），无坐标返回 f64::MAX
 fn item_top_y(item: &OcrTextItem) -> f64 {
     item.box_coords.as_ref()
@@ -39,6 +52,176 @@ fn sort_texts_by_position(texts: &[OcrTextItem]) -> Vec<&OcrTextItem> {
             .then_with(|| item_left_x(a).partial_cmp(&item_left_x(b)).unwrap_or(std::cmp::Ordering::Equal))
     });
     items
+}
+
+/// 将 OCR 文本项按 Y 坐标行分组，同行内的 item 按 X 排序后拼接（无间隔符），
+/// 行间用换行符分隔。用于修复 OCR 将同一行的日期/车次/金额等切碎为多个 item
+/// 导致正则无法跨 item 匹配的问题。
+fn line_group_text(items: &[&OcrTextItem]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+
+    // 计算平均行高作为 Y 容差
+    let heights: Vec<f64> = items
+        .iter()
+        .filter_map(|t| {
+            let pts = t.box_coords.as_ref()?;
+            let y0 = pts["points"][0]["y"].as_f64()?;
+            let y1 = pts["points"][2]["y"].as_f64()?;
+            Some(y1 - y0)
+        })
+        .collect();
+    let avg_h = if heights.is_empty() {
+        12.0
+    } else {
+        heights.iter().sum::<f64>() / heights.len() as f64
+    };
+    let y_tol = avg_h.max(6.0) * 0.6; // ponytail: max(6.0) 防零高度奇点
+
+    let mut groups: Vec<Vec<&OcrTextItem>> = vec![];
+    for item in items {
+        let item_y = item_top_y(item);
+        if item_y == f64::MAX {
+            groups.push(vec![item]);
+            continue;
+        }
+        if let Some(last) = groups.last_mut() {
+            let last_y = item_top_y(last[0]);
+            if (item_y - last_y).abs() <= y_tol {
+                last.push(item);
+                continue;
+            }
+        }
+        groups.push(vec![item]);
+    }
+
+    groups
+        .iter()
+        .map(|group| {
+            let mut sorted = group.to_vec();
+            sorted.sort_by(|a, b| {
+                item_left_x(a)
+                    .partial_cmp(&item_left_x(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            sorted
+                .iter()
+                .map(|t| t.text.as_str())
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// 从 OcrTextItem 的 box_coords 提取完整边界框：(x_min, x_max, y_min, y_max)
+fn item_bounds(item: &OcrTextItem) -> Option<(f64, f64, f64, f64)> {
+    let coords = item.box_coords.as_ref()?;
+    let pts = coords.get("points")?.as_array()?;
+    let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|v| v.as_f64())).collect();
+    let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+    if xs.is_empty() || ys.is_empty() {
+        return None;
+    }
+    let x_min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+    let x_max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let y_min = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+    let y_max = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    Some((x_min, x_max, y_min, y_max))
+}
+
+/// 将竖排标题的碎片 item 合并为完整标题。
+///
+/// 竖排标题（如"销售方信息"）被 pdfplumber/OCR 拆成多个独立单字，
+/// 合并后在 `split_into_regions` 中 `contains("销售方")` 即可命中。
+///
+/// 算法：
+/// 1. 调用 `layout_extractor::detect_vertical_titles_from_items` 检测竖排标题
+/// 2. 对每个标题，通过坐标匹配找到组成它的原始 item，替换为一个合成 item
+/// 3. 未参与竖排的 item 保持原样，按原序返回
+fn merge_vertical_chars(texts: &[OcrTextItem]) -> Vec<OcrTextItem> {
+    let titles = crate::parser::layout_extractor::detect_vertical_titles_from_items(texts);
+    if titles.is_empty() {
+        return texts.to_vec();
+    }
+
+    let mut used = vec![false; texts.len()];
+    let mut merged: Vec<OcrTextItem> = Vec::new();
+
+    for title in &titles {
+        // 找到构成该标题的原始 item
+        let mut title_items: Vec<(usize, f64)> = Vec::new(); // (index, y_center)
+        for (i, item) in texts.iter().enumerate() {
+            if used[i] {
+                continue;
+            }
+            if let Some((ix_min, ix_max, iy_min, iy_max)) = item_bounds(item) {
+                let x_center = (ix_min + ix_max) / 2.0;
+                let y_center = (iy_min + iy_max) / 2.0;
+                if x_center >= title.x_min
+                    && x_center <= title.x_max
+                    && y_center >= title.y_min
+                    && y_center <= title.y_max
+                {
+                    title_items.push((i, y_center));
+                }
+            }
+        }
+
+        if title_items.is_empty() {
+            continue;
+        }
+
+        // 标记已使用
+        for &(i, _) in &title_items {
+            used[i] = true;
+        }
+
+        // 计算合并边界框
+        let mut all_xs: Vec<f64> = Vec::new();
+        let mut all_ys: Vec<f64> = Vec::new();
+        for &(i, _) in &title_items {
+            if let Some((ix_min, ix_max, iy_min, iy_max)) = item_bounds(&texts[i]) {
+                all_xs.push(ix_min);
+                all_xs.push(ix_max);
+                all_ys.push(iy_min);
+                all_ys.push(iy_max);
+            }
+        }
+
+        let merged_coords = if !all_xs.is_empty() {
+            let x_min = all_xs.iter().cloned().fold(f64::INFINITY, f64::min);
+            let x_max = all_xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let y_min = all_ys.iter().cloned().fold(f64::INFINITY, f64::min);
+            let y_max = all_ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let avg_conf: f64 =
+                title_items.iter().map(|&(i, _)| texts[i].confidence).sum::<f64>()
+                    / title_items.len() as f64;
+            Some(crate::ocr::engine::bbox_to_json(x_min, y_min, x_max, y_max, avg_conf))
+        } else {
+            None
+        };
+
+        let avg_conf: f64 =
+            title_items.iter().map(|&(i, _)| texts[i].confidence).sum::<f64>()
+                / title_items.len() as f64;
+
+        merged.push(OcrTextItem {
+            text: title.text.clone(),
+            confidence: avg_conf,
+            box_coords: merged_coords,
+        });
+    }
+
+    // 按原序添加未参与竖排的 item
+    for (i, item) in texts.iter().enumerate() {
+        if !used[i] {
+            merged.push(item.clone());
+        }
+    }
+
+    merged
 }
 
 /// 将发票文本拆分为不同区域
@@ -108,7 +291,7 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
 }
 
 /// 从 OCR 文本中提取出发/到达城市（仅 Train/Flight 类发票）
-fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<String>, Option<String>) {
+pub(crate) fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<String>, Option<String>) {
     if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
         return (None, None);
     }
@@ -129,6 +312,23 @@ fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<Stri
                 r"[A-Z]+\d+\s*(\S{2,6}站)\s+(\S{2,6}站)"
             ).unwrap();
             if let Some(caps) = re_no_label.captures(text) {
+                if departure.is_none() {
+                    departure = Some(station_to_city(caps.get(1).unwrap().as_str()));
+                }
+                if arrival.is_none() {
+                    arrival = Some(station_to_city(caps.get(2).unwrap().as_str()));
+                }
+            }
+        }
+
+        // 火车票兜底2：pdfplumber word 级分割，站名和"站"后缀被拆到独立 word，
+        // 站名本身不含"站"。格式 "长沙南\n武汉\nG878"（两站名 + 车次分行）
+        // ponytail: 启发式，要求恰好两个 CJK 词后跟车次，避免匹配散落的单字噪声
+        if departure.is_none() || arrival.is_none() {
+            let re_split = Regex::new(
+                r"(\p{Unified_Ideograph}{2,6})\s+(\p{Unified_Ideograph}{2,6})\s+[A-Z]+\d+"
+            ).unwrap();
+            if let Some(caps) = re_split.captures(text) {
                 if departure.is_none() {
                     departure = Some(station_to_city(caps.get(1).unwrap().as_str()));
                 }
@@ -167,7 +367,7 @@ fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<Stri
 }
 
 /// 从票据 OCR 文本中提取票面实际出行日期（非开票日期）
-fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<NaiveDate> {
+pub(crate) fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<NaiveDate> {
     if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
         return None;
     }
@@ -194,6 +394,65 @@ fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<
         if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
             if date.year() >= 2020 && date.year() <= 2100 {
                 return Some(date);
+            }
+        }
+    }
+
+    // 格式2b/2c: Train 专用回退 — OCR 可能丢失冒号或小时数字
+    // "2025年11月15日 5:22开" (正常) / "2025年11月15日22开" (OCR 丢失 "5:")
+    if *category == InvoiceCategory::Train {
+        // 格式2b: 日+空格+HH:MM开
+        let re_cn_time = Regex::new(
+            r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(\d{1,2}):(\d{2})\s*开"
+        ).unwrap();
+        for caps in re_cn_time.captures_iter(text) {
+            let y: i32 = match caps.get(1)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let m: u32 = match caps.get(2)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let d: u32 = match caps.get(3)?.as_str().parse() { Ok(v) => v, _ => continue };
+            if m < 1 || m > 12 || d < 1 || d > 31 { continue; }
+            if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                if date.year() >= 2020 && date.year() <= 2100 {
+                    return Some(date);
+                }
+            }
+        }
+        // 格式2c: 日+时间数字+开（OCR 丢失冒号/小时）
+        let re_cn_nocolon = Regex::new(
+            r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(\d{2,4})\s*开"
+        ).unwrap();
+        for caps in re_cn_nocolon.captures_iter(text) {
+            let y: i32 = match caps.get(1)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let m: u32 = match caps.get(2)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let d: u32 = match caps.get(3)?.as_str().parse() { Ok(v) => v, _ => continue };
+            if m < 1 || m > 12 || d < 1 || d > 31 { continue; }
+            if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                if date.year() >= 2020 && date.year() <= 2100 {
+                    return Some(date);
+                }
+            }
+        }
+        // 格式2d: 月后有多余噪声数字（pdfplumber 将日期拆散→行分组拼接产生噪声）
+        // ponytail: 匹配"月+多位数+日+(可选冒号)+时间数字+开"，取最后1-2位数字作为日
+        let re_cn_noisy = Regex::new(
+            r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d+)\s*日\s*:?\s*(\d+)\s*开"
+        ).unwrap();
+        for caps in re_cn_noisy.captures_iter(text) {
+            let y: i32 = match caps.get(1)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let m: u32 = match caps.get(2)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let day_digits = caps.get(3)?.as_str();
+            for len in (1..=2).rev() {
+                if day_digits.len() >= len {
+                    let d_str = &day_digits[day_digits.len()-len..];
+                    if let Ok(d) = d_str.parse::<u32>() {
+                        if d >= 1 && d <= 31 {
+                            if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                                if date.year() >= 2020 && date.year() <= 2100 {
+                                    return Some(date);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -288,14 +547,25 @@ pub fn parse_invoice_text(
     texts: &[OcrTextItem],
     source: InvoiceSource,
 ) -> Result<Invoice, String> {
-    // 按坐标重排：先 Y（自上而下）再 X（从左到右）
-    let sorted_texts = sort_texts_by_position(texts);
+    // 竖排标题合并：将"销"/"售"/"方"/"信"/"息"等竖排单字合并为"销售方信息"，
+    // 使 split_into_regions 的 contains("销售方") 能命中
+    let vertical_titles =
+        crate::parser::layout_extractor::detect_vertical_titles_from_items(texts);
+    let merged_texts = merge_vertical_chars(texts);
+    let sorted_merged = sort_texts_by_position(&merged_texts);
 
-    let all_text: String = sorted_texts
+    let all_text: String = sorted_merged
         .iter()
         .map(|t| t.text.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    // ponytail: 全角数字 ０-９ → 半角 0-9，火车票等票据日期/发票号常混用全角，
+    // 导致正则 \d 匹配失败（"２０２５年1１月15日" → "2025年11月15日"）
+    let all_text = normalize_fullwidth_digits(&all_text);
+
+    // 行分组文本：OCR 可能把同一行的日期/车次切碎为多个 item，
+    // 按 Y 坐标分组并拼接后恢复完整行，供 travel_date 提取回退使用
+    let line_text = normalize_fullwidth_digits(&line_group_text(&sorted_merged));
 
     let regions = split_into_regions(&all_text);
 
@@ -313,10 +583,27 @@ pub fn parse_invoice_text(
     };
     let mut seller_name = extract_seller_name(&regions.seller);
     if seller_name.is_empty() {
+        // 优先用竖排标题坐标定位 seller（解决 buyer/seller 并排混淆）
+        seller_name = extract_seller_by_vertical_title(texts, &vertical_titles);
+    }
+    if seller_name.is_empty() {
         seller_name = extract_seller_by_coords(texts);
     }
     if seller_name.is_empty() {
         seller_name = extract_seller_name(&all_text);
+    }
+    if seller_name.is_empty()
+        || seller_name.contains("名称")
+        || seller_name.contains("售买")
+        || seller_name.contains('<')
+        || seller_name.contains('>')
+        || seller_name.contains('\n')  // 竖排合并可能导致 buyer/seller 文本混合在同一区域
+        || !seller_name.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c))
+        || seller_name.chars().filter(|c| c.is_ascii_digit()).count() >= 10
+    {
+        if let Some(name) = extract_company_name_fallback(&all_text) {
+            seller_name = name;
+        }
     }
 
     let item_name = extract_item_name(&regions.items);
@@ -387,6 +674,7 @@ pub fn parse_invoice_text(
         });
         Some(HotelDetail {
             nights,
+            nightly_rate: amount / nights.max(1) as f64,
             ..base_detail
         })
     } else {
@@ -395,7 +683,8 @@ pub fn parse_invoice_text(
 
     // 提取票据出发/到达城市（仅 Train/Flight 类发票）
     let (departure_city, arrival_city) = extract_ticket_cities(&all_text, &category);
-    let travel_date = extract_ticket_travel_date(&all_text, &category);
+    let travel_date = extract_ticket_travel_date(&all_text, &category)
+        .or_else(|| extract_ticket_travel_date(&line_text, &category));
 
     // 通行费发票"备注"二字常为竖排印刷，OCR 识别不到导致 remarks 区域为空。
     // 此时通过坐标从价税合计下方恢复备注文本。
@@ -475,7 +764,7 @@ fn resolve_year_for_stay(stay_month: u32, invoice_date: NaiveDate) -> i32 {
 
 /// 从备注栏解析 "共N天" 获取天数
 /// 支持 "共3天"、"共 3 天"（OCR分行后含空格）
-fn parse_nights_from_remarks(remarks: &str) -> Option<usize> {
+pub(crate) fn parse_nights_from_remarks(remarks: &str) -> Option<usize> {
     let re = Regex::new(r"共\s*(\d+)\s*天").ok()?;
     let caps = re.captures(remarks)?;
     caps.get(1)?.as_str().parse().ok()
@@ -500,7 +789,7 @@ fn extract_item_quantity(items_text: &str) -> Option<usize> {
 /// 支持多种日期格式：2026-04-27、2026年04月27日、2026/04/27、2026.04.27
 /// 无年份时（04-27、4月27日）使用发票日期年份补全
 /// 标签可能带有可选的中文/英文冒号
-fn extract_hotel_statement_detail(text: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
+pub(crate) fn extract_hotel_statement_detail(text: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
     let check_in = extract_labeled_date(text, "入住日期", invoice_date)?;
     let check_out = extract_labeled_date(text, "离店日期", invoice_date)?;
     let nights = (check_out - check_in).num_days().max(1) as usize;
@@ -870,9 +1159,11 @@ pub(crate) fn extract_amount(text: &str) -> Result<f64, String> {
 }
 
 pub(crate) fn extract_seller_name(text: &str) -> String {
-    // 精确匹配（原逻辑）
+    // 精确匹配（原逻辑）。取最后一个匹配——增值税发票全文中买方"名称：…统一社会信用代码"
+    // 先出现，卖方在后。用 .captures() 会命中买方；用 .captures_iter().last() 命中卖方。
+    // ponytail: 启发式，假设卖方在买方之后；若文本顺序反转需回退到下方容忍路径。
     let re = Regex::new(r"名称[：:]\s*(.+?)(?:\s+统一社会信用代码|\s+$)").unwrap();
-    if let Some(caps) = re.captures(text) {
+    if let Some(caps) = re.captures_iter(text).last() {
         let name = caps[1].trim();
         if !name.is_empty() && name.len() > 2 {
             return name.to_string();
@@ -912,6 +1203,21 @@ pub(crate) fn extract_seller_name(text: &str) -> String {
     String::new()
 }
 
+/// 公司名后缀模式回退：parangi 列交错文本中，正常"名称:"提取得到乱码时，
+/// 用公司名后缀（股份有限公司/有限责任公司/有限公司/公司）从全文匹配。
+/// 取最后一个匹配——销售方通常在买方之后，且买方常为非公司主体（个人/大学）。
+/// ponytail: 启发式，买方也是公司时可能取错；升级路径=用坐标区分买/卖方列。
+pub(crate) fn extract_company_name_fallback(text: &str) -> Option<String> {
+    let re = Regex::new(
+        r"([\u4e00-\u9fa5（）()]{2,40}(?:股份有限公司|有限责任公司|有限公司|公司))",
+    )
+    .unwrap();
+    re.captures_iter(text)
+        .filter_map(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
+        .filter(|n| n.chars().count() >= 3)
+        .last()
+}
+
 fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
     let re = Regex::new(r"名称[：:]\s*(\S.+)").unwrap();
     let mut best_x = 0.0f64;
@@ -940,6 +1246,96 @@ fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
         }
     }
     best_name
+}
+
+/// 通过竖排标题"销售方信息"的坐标定位并提取销售方名称。
+///
+/// 在全电发票（dzfp）中，销售方信息是竖排标题，"名称：某某公司"在其右侧。
+/// 此函数先在竖排标题列表中找到销售方标题，然后提取其右侧区域文本，
+/// 通过 `extract_seller_name` 或 `extract_company_name_fallback` 提取公司名。
+fn extract_seller_by_vertical_title(
+    texts: &[OcrTextItem],
+    titles: &[crate::parser::layout_extractor::VerticalTitle],
+) -> String {
+    // 找到 X 最大的 Seller 标题（销售方通常在右侧）
+    let seller_title = match titles
+        .iter()
+        .filter(|t| t.title_type == crate::parser::layout_extractor::VerticalTitleType::Seller)
+        .max_by(|a, b| a.x_max.partial_cmp(&b.x_max).unwrap())
+    {
+        Some(t) => t,
+        None => return String::new(),
+    };
+
+    // 计算容差
+    let heights: Vec<f64> = texts
+        .iter()
+        .filter_map(|t| {
+            let pts = t.box_coords.as_ref()?.get("points")?.as_array()?;
+            let ys: Vec<f64> =
+                pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+            if ys.len() < 2 {
+                return None;
+            }
+            let y0 = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+            let y1 = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            Some(y1 - y0)
+        })
+        .collect();
+    let avg_height = if heights.is_empty() { 12.0 } else {
+        heights.iter().sum::<f64>() / heights.len() as f64
+    };
+    let tol = avg_height.max(6.0) * 0.5;
+
+    // 收集标题右侧同 Y 区域的文本
+    let mut candidates: Vec<(f64, f64, String)> = Vec::new(); // (y_avg, x_center, text)
+    for item in texts {
+        let (ix_min, ix_max, iy_min, iy_max) = match item_bounds(item) {
+            Some(b) => b,
+            None => continue,
+        };
+        let x0 = ix_min;
+        let y_avg = (iy_min + iy_max) / 2.0;
+        let x_center = (ix_min + ix_max) / 2.0;
+
+        if x0 >= seller_title.x_max - tol
+            && y_avg >= seller_title.y_min - tol
+            && y_avg <= seller_title.y_max + tol
+        {
+            let text = item.text.trim();
+            if !text.is_empty() {
+                candidates.push((y_avg, x_center, text.to_string()));
+            }
+        }
+    }
+
+    // 按 Y 再 X 排序
+    candidates.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .unwrap()
+            .then(a.1.partial_cmp(&b.1).unwrap())
+    });
+
+    let combined: String = candidates
+        .iter()
+        .map(|(_, _, t)| t.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // 使用现有提取器
+    let seller = extract_seller_name(&combined);
+    if !seller.is_empty() && !crate::parser::layout_extractor::is_likely_buyer(&seller) {
+        return seller;
+    }
+
+    // 回退：公司名后缀匹配
+    if let Some(name) = extract_company_name_fallback(&combined) {
+        if !crate::parser::layout_extractor::is_likely_buyer(&name) {
+            return name;
+        }
+    }
+
+    String::new()
 }
 
 /// 从 box_coords 提取顶部 Y 坐标（points[0].y）
@@ -1405,6 +1801,19 @@ mod tests {
     }
 
     #[test]
+    fn test_extract_ticket_travel_date_train_ocr_output() {
+        // 模拟 OCR 对火车票的实际输出：travel_date 和 time 在同一行，
+        // OCR 可能丢失冒号和小时数字（"5:22开" → "22开"）
+        let text = "铁路电子客票）\n电子发票\n国家税务总局\n开票日期：2025年12月10日\n3湖北税务\n发票号码：25429165818005\n长沙南站\n武汉站\nG878\nChangshanan\nWuhan\n2025年11月15日22开08车09C号\n二等座\n票价：￥199.00\n36233019 96****50陈福\n";
+        let result = extract_ticket_travel_date(text, &InvoiceCategory::Train);
+        assert!(result.is_some(), "should extract travel_date, got None");
+        let date = result.unwrap();
+        assert_eq!(date.year(), 2025);
+        assert_eq!(date.month(), 11);
+        assert_eq!(date.day(), 15);
+    }
+
+    #[test]
     fn test_extract_ticket_cities_train() {
         let text = "出发站：北京南站\n到达站：上海虹桥站\n票价：553.00";
         let (dep, arr) = extract_ticket_cities(text, &InvoiceCategory::Train);
@@ -1550,6 +1959,16 @@ mod tests {
         let text = "名称：四川景澜酒店管理有限公司 统一社会信用代码";
         let result = extract_seller_name(text);
         assert_eq!(result, "四川景澜酒店管理有限公司");
+    }
+
+    #[test]
+    fn test_extract_seller_name_full_text_buyer_then_seller() {
+        // Bug: when called on &all_text fallback, first "名称：...统一社会信用代码"
+        // matches the BUYER (appears first in VAT invoice). Seller is the LAST match.
+        // Reproduces the parse_invoice_text fallback bug where buyer was returned.
+        let text = "名称：中国人民解放军国防科技大学系统工程学院 统一社会信用代码/纳税人识别号:91440000100017600N\n名称：成都博朗君悦酒店管理有限责任公司 统一社会信用代码/纳税人识别号:91510104MA7NKWHA7D";
+        let result = extract_seller_name(text);
+        assert_eq!(result, "成都博朗君悦酒店管理有限责任公司");
     }
 
     // ===== extract_date TDD tests =====

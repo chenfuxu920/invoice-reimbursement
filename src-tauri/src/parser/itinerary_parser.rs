@@ -122,8 +122,8 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
         return itineraries;
     }
 
-    // 格式4：回退（无匹配）
-    itineraries
+    // 格式4：回退，找 ¥ 金额
+    parse_fallback_format(&all_text)
 }
 
 /// 利用 OCR 坐标信息解析行程单表格（通用，不限于天府通）
@@ -153,6 +153,7 @@ pub fn parse_itinerary_with_coords_pages_and_fallback(
     }
     if !all.is_empty() {
         if let Some(fb) = fallback_texts {
+            cross_validate_amounts(&mut all, fb);
             // 用 fallback 文本（含行程单顶部时间区间）补全无年份的行程 date_time
             let fb_text: String = fb.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
             enrich_itinerary_years(&mut all, &fb_text);
@@ -228,12 +229,12 @@ enum SemanticCol {
 }
 
 const COL_KEYWORDS: &[(SemanticCol, &[&str])] = &[
-    (SemanticCol::Seq, &["序号"]),
-    (SemanticCol::Time, &["出行时间", "上车时间", "时间"]),
-    (SemanticCol::Pickup, &["起点", "进站"]),
-    (SemanticCol::Dropoff, &["终点", "出站"]),
+    (SemanticCol::Seq, &["序号", "序"]),
+    (SemanticCol::Time, &["出行时间", "上车时间", "时间", "时"]),
+    (SemanticCol::Pickup, &["起点", "进站", "起"]),
+    (SemanticCol::Dropoff, &["终点", "出站", "终"]),
     (SemanticCol::Amount, &["金额", "元"]),
-    (SemanticCol::Provider, &["服务商", "行程类型", "车型"]),
+    (SemanticCol::Provider, &["服务商", "行程类型", "车型", "型"]),
 ];
 
 /// 通用表格行程单解析
@@ -863,25 +864,25 @@ fn extract_dropoff(text: &str) -> String {
 }
 
 fn find_header(positioned: &[PositionedText]) -> Option<Vec<&PositionedText>> {
-    // 找到包含"序号"的块，用其 Y 坐标定位表头行
-    let seq_block = positioned.iter().find(|p| p.text.contains("序号"))?;
-    let header_y = seq_block.y;
-
-    // 收集 Y 坐标相近的所有块（±20像素视为同一行）
-    let header: Vec<&PositionedText> = positioned
-        .iter()
-        .filter(|p| (p.y - header_y).abs() <= 20.0)
-        .collect();
-
-    // 确认表头行包含至少"序号"和另一个关键列名
-    let text: String = header.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("");
-    if text.contains("序号")
-        && (text.contains("时间") || text.contains("金额") || text.contains("起点"))
-    {
-        Some(header)
-    } else {
-        None
+    // pdfplumber 把 CJK 拆成单字 word（"序号" → "序" + "号" 各自一个 word），
+    // 所以不能直接 .contains("序号")。改为遍历每个含"序"的块，验证整行表头。
+    for seq_block in positioned.iter().filter(|p| p.text.contains("序")) {
+        let header_y = seq_block.y;
+        // 收集 Y 坐标相近的所有块（±20像素视为同一行）
+        let header: Vec<&PositionedText> = positioned
+            .iter()
+            .filter(|p| (p.y - header_y).abs() <= 20.0)
+            .collect();
+        // 确认表头行包含"序"+"号"（拆分或连写都兼容）和另一个关键列名
+        let text: String = header.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("");
+        if text.contains("序")
+            && text.contains("号")
+            && (text.contains("时间") || text.contains("金额") || text.contains("起点"))
+        {
+            return Some(header);
+        }
     }
+    None
 }
 
 fn estimate_col_span_from_header(header: &[&PositionedText]) -> Option<f64> {
@@ -890,12 +891,20 @@ fn estimate_col_span_from_header(header: &[&PositionedText]) -> Option<f64> {
     }
     let mut xs: Vec<f64> = header.iter().map(|p| p.x).collect();
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let diffs: Vec<f64> = xs.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 10.0).collect();
+    let mut diffs: Vec<f64> = xs.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 10.0).collect();
     if diffs.is_empty() {
         return None;
     }
-    let min_diff = diffs.iter().cloned().fold(f64::INFINITY, f64::min);
-    Some(min_diff * 0.8)
+    // ponytail: 用中位数间距而非最小间距。最小间距会被无关窄列（如"备注"紧挨"金额"）
+    // 压缩到 27px，导致 col_span*0.5 容差仅 10.8px，数据项稍微偏移就被拒绝。
+    // 中位数间距对单个异常窄列更鲁棒。升级路径=按列语义分配独立宽度。
+    diffs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = if diffs.len() % 2 == 0 {
+        (diffs[diffs.len() / 2 - 1] + diffs[diffs.len() / 2]) / 2.0
+    } else {
+        diffs[diffs.len() / 2]
+    };
+    Some(median * 0.8)
 }
 
 fn estimate_col_span(data: &[&PositionedText]) -> f64 {
@@ -991,6 +1000,362 @@ fn extract_trailing_numbers(line: &str) -> Vec<f64> {
     numbers
 }
 
+pub fn cross_validate_amounts(entries: &mut [Itinerary], fallback_texts: &[OcrTextItem]) {
+    // 用空格拼接（pdfplumber 列感知提取后每个单元格是独立项，
+    // 空格拼接让 "1 专车 04-22 21:" 在一行内可被正则匹配）
+    let all_text: String = fallback_texts
+        .iter()
+        .map(|t| t.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let ref_amounts = extract_reference_amounts_ordered(&all_text);
+    if !ref_amounts.is_empty() && ref_amounts.len() == entries.len() {
+        for (i, entry) in entries.iter_mut().enumerate() {
+            let ref_amt = ref_amounts[i];
+            if ref_amt > 0.0 && (entry.amount - ref_amt).abs() > 0.005 {
+                entry.amount = ref_amt;
+            }
+        }
+    }
+
+    let ref_providers = extract_reference_providers_ordered(&all_text);
+    if !ref_providers.is_empty() {
+        if ref_providers.len() == entries.len() {
+            // 数量匹配：位置对应修复
+            for (i, entry) in entries.iter_mut().enumerate() {
+                let ref_pv = &ref_providers[i];
+                if !ref_pv.is_empty()
+                    && (entry.provider.is_empty()
+                        || entry.provider.chars().all(|c| c.is_ascii_digit())
+                        || entry.provider.chars().count() <= 1
+                        || ref_pv.starts_with(&entry.provider.as_str()))
+                {
+                    entry.provider = ref_pv.clone();
+                }
+            }
+        } else {
+            // 数量不匹配：对每个 entry 搜索所有 ref 找 starts_with 匹配
+            // 只修截断的 provider（entry 是 ref 的前缀），避免误匹配
+            for entry in entries.iter_mut() {
+                if entry.provider.chars().count() <= 1 { continue; }
+                for ref_pv in &ref_providers {
+                    if ref_pv.starts_with(entry.provider.as_str())
+                        && ref_pv.len() > entry.provider.len()
+                    {
+                        entry.provider = ref_pv.clone();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let ref_times = extract_reference_times_ordered(&all_text);
+    if !ref_times.is_empty() {
+        if ref_times.len() == entries.len() {
+            // 数量匹配：位置对应修复
+            for (i, entry) in entries.iter_mut().enumerate() {
+                if is_time_garbled(&entry.date_time) {
+                    entry.date_time = ref_times[i].clone();
+                }
+            }
+        } else {
+            // 数量不匹配：提取 date_time 中有效的 MM-DD 前缀，按前缀匹配 ref_time
+            for entry in entries.iter_mut() {
+                if !is_time_garbled(&entry.date_time) { continue; }
+                // 从 date_time 提取 MM-DD 前缀（如 "04-27" from "04-27 08:??"）
+                let date_prefix = extract_date_prefix(&entry.date_time);
+                if let Some(prefix) = date_prefix {
+                    for ref_t in &ref_times {
+                        if ref_t.starts_with(&prefix) {
+                            entry.date_time = ref_t.clone();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// 从 date_time 字符串中提取 MM-DD 日期前缀
+/// "04-27 08:??" → "04-27", "2026-04-27 08:42" → "04-27", "成都" → None
+fn extract_date_prefix(dt: &str) -> Option<String> {
+    let re = Regex::new(r"(?:\d{4}-)?(\d{2}-\d{2})").ok()?;
+    re.captures(dt).map(|c| c[1].to_string())
+}
+
+fn extract_reference_amounts_ordered(all_text: &str) -> Vec<f64> {
+    let mut results = Vec::new();
+
+    let re_didi = Regex::new(
+        r"(?m)^\d+\s+\S+\s+\d{2}-\d{2}\s+\d{1,2}[:：].*?([\d.]+)\s*$"
+    ).unwrap();
+    for cap in re_didi.captures_iter(all_text) {
+        if let Ok(amount) = cap[1].parse::<f64>() {
+            results.push(amount);
+        }
+    }
+
+    if !results.is_empty() {
+        return results;
+    }
+
+    let re_gaode = Regex::new(
+        r"(?m)(?:^|\n)\d+\s+\S+.*?([\d.]+)元"
+    ).unwrap();
+    for cap in re_gaode.captures_iter(all_text) {
+        if let Ok(amount) = cap[1].parse::<f64>() {
+            results.push(amount);
+        }
+    }
+
+    results
+}
+
+fn extract_reference_providers_ordered(all_text: &str) -> Vec<String> {
+    // 不用 (?m)^ — pdfplumber 空格拼接后 "1 专车 04-22 21:" 在一行内
+    let re_didi_main = Regex::new(
+        r"(\d+)\s+(\S+)\s+\d{2}-\d{2}\s+\d{1,2}[:：]"
+    ).unwrap();
+    let re_cont = Regex::new(
+        r"(轻享|特快|甄选|快车)"
+    ).unwrap();
+
+    // 收集主匹配 + 位置（用于区间搜索续行后缀）
+    let matches: Vec<(u32, String, usize)> = re_didi_main
+        .captures_iter(all_text)
+        .filter_map(|cap| {
+            let seq: u32 = cap[1].parse().ok()?;
+            let pv = cap[2].to_string();
+            let end = cap.get(0)?.end();
+            Some((seq, pv, end))
+        })
+        .collect();
+
+    if !matches.is_empty() {
+        let mut results = Vec::new();
+        for (i, (_seq, main_pv, match_end)) in matches.iter().enumerate() {
+            // 在当前 match 结束到下一个 match 开始之间搜索续行后缀
+            let search_end = matches.get(i + 1)
+                .map(|(_, _, e)| *e)
+                .unwrap_or(all_text.len());
+            let segment = &all_text[*match_end..search_end];
+            if let Some(cap) = re_cont.captures(segment) {
+                results.push(format!("{}{}", main_pv, &cap[1]));
+            } else {
+                results.push(main_pv.clone());
+            }
+        }
+        return results;
+    }
+
+    let mut results = Vec::new();
+    let re_gaode = Regex::new(
+        r"\d+\s+(\S+)\s+(\S+)\s+\d{4}-\d{2}-\d{2}"
+    ).unwrap();
+    for cap in re_gaode.captures_iter(all_text) {
+        results.push(format!("{}{}", &cap[1], &cap[2]));
+    }
+
+    results
+}
+
+fn extract_reference_times_ordered(all_text: &str) -> Vec<String> {
+    let mut results = Vec::new();
+
+    // 不用 (?m)^ — pdfplumber 空格拼接后所有内容在一行
+    let re_main = Regex::new(
+        r"(\d+)\s+\S+\s+(\d{2}-\d{2})\s+(\d{1,2})(:\d{2})?[:：]?"
+    ).unwrap();
+    let re_cont_min = Regex::new(
+        // 搜索紧随时间后的分钟数（如 "21: 56 分钟" 里的 56）
+        r"(\d{1,2})\s*(?:分钟|周二|周一|周三|周四|周五|周六|周日)"
+    ).unwrap();
+
+    // 收集主匹配 + 位置
+    let main_matches: Vec<(String, String, usize, Option<String>)> = re_main
+        .captures_iter(all_text)
+        .filter_map(|cap| {
+            let date = cap[2].to_string();
+            let hour = cap[3].to_string();
+            let minutes = cap.get(4).map(|m| m.as_str().to_string());
+            let end = cap.get(0)?.end();
+            Some((date, hour, end, minutes))
+        })
+        .collect();
+
+    for (i, (date, hour, match_end, minutes)) in main_matches.iter().enumerate() {
+        let time = if let Some(m) = minutes {
+            format!("{} {}:{}", date, hour, m.trim_start_matches(':'))
+        } else {
+            // 在当前 match 到下一个 match 之间搜索分钟
+            let search_end = main_matches.get(i + 1)
+                .map(|(_, _, e, _)| *e)
+                .unwrap_or(all_text.len());
+            let segment = &all_text[*match_end..search_end];
+            if let Some(cm) = re_cont_min.captures(segment) {
+                let m = &cm[1];
+                if m.len() <= 2 && m.parse::<u32>().map_or(false, |n| n < 60) {
+                    format!("{} {}:{}", date, hour, m)
+                } else {
+                    format!("{} {}:??", date, hour)
+                }
+            } else {
+                format!("{} {}:??", date, hour)
+            }
+        };
+        results.push(time);
+    }
+
+    if !results.is_empty() {
+        return results;
+    }
+
+    let re_gaode = Regex::new(
+        r"\d+\s+\S+\s+\S+\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})"
+    ).unwrap();
+    for cap in re_gaode.captures_iter(all_text) {
+        results.push(format!("{} {}", &cap[1], &cap[2]));
+    }
+
+    results
+}
+
+fn is_time_garbled(dt: &str) -> bool {
+    // 检查是否为合法的日期时间格式（允许短格式 "MM-DD HH:MM" 和完整格式 "YYYY-MM-DD HH:MM"）
+    // 只有真正乱码的时间（OCR 错误如 "成都A428"、"042708"）才需替换
+    let re_valid = Regex::new(r"\d{1,2}:\d{2}").unwrap();
+    let re_short = Regex::new(r"\d{2}-\d{2}\s+\d{1,2}:\d{2}").unwrap();
+    let re_full = Regex::new(r"\d{2,4}-\d{2}-\d{2}").unwrap();
+    !(re_short.is_match(dt) || (re_full.is_match(dt) && re_valid.is_match(dt)))
+}
+
+/// 从行程单文本中提取印制的合计金额
+/// 支持格式：
+///   - "合计 XXX.XX 元" / "合计XXX.XX元"（滴滴、天府通）
+///   - "合计金额：XXX.XX" / "合计：XXX.XX"（高德）
+pub fn extract_itinerary_printed_total(texts: &[OcrTextItem]) -> Option<f64> {
+    let all_text: String = texts
+        .iter()
+        .map(|t| t.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // 格式1: "合计 XXX.XX 元" / "合计XXX.XX元"（滴滴、天府通）
+    let re1 = regex::Regex::new(r"合计\s*([\d,]+\.\d{2})\s*元").unwrap();
+    if let Some(cap) = re1.captures(&all_text) {
+        let amount_str = cap[1].replace(',', "");
+        if let Ok(amount) = amount_str.parse::<f64>() {
+            if amount > 0.0 {
+                return Some(amount);
+            }
+        }
+    }
+
+    // 格式2: "合计金额：XXX.XX" / "合计：XXX.XX"（高德）
+    let re2 = regex::Regex::new(r"合计[金额]*[：:]\s*([\d,]+\.\d{2})").unwrap();
+    if let Some(cap) = re2.captures(&all_text) {
+        let amount_str = cap[1].replace(',', "");
+        if let Ok(amount) = amount_str.parse::<f64>() {
+            if amount > 0.0 {
+                return Some(amount);
+            }
+        }
+    }
+
+    None
+}
+
+/// 用行程单印制的合计金额交叉验证并修正单条 OCR 行程金额
+/// 当 OCR 累加和 != 合计金额时，按比例分摊差额到各条行程
+pub fn cross_validate_with_printed_total(entries: &mut [Itinerary], printed_total: f64) {
+    if entries.is_empty() {
+        return;
+    }
+    let ocr_sum: f64 = entries.iter().map(|e| e.amount).sum();
+    if ocr_sum <= 0.0 || printed_total <= 0.0 {
+        return;
+    }
+    let diff = (printed_total - ocr_sum).abs();
+    // 如果差额很小（<0.5元），认为是浮点舍入，不修正
+    if diff < 0.5 {
+        // 将所有金额统一到合计金额的小数位精度
+        return;
+    }
+    // 按比例分摊差额
+    let ratio = printed_total / ocr_sum;
+    for entry in entries.iter_mut() {
+        entry.amount = (entry.amount * ratio * 100.0).round() / 100.0;
+    }
+}
+
+fn parse_fallback_format(text: &str) -> Vec<Itinerary> {
+    let mut results = Vec::new();
+    let re_amount = Regex::new(r"[¥￥]\s*([\d.]+)").unwrap();
+    // ponytail: pdfplumber 列感知输出金额无 ¥ 前缀，兜底匹配独立数字行
+    let re_plain_amount = Regex::new(r"^\s*([\d.]+)\s*$").unwrap();
+    let re_time_full = Regex::new(r"(\d{2}-\d{2}\s+\d{1,2}:\d{2})").unwrap();
+    let re_time_single = Regex::new(r"(\d{1,2}:\d{2})").unwrap();
+
+    let lines: Vec<&str> = text.lines().collect();
+
+    // 回退金额匹配：先找 ¥，找不到则取独立数字行（排除里程、序号等非金额数字）
+    let find_amount = |i: usize| -> Option<f64> {
+        // 优先 ¥ 标记
+        if let Some(c) = re_amount.captures(lines[i]) {
+            return c[1].parse().ok().filter(|&a: &f64| a > 0.0);
+        }
+        // 兜底：纯数字行，但排除紧接另一个纯数字行的（保留最后一个，即金额而非里程）
+        if let Some(c) = re_plain_amount.captures(lines[i]) {
+            let val: f64 = c[1].parse().ok()?;
+            // 排除小整数（序号 1,2,3...），金额必有小数或较大值
+            if val < 1.0 || val > 100000.0 || (val.fract() == 0.0 && val < 100.0) {
+                return None;
+            }
+            // 检查下一行：如果也是独立数字，跳过（当前是里程）
+            if i + 1 < lines.len() && re_plain_amount.is_match(lines[i + 1]) {
+                return None;
+            }
+            return Some(val);
+        }
+        None
+    };
+
+    for i in 0..lines.len() {
+        if let Some(amount) = find_amount(i) {
+            // 先看同一行
+            let time = re_time_full
+                .captures(lines[i])
+                .map(|c| c[1].to_string())
+                .or_else(|| re_time_single.captures(lines[i]).map(|c| c[1].to_string()));
+
+            // 同行没找到，向上最多回看 6 行找时间
+            let time = time.unwrap_or_else(|| {
+                for j in (0..i).rev().take(6) {
+                    if let Some(c) = re_time_full.captures(lines[j]) {
+                        return c[1].to_string();
+                    }
+                    if let Some(c) = re_time_single.captures(lines[j]) {
+                        return c[1].to_string();
+                    }
+                }
+                String::new()
+            });
+
+            results.push(Itinerary {
+                date_time: time,
+                provider: String::new(),
+                pickup: String::new(),
+                dropoff: String::new(),
+                amount,
+                incomplete_fields: Vec::new(),
+            });
+        }
+    }
+    results
+}
 
 #[cfg(test)]
 mod tests {
@@ -1065,6 +1430,111 @@ mod tests {
         let result = parse_itinerary_with_coords(&texts);
         assert!(!result.is_empty());
         assert_eq!(result[0].provider, "天府通");
+    }
+
+    #[test]
+    fn test_find_header_split_cjk_seq() {
+        // Bug: pdfplumber splits "序号" into "序" + "号" as separate per-character words.
+        // find_header must still locate the header row and parse the table.
+        let texts = vec![
+            make_positioned_item("天府通 - 行程单", 300.0, 20.0),
+            make_positioned_item("序", 30.0, 120.0),
+            make_positioned_item("号", 50.0, 120.0),
+            make_positioned_item("行程类型", 100.0, 120.0),
+            make_positioned_item("出行时间", 300.0, 120.0),
+            make_positioned_item("进出站/线路", 500.0, 120.0),
+            make_positioned_item("金额(元)", 700.0, 120.0),
+            make_positioned_item("进站：成都东客站", 500.0, 180.0),
+            make_positioned_item("2026-05-10 20:04:43", 300.0, 180.0),
+            make_positioned_item("3~", 700.0, 180.0),
+            make_positioned_item("出站：牛王庙", 500.0, 210.0),
+        ];
+        let result = parse_itinerary_with_coords(&texts);
+        assert_eq!(result.len(), 1, "expected 1 itinerary from split-CJK header");
+        assert_eq!(result[0].provider, "天府通");
+        assert_eq!(result[0].date_time, "2026-05-10 20:04:43");
+        assert_eq!(result[0].pickup, "成都东客站");
+        assert_eq!(result[0].dropoff, "牛王庙");
+        assert!((result[0].amount - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_table_split_cjk_header_didi_page2() {
+        // Bug: pdfplumber splits ALL CJK header chars into per-character words on
+        // continuation pages. find_col_x must still locate Time/Pickup/Dropoff/Provider
+        // columns via single-char fallback keywords.
+        let texts = vec![
+            // Header row (y=100), all CJK split into per-character words
+            make_positioned_item("序", 30.0, 100.0),
+            make_positioned_item("号", 50.0, 100.0),
+            make_positioned_item("车", 100.0, 100.0),
+            make_positioned_item("型", 130.0, 100.0),
+            make_positioned_item("上", 200.0, 100.0),
+            make_positioned_item("车", 220.0, 100.0),
+            make_positioned_item("时", 240.0, 100.0),
+            make_positioned_item("间", 260.0, 100.0),
+            make_positioned_item("起", 400.0, 100.0),
+            make_positioned_item("点", 420.0, 100.0),
+            make_positioned_item("终", 500.0, 100.0),
+            make_positioned_item("点", 520.0, 100.0),
+            make_positioned_item("金额", 700.0, 100.0),
+            // Data row 1 (y=180)
+            make_positioned_item("1", 30.0, 180.0),
+            make_positioned_item("专车", 115.0, 180.0),
+            make_positioned_item("04-22 21:10", 230.0, 180.0),
+            make_positioned_item("天府机场", 410.0, 180.0),
+            make_positioned_item("汉庭酒店", 510.0, 180.0),
+            make_positioned_item("195.37", 700.0, 180.0),
+        ];
+        let result = parse_itinerary_with_coords(&texts);
+        assert_eq!(result.len(), 1, "expected 1 itinerary from split-CJK page-2 header");
+        assert!(!result[0].date_time.is_empty(), "date_time must not be empty");
+        assert_eq!(result[0].date_time, "04-22 21:10");
+        assert_eq!(result[0].pickup, "天府机场");
+        assert_eq!(result[0].dropoff, "汉庭酒店");
+        assert!((result[0].amount - 195.37).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_parse_table_narrow_irrelevant_column_not_breaking_anchors() {
+        // Bug: page 2 of 滴滴A has "金额[元]" at x=494 and "备注" at x=521 (27px gap).
+        // estimate_col_span_from_header used min gap (27*0.8=21.6), making tolerance 10.8px.
+        // With 80 data items at diverse X positions, data_col_span is also small (~8.7).
+        // col_span = max(21.2, 8.7) = 21.2, tolerance = 10.6px.
+        // Seq "11" at x=75.1 is 10.2px from seq_x=85.3 — barely rejected on real PDF
+        // (floating point). Fix: use median gap in estimate_col_span_from_header.
+        let mut texts = vec![
+            // Header (y=105) — actual page 2 layout, X = center of bbox
+            make_positioned_item("序号车型", 85.3, 105.0),
+            make_positioned_item("上车时间城市", 137.8, 105.0),
+            make_positioned_item("起点", 236.0, 105.0),
+            make_positioned_item("终点", 371.0, 105.0),
+            make_positioned_item("里程[公里]", 458.0, 105.0),
+            make_positioned_item("金额[元]", 494.0, 105.0),
+            make_positioned_item("备注", 521.0, 105.0),
+            // Data row 11 (y=139) — seq "11" at x=73.0 (12.3px from seq_x=85.3, over 10.8px tolerance)
+            make_positioned_item("11", 73.0, 139.0),
+            make_positioned_item("滴滴", 96.0, 139.0),
+            make_positioned_item("04-28", 122.0, 139.0),
+            make_positioned_item("14:", 136.0, 139.0),
+            make_positioned_item("成都", 156.0, 139.0),
+            make_positioned_item("九眼桥", 235.0, 139.0),
+            make_positioned_item("跳伞塔", 371.0, 139.0),
+            make_positioned_item("3.8", 458.0, 139.0),
+            make_positioned_item("11.30", 494.0, 139.0),
+        ];
+        // Add 70+ items at diverse X positions (> min_x+50) to make data_col_span small (~8.7)
+        // like the real PDF (80 data items). This ensures col_span = max(header_cs, data_cs)
+        // = max(21.2, 8.7) = 21.2, reproducing the tight tolerance.
+        for i in 0..35 {
+            let y = 160.0 + (i as f64) * 7.0;
+            // Items at diverse X positions > 125 (min_x+50) to inflate the count
+            texts.push(make_positioned_item("x", 130.0 + (i as f64 * 3.0) % 300.0, y));
+            texts.push(make_positioned_item("y", 200.0 + (i as f64 * 5.0) % 250.0, y));
+        }
+        let result = parse_itinerary_with_coords(&texts);
+        assert!(!result.is_empty(), "expected at least 1 itinerary, got 0 — col_span too small?");
+        assert!(!result[0].date_time.is_empty(), "date_time must not be empty");
     }
 
     #[test]

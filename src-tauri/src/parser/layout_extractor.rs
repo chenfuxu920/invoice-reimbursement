@@ -116,6 +116,25 @@ pub struct Column {
     pub label: ColumnLabel,
 }
 
+/// 检测到的竖排标题（如"销售方信息"/"购买方信息"/"价税合计"/"备注"）
+#[derive(Debug, Clone)]
+pub struct VerticalTitle {
+    pub text: String,           // 合并后的完整标题文本，如 "销售方信息"
+    pub x_min: f64,             // 标题 X 列左边界
+    pub x_max: f64,             // 标题 X 列右边界
+    pub y_min: f64,             // 标题 Y 起始（顶部）
+    pub y_max: f64,             // 标题 Y 结束（底部）
+    pub title_type: VerticalTitleType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VerticalTitleType {
+    Seller,   // "销售方信息" / "销售方"
+    Buyer,    // "购买方信息" / "购买方"
+    Total,    // "价税合计"
+    Remarks,  // "备注"
+}
+
 /// Describes the columnar layout of a page based on word X-coordinate gaps.
 #[derive(Debug, Clone)]
 pub struct ColumnarLayout {
@@ -255,6 +274,244 @@ pub fn detect_columns_with_tuning(words: &[Word], tuning: &LayoutTuning) -> Colu
     }
 }
 
+// ── Vertical Title Detection ───────────────────────────────────────────
+
+/// 竖排标题模式列表（长模式优先，避免"销售方"提前匹配"销售方信息"）
+const VERTICAL_TITLE_PATTERNS: &[(&str, VerticalTitleType)] = &[
+    ("销售方信息", VerticalTitleType::Seller),
+    ("购买方信息", VerticalTitleType::Buyer),
+    ("价税合计",   VerticalTitleType::Total),
+    ("销售方",     VerticalTitleType::Seller),
+    ("购买方",     VerticalTitleType::Buyer),
+    ("备注",       VerticalTitleType::Remarks),
+];
+
+/// 内部平坦化坐标结构，用于竖排标题检测统一处理 Word / OcrTextItem
+struct FlatItem {
+    text: String,
+    x_center: f64,
+    x_min: f64,
+    x_max: f64,
+    y_min: f64,
+    y_max: f64,
+}
+
+/// 从平坦化坐标列表检测竖排标题的共享实现
+fn detect_vertical_titles_inner(flat_items: Vec<FlatItem>, avg_height: f64) -> Vec<VerticalTitle> {
+    if flat_items.is_empty() || avg_height <= 0.0 {
+        return vec![];
+    }
+
+    let x_tol = avg_height.max(6.0) * 0.5;
+
+    // ── 1. Group by X-center ────────────────────────────────────────────
+    let mut groups: Vec<Vec<FlatItem>> = Vec::new();
+    'outer: for item in flat_items {
+        for group in groups.iter_mut() {
+            let group_x = group.iter().map(|i| i.x_center).sum::<f64>() / group.len() as f64;
+            if (item.x_center - group_x).abs() <= x_tol {
+                group.push(item);
+                continue 'outer;
+            }
+        }
+        groups.push(vec![item]);
+    }
+
+    // ── 2. Each group: sort by Y, concatenate, check pattern ────────────
+    let mut titles: Vec<VerticalTitle> = Vec::new();
+
+    for group in groups.iter_mut() {
+        group.sort_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap());
+
+        let concatenated: String = group.iter().map(|i| i.text.as_str()).collect();
+
+        // 验证规则：
+        //   - 场景A（pdfplumber 拆字）：每个 word 是单字/短片段（≤3 字符），
+        //     组内 word 数 ≥ 标题字符数 × 0.8
+        //   - 场景B（parangi 已合并）：单个 word 直接等于完整标题
+        let is_merged_single_word = group.len() == 1
+            && VERTICAL_TITLE_PATTERNS
+                .iter()
+                .any(|(p, _)| group[0].text.contains(*p));
+        let all_short = group.iter().all(|i| i.text.chars().count() <= 3);
+
+        if !all_short && !is_merged_single_word {
+            continue;
+        }
+
+        for &(pattern, title_type) in VERTICAL_TITLE_PATTERNS {
+            if concatenated.contains(pattern) {
+                // 验证：场景A 需要足量 word，场景B 无需（1 word 已含完整标题）
+                if all_short {
+                    let min_words = (pattern.chars().count() as f64 * 0.8).ceil() as usize;
+                    if group.len() < min_words {
+                        continue;
+                    }
+                }
+
+                // 计算该组坐标边界（取所有 word 的并集）
+                let x_min = group.iter().map(|i| i.x_min).fold(f64::INFINITY, f64::min);
+                let x_max = group.iter().map(|i| i.x_max).fold(f64::NEG_INFINITY, f64::max);
+                let y_min = group.iter().map(|i| i.y_min).fold(f64::INFINITY, f64::min);
+                let y_max = group.iter().map(|i| i.y_max).fold(f64::NEG_INFINITY, f64::max);
+
+                titles.push(VerticalTitle {
+                    text: pattern.to_string(),
+                    x_min,
+                    x_max,
+                    y_min,
+                    y_max,
+                    title_type,
+                });
+                break; // 每组只匹配一个模式（长优先）
+            }
+        }
+    }
+
+    // ── 3. Sort by Y ───────────────────────────────────────────────────
+    titles.sort_by(|a, b| a.y_min.partial_cmp(&b.y_min).unwrap());
+    titles
+}
+
+/// 从 pdfplumber Word 列表中检测竖排标题。
+///
+/// 算法：
+/// 1. 按 X 中心分组（容差 = avg_height × 0.5），同 X 列的 word 归为一组
+/// 2. 每组内按 Y 排序后拼接文本，检查是否包含已知标题模式
+/// 3. 验证：每组 word 均为短片段（≤3 字符）且数量 ≥ 标题字符数 × 0.8
+/// 4. 按 y_min 排序输出
+pub fn detect_vertical_titles_from_words(words: &[Word]) -> Vec<VerticalTitle> {
+    let avg_height = LayoutTuning::avg_height_of(words);
+
+    let flat: Vec<FlatItem> = words
+        .iter()
+        .map(|w| {
+            let cx = (w.bbox.x0 + w.bbox.x1) / 2.0;
+            FlatItem {
+                text: w.text.clone(),
+                x_center: cx,
+                x_min: w.bbox.x0,
+                x_max: w.bbox.x1,
+                y_min: w.bbox.top,
+                y_max: w.bbox.bottom,
+            }
+        })
+        .collect();
+
+    detect_vertical_titles_inner(flat, avg_height)
+}
+
+/// 从 OcrTextItem 列表中检测竖排标题（OCR 回退路径用）。
+///
+/// 坐标从 `box_coords["points"]` 数组中提取（参考 `invoice_parser.rs:1111-1124`）。
+pub fn detect_vertical_titles_from_items(items: &[crate::ocr::OcrTextItem]) -> Vec<VerticalTitle> {
+    // 计算平均字高
+    let heights: Vec<f64> = items
+        .iter()
+        .filter_map(|t| {
+            let pts = t.box_coords.as_ref()?.get("points")?.as_array()?;
+            let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+            if ys.len() < 2 { return None; }
+            let y0 = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+            let y1 = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            Some(y1 - y0)
+        })
+        .collect();
+    let avg_height = if heights.is_empty() { 12.0 } else {
+        heights.iter().sum::<f64>() / heights.len() as f64
+    };
+
+    let flat: Vec<FlatItem> = items
+        .iter()
+        .filter_map(|t| {
+            let coords = t.box_coords.as_ref()?;
+            let pts = coords.get("points")?.as_array()?;
+            let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|v| v.as_f64())).collect();
+            let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+            if xs.is_empty() || ys.is_empty() {
+                return None;
+            }
+            let x_min = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+            let x_max = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let y_min = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+            let y_max = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+            let cx = (x_min + x_max) / 2.0;
+            Some(FlatItem {
+                text: t.text.clone(),
+                x_center: cx,
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+            })
+        })
+        .collect();
+
+    detect_vertical_titles_inner(flat, avg_height)
+}
+
+/// 根据竖排标题坐标提取其右侧/下方的 Word。
+///
+/// - `RegionDirection::Right`: 收集 `x0 >= title.x_max - 容差` 且在 Y 范围内的 word
+/// - `RegionDirection::Below`: 收集 `top >= title.y_max - 容差` 且在 X 范围内的 word
+/// - 结果按 Y 再 X 排序
+pub fn extract_region_words_by_title<'a>(
+    title: &VerticalTitle,
+    words: &'a [Word],
+    direction: RegionDirection,
+) -> Vec<&'a Word> {
+    let avg_height = LayoutTuning::avg_height_of(words);
+    let tol = avg_height.max(6.0) * 0.5;
+
+    match direction {
+        RegionDirection::Right => {
+            let mut result: Vec<&Word> = words
+                .iter()
+                .filter(|w| {
+                    w.bbox.x0 >= title.x_max - tol
+                        && w.bbox.top >= title.y_min - tol
+                        && w.bbox.bottom <= title.y_max + tol
+                })
+                .collect();
+            result.sort_by(|a, b| {
+                a.bbox
+                    .top
+                    .partial_cmp(&b.bbox.top)
+                    .unwrap()
+                    .then(a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap())
+            });
+            result
+        }
+        RegionDirection::Below => {
+            let mut result: Vec<&Word> = words
+                .iter()
+                .filter(|w| {
+                    w.bbox.top >= title.y_max - tol
+                        && w.bbox.x0 >= title.x_min - tol
+                        && w.bbox.x1 <= title.x_max + tol
+                })
+                .collect();
+            result.sort_by(|a, b| {
+                a.bbox
+                    .top
+                    .partial_cmp(&b.bbox.top)
+                    .unwrap()
+                    .then(a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap())
+            });
+            result
+        }
+    }
+}
+
+/// 竖排标题内容区域方向
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RegionDirection {
+    /// 标题右侧（seller/buyer 内容区）
+    Right,
+    /// 标题下方（total/remarks 内容区）
+    Below,
+}
+
 // ── Anchor Word Finding ────────────────────────────────────────────────
 
 /// Find the first word whose `text` contains any of the given `keywords`.
@@ -391,7 +648,7 @@ pub const BUYER_KEYWORDS: &[&str] = &["购买方", "国防", "大学", "学院",
 /// Check if a name looks like a buyer (purchaser) rather than a seller.
 /// Used to detect when the rightmost "名称：" candidate is actually the buyer,
 /// triggering a search for the real seller to its right.
-fn is_likely_buyer(name: &str) -> bool {
+pub(crate) fn is_likely_buyer(name: &str) -> bool {
     BUYER_KEYWORDS.iter().any(|k| name.contains(k))
 }
 
@@ -634,6 +891,13 @@ mod tests {
             doctop: top,
             direction: TextDirection::Ltr,
             chars: vec![],
+            fontname: String::new(),
+            size: 0.0,
+            non_stroking_color: None,
+            render_mode: 0,
+            text_object_index: 0,
+            font_flags: None,
+            stem_v: None,
         }
     }
 
