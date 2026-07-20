@@ -16,8 +16,10 @@ vite.config.ts.timestamp-*.mjs
 # IDE
 .idea/
 
-# Test data
-data/*.pdf
+# Test data — exclude all except compile-time reference data
+data/
+!data/参考数据/cities.json
+!data/参考数据/provinces.json
 
 # deepwork progress
 .slim/deepwork/
