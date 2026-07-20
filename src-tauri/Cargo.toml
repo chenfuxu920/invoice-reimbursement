@@ -37,11 +37,9 @@ encoding_rs = "0.8"
 printpdf = { version = "0.7", features = ["embedded_images"] }
 base64 = "0.22"
 rust_xlsxwriter = "0.82"
-# ponytail: fork branch cjk-safe-lenient
-# = 0a436bf (0.2.0+bbox, CJK 0%) + PR#214 (tokenize_lenient <<修复) + PR#243 (word split >= 语义)
-# + 9e59889 (fill 路径自动闭合 + 近似矩形) + c2ab510 (bar-rect 单边 + 按行成格，修复发票单元格提取)
-# 上游 a8dc8b1 破坏 Identity-H CID fallback（CID 当 Unicode → 中文乱码），jacob-cotten fork 同样回归
-# PR#206 Adobe CID 表对 subset 字体有害（中国发票几乎都是 subset），不合入
+# ponytail: fork branch cjk-safe-lenient @ 0bdfaa4 (merge of -full into canonical branch)
+# = 24ffb68 (CJK CID 修复) + 0729db5 (Word 字段) + c2ab510/dea587e/369244b (table/annot/Contents)
+# + f9444db (ASCII 0x20-0x7E 半角宽度修复)
 pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "cjk-safe-lenient", optional = true }
 
 [features]
@@ -63,3 +61,12 @@ codegen-units = 1
 inherits = "release"
 lto = false
 codegen-units = 16
+
+# ponytail: fork zpdf to patch zpdf-font ASCII half-width (crates.io 0.9.0 未修)
+# = chenfuxu920/zpdf branch cjk-ascii-width
+#   98005f6: 修复 Type0 CID 字体 ASCII 0x20-0x7E 字符 2× 过宽（/W 缺 ASCII 条目时 fallback 0.5× /DW）
+#   f6a0412: 修复 CID 范围 1..=0x7E 覆盖 GBK-EUC-H 的 CID 1-95（旧范围 0x20-0x7E 漏 CID 1-31，
+#            导致 '0'-'9' 等 ASCII 字符 CID 17-26 仍走 /DW=1000 → 2× 过宽）
+# TEMP: path 依赖（GitHub 推送失败，网络恢复后 push f6a0412 并切回 git 依赖 + cargo update -p zpdf-font）
+[patch.crates-io]
+zpdf-font = { path = "../../zpdf-fork/crates/zpdf-font" }
