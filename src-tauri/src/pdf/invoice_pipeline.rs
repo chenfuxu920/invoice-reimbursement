@@ -1,24 +1,21 @@
 use crate::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
 use crate::ocr::OcrEngine;
-use crate::parser::invoice_parser::parse_invoice_text;
-use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback, enrich_itinerary_years, has_incomplete_entries, compute_incomplete_fields};
+use crate::parser::invoice_parser::{
+    parse_invoice_text, parse_hotel_detail, parse_nights_from_remarks,
+    extract_hotel_statement_detail, extract_ticket_cities, extract_ticket_travel_date,
+    extract_toll_travel_time,
+};
+use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback, cross_validate_amounts, enrich_itinerary_years, cross_validate_with_printed_total, extract_itinerary_printed_total, has_incomplete_entries, compute_incomplete_fields};
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
-#[cfg(feature = "pdfplumber")]
-use crate::parser::layout_extractor;
 #[cfg(feature = "pdfplumber")]
 use crate::parser::cell_extractor;
 use std::path::{Path, PathBuf};
 
-/// 提取策略配置：控制单元格提取失败时的回退逻辑
-///
-/// 默认两个回退均关闭，仅使用单元格提取。
-/// 调试时可按需打开 word/文本回退以对比识别率。
+/// 提取策略配置（保留兼容性，当前发票解析仅使用单元格提取）
 #[derive(Debug, Clone)]
 pub struct ExtractionConfig {
-    /// 启用原始 Word 坐标提取回退（layout_extractor）
     pub enable_word_fallback: bool,
-    /// 启用纯文本正则提取回退（OCR 重解析 parse_invoice_text）
     pub enable_text_fallback: bool,
 }
 
@@ -29,6 +26,37 @@ impl Default for ExtractionConfig {
             enable_text_fallback: false,
         }
     }
+}
+
+#[allow(dead_code)]
+fn is_likely_garbled_seller(name: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.chars().count() < 3 {
+        return true;
+    }
+    if trimmed.contains("名称：") || trimmed.contains("名称:") {
+        return true;
+    }
+    if trimmed.chars().all(|c| {
+        c.is_whitespace() || "名称：:，,。.、；;（）()".contains(c)
+    }) {
+        return true;
+    }
+    if trimmed.contains('<') || trimmed.contains('>') {
+        return true;
+    }
+    if trimmed.contains('\n') || trimmed.contains('\r') {
+        return true;
+    }
+    let label_chars = "购买售销方密";
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    if words
+        .iter()
+        .any(|w| w.chars().count() == 1 && w.chars().all(|c| label_chars.contains(c)))
+    {
+        return true;
+    }
+    false
 }
 
 /// 从行程单解析出的行程明细集合
@@ -51,161 +79,298 @@ pub struct ParseResult {
     pub duplicates: Vec<String>,
 }
 
-/// 解析单个发票 PDF：先尝试文字提取，失败或缺销售方信息则 OCR（多页）
-/// 如果文档分类为行程单/结账单，直接返回错误（不应当发票处理）
-pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine, config: &ExtractionConfig) -> Result<Invoice, String> {
+/// 解析单个发票 PDF：用 pdfplumber 提取表格单元格 + 原始 Word 文本。
+/// 全部字段由单元格匹配提取，不依赖文本正则解析。
+pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine, _config: &ExtractionConfig) -> Result<Invoice, String> {
     let source = InvoiceSource::Pdf(pdf_path.to_string());
 
-    // 单次 PDF 打开：列感知合并 + 原始 Word + 表格单元格（供坐标/单元格提取器使用，无需二次打开）
     #[cfg(feature = "pdfplumber")]
-    let (text_items, cached_words, cached_tables) = {
+    let (raw_text, tables, raw_words, flat_texts) = {
         match text_extractor::extract_pdf_column_aware(pdf_path) {
             Ok(extraction) => {
-                let items: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
-                if text_extractor::has_sufficient_text(&items, 20) {
-                    eprintln!("  [pdfplumber] 列感知提取 {} 个文本项, {} 个原始Word, {} 页表格", items.len(), extraction.raw_words.len(), extraction.tables.len());
-                    (items, Some(extraction.raw_words), Some(extraction.tables))
-                } else {
-                    eprintln!("  [pdfplumber] 文本不足，回退到 OCR");
-                    let fallback = extract_ocr_text_only(pdf_path, engine)?;
-                    (fallback, None, None)
+                if extraction.tables.iter().all(|p| p.is_empty()) {
+                    eprintln!("  [pdfplumber] 无表格结构，回退到 OCR");
+                    let ocr_items = extract_ocr_text_only(pdf_path, engine)?;
+                    return check_and_parse(ocr_items, source);
                 }
+                // word 级 OcrTextItem（未合并，保留原始 Word 边界与坐标），
+                // 供 cell 失败时回退到文本解析使用——列感知合并会拆散日期/发票号等连续 token，
+                // 用 word 级保证 parse_invoice_text 看到与 pdfplumber Word 一致的文本
+                let flat_texts: Vec<crate::ocr::OcrTextItem> = extraction.word_pages.iter()
+                    .flat_map(|p| p.texts.clone())
+                    .collect();
+                let text: String = extraction.raw_words.iter()
+                    .map(|w| w.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("");
+                // CID 字体乱码检测：文字型 PDF 但 CID 映射失败时文字为韩文/PUA/替换符
+                if text_extractor::is_garbled_text(&text, 0.3) {
+                    eprintln!("  [pdfplumber] 文字乱码（CID 字体映射失败），回退到 OCR");
+                    let ocr_items = extract_ocr_text_only(pdf_path, engine)?;
+                    return check_and_parse(ocr_items, source);
+                }
+                eprintln!("  [pdfplumber] {} 个原始Word, {} 页表格", extraction.raw_words.len(), extraction.tables.len());
+                (text, extraction.tables, extraction.raw_words, flat_texts)
             }
             Err(e) => {
                 eprintln!("  [pdfplumber] 失败: {}，回退到 OCR", e);
-                let fallback = extract_ocr_text_only(pdf_path, engine)?;
-                (fallback, None, None)
+                let ocr_items = extract_ocr_text_only(pdf_path, engine)?;
+                return check_and_parse(ocr_items, source);
             }
         }
     };
     #[cfg(not(feature = "pdfplumber"))]
-    let text_items = extract_ocr_text_only(pdf_path, engine)?;
-
-
-
-    // 先检查文档类型 — 行程单/结账单不应走发票解析
-    let doc_type = classify_pdf_document_type(&text_items);
-    if doc_type == PdfDocumentType::Itinerary || doc_type == PdfDocumentType::Bill {
-        return Err(format!("非发票类型: {:?}", doc_type));
+    {
+        let ocr_items = extract_ocr_text_only(pdf_path, engine)?;
+        return check_and_parse(ocr_items, source);
     }
 
-    match check_and_parse(text_items, source.clone()) {
-        Ok(mut invoice) => {
-            // 单元格引导提取：用 find_tables 的表格结构补充/修正字段。
-            // 注：不设提前返回守卫——即使 parse_invoice_text 成功提取了
-            // seller/invoice_number，其金额可能误取商品详情行数值（Step 2.5 取最大裸小数），
-            // 需用单元格从价税合计标签定位的正确金额覆盖。
-            #[cfg(feature = "pdfplumber")]
+    // 文档类型检查 — 行程单/结账单不应走发票解析
+    if raw_text.contains("行程单") || raw_text.contains("行程报销单") || raw_text.contains("电子行程单") {
+        return Err("非发票类型: Itinerary".to_string());
+    }
+    if raw_text.contains("结账单") {
+        return Err("非发票类型: Bill".to_string());
+    }
+
+    // 单元格提取建票
+    let cell_fields = cell_extractor::extract_fields_from_tables(&tables);
+
+    // 对商品详情单元格做列感知提取 → item_detail
+    let item_detail = cell_fields.item_cell_bbox.and_then(|(x0, top, x1, bottom)| {
+        let merged = text_extractor::column_aware_merge_in_bbox(&raw_words, x0, top, x1, bottom);
+        if merged.is_empty() { return None; }
+        // 从合并文本中取 *税收编码* 后第一段连续文本
+        let pos = merged.find('*')?;
+        let end = merged[pos+1..].find('*')?;
+        let after = &merged[pos + end + 2..];
+        let detail: String = after.chars()
+            .take_while(|c| !c.is_ascii_digit() && !c.is_whitespace() && *c != '¥')
+            .collect();
+        if detail.is_empty() { None } else { Some(detail) }
+    });
+
+    if cell_fields.seller_name.is_none() || cell_fields.amount.unwrap_or(0.0) <= 0.0 {
+        // cell 路径未提取到 seller 或 amount 时回退到文本解析：
+        // - 火车票等无表格框线票据：pdfplumber 误检测出伪表格
+        // - cell 提取逻辑未能覆盖的特殊布局
+        // （parse_invoice_text 已为火车票定制 extract_ticket_cities 等）。
+        eprintln!("  [cell] 单元格未提取到有效数据（无表格框线？），回退到 Word 框文本解析");
+        let mut inv = parse_invoice_text(&flat_texts, source)?;
+        // pdfplumber 将日期拆散为多个 word，正则无法跨 word 匹配。
+        // 用 char 级间距过滤重建行文本，覆盖 travel_date（仅 Train/Flight）。
+        if inv.category == crate::models::invoice::InvoiceCategory::Train
+            || inv.category == crate::models::invoice::InvoiceCategory::Flight
+        {
+            let lines = text_extractor::reconstruct_lines_from_chars(&raw_words);
+            if !lines.is_empty() {
+                let joined = lines.join("\n");
+                if let Some(td) = crate::parser::invoice_parser::extract_ticket_travel_date(
+                    &joined, &inv.category
+                ) {
+                    eprintln!("  [cell] char-level reconstruct → travel_date={td}");
+                    inv.travel_date = Some(td);
+                }
+            }
+        }
+        return Ok(inv);
+    }
+    build_invoice_from_cells(cell_fields, &item_detail, &raw_text, source.clone())
+}
+
+/// 从单元格提取结果 + 文本头部信息（发票号、日期）构建 Invoice，完全跳过文本正则解析。
+#[cfg(feature = "pdfplumber")]
+fn build_invoice_from_cells(
+    fields: cell_extractor::CellInvoiceFields,
+    item_detail: &Option<String>,
+    all_text: &str,
+    source: InvoiceSource,
+) -> Result<Invoice, String> {
+    use crate::models::invoice::HotelDetail;
+
+    // 发票号（8位老式号码~30位全电发票号码）
+    let invoice_number = {
+        let re = regex::Regex::new(r"发票号码[：:\s]*(\d{8,30})").ok();
+        re.and_then(|r| r.captures(all_text))
+            .map(|c| c[1].to_string())
+            .or_else(|| {
+                let re_num = regex::Regex::new(r"(\d{18,22})").ok()?;
+                re_num.captures(all_text).map(|c| c[1].to_string())
+            })
+            .unwrap_or_default()
+    };
+    // 日期：匹配 YYYY年MM月DD日 / YYYY-MM-DD / YYYY/MM/DD（日 可选）
+    // 用 captures_iter 遍历所有匹配，跳过非日期数字串（税号、发票号等可能先匹配但范围检查失败）
+    let date = {
+        let re = regex::Regex::new(r"(\d{4})[\s]*[年\-/][\s]*(\d{1,2})[\s]*[月\-/][\s]*(\d{1,2})").ok();
+        re.and_then(|r| {
+            r.captures_iter(all_text).find_map(|c| {
+                let y: i32 = c[1].parse().ok()?;
+                let m: u32 = c[2].parse().ok()?;
+                let d: u32 = c[3].parse().ok()?;
+                if y < 2000 || m > 12 || d > 31 { return None; }
+                chrono::NaiveDate::from_ymd_opt(y, m, d)
+            })
+        }).unwrap_or_default()
+    };
+
+    let seller = fields.seller_name.unwrap_or_default();
+    let amount = fields.amount.unwrap_or(0.0);
+    let item_name = fields.item_name.unwrap_or_default();
+    let item_detail = item_detail.as_deref().unwrap_or_default();
+    let remarks = fields.remarks.unwrap_or_default();
+
+    // 类别：优先用 item_detail（商家自定义名称如"住宿费"、"代订机票"），其次用 item_name 税收编码简称
+    let category = classify_from_item(&item_name, &item_detail, &seller, all_text, &remarks);
+
+    // 住宿发票：从备注 / 全文提取入住/离店日期
+    let hotel_detail = if category == InvoiceCategory::Hotel {
+        let detail = parse_hotel_detail(&remarks, date)
+            .or_else(|| extract_hotel_statement_detail(all_text, date));
+        if let Some(mut d) = detail {
+            if d.nights == 0 {
+                if let Some(n) = parse_nights_from_remarks(&remarks) {
+                    d.nights = n;
+                }
+            }
+            // parse_hotel_detail 返回的 nightly_rate=0，这里用 amount/nights 覆盖
+            d.nightly_rate = amount / d.nights.max(1) as f64;
+            Some(d)
+        } else {
+            // 最低回退：至少设置 nightly_rate
+            let nights = parse_nights_from_remarks(&remarks).unwrap_or(1).max(1);
+            Some(HotelDetail {
+                check_in: None,
+                check_out: None,
+                nights,
+                nightly_rate: amount / nights as f64,
+            })
+        }
+    } else {
+        None
+    };
+
+    // 票据城市/日期（仅 Train/Flight）
+    let (departure_city, arrival_city) = extract_ticket_cities(all_text, &category);
+    let travel_date = extract_ticket_travel_date(all_text, &category);
+
+    // 通行费发票：从备注提取通行时间
+    let toll_travel_time = if category == InvoiceCategory::Toll {
+        extract_toll_travel_time(&remarks)
+    } else {
+        None
+    };
+
+    eprintln!("  [cell] invoice built: seller={seller}, amount={amount}, item={item_name}, no={invoice_number}, date={date}, cat={category:?}");
+
+    Ok(Invoice {
+        id: String::new(),
+        invoice_number,
+        seller_name: seller,
+        amount,
+        date,
+        item_name,
+        remarks,
+        hotel_detail,
+        category,
+        source,
+        itineraries: Vec::new(),
+        itinerary_file: None,
+        departure_city,
+        arrival_city,
+        travel_date,
+        toll_travel_time,
+    })
+}
+
+/// 分类：优先用 item_detail（商家自定义名称，精确），其次 item_name（税收编码简称），回退到上下文。
+#[cfg(feature = "pdfplumber")]
+fn classify_from_item(
+    item_name: &str,
+    item_detail: &str,
+    seller_name: &str,
+    all_text: &str,
+    remarks: &str,
+) -> InvoiceCategory {
+    // ── 商家自定义名称判断（优先级最高）──
+    if !item_detail.is_empty() {
+        let d = item_detail;
+        // 退改签优先识别（"退票费"含"票"但不是机票，"经纪代理"后面会误判为 Flight）
+        if d.contains("退票") || d.contains("改签") { return InvoiceCategory::TicketChange; }
+        // 保险优先级最高（"航空意外险"含"航空"但不该判为机票）
+        if d.contains("保险") || d.contains("意外险") || d.contains("意外") { return InvoiceCategory::Insurance; }
+        if d.contains("住宿") || d.contains("酒店") || d.contains("宾馆") { return InvoiceCategory::Hotel; }
+        if d.contains("机票") || d.contains("航空") || d.contains("客票") { return InvoiceCategory::Flight; }
+        if d.contains("火车") || d.contains("车票") || d.contains("铁路") { return InvoiceCategory::Train; }
+        if d.contains("餐饮") || d.contains("餐费") || d.contains("餐饮费") { return InvoiceCategory::Meal; }
+        if d.contains("通行费") || d.contains("高速") { return InvoiceCategory::Toll; }
+        if d.contains("客运") || d.contains("运输") { return InvoiceCategory::CityTransport; }
+        // 预付卡：需结合 seller 判断（天府通→市内交通，否则 Other）
+        if d.contains("预付卡") {
+            if seller_name.contains("天府通") || seller_name.contains("轨道交通")
+                || seller_name.contains("公交") || seller_name.contains("地铁")
             {
-                if let Some(ref tables) = cached_tables {
-                    let cell_fields = cell_extractor::extract_fields_from_tables(tables);
-                    if invoice.seller_name.is_empty() {
-                        if let Some(seller) = cell_fields.seller_name {
-                            if seller.chars().count() >= 4 {
-                                eprintln!("  [cell] seller补全: {}", seller);
-                                invoice.seller_name = seller;
-                            }
-                        }
-                    }
-                    // 单元格提取的金额来自"价税合计"标签定位的值单元格，
-                    // 比 parse_invoice_text 的全文正则（可能误取商品详情行金额）更可靠。
-                    if let Some(amt) = cell_fields.amount {
-                        if amt > 0.0 {
-                            eprintln!("  [cell] amount: {} (cell)", amt);
-                            invoice.amount = amt;
-                        }
-                    }
-                    if invoice.item_name.is_empty() {
-                        if let Some(item) = cell_fields.item_name {
-                            invoice.item_name = item;
-                        }
-                    }
-                    if invoice.remarks.is_empty() {
-                        if let Some(remarks) = cell_fields.remarks {
-                            invoice.remarks = remarks;
-                        }
-                    }
-                    if invoice.hotel_detail.is_none() {
-                        invoice.hotel_detail = cell_fields.hotel_detail;
-                    }
-                    // 单元格提取后如果 seller + invoice_number 都有效，直接返回
-                    if !invoice.seller_name.is_empty()
-                        && invoice.seller_name.chars().count() >= 4
-                        && !invoice.invoice_number.is_empty()
-                    {
-                        return Ok(invoice);
-                    }
-                }
+                return InvoiceCategory::CityTransport;
             }
-            // Word 坐标提取回退（可配置关闭）
-            if config.enable_word_fallback {
-                #[cfg(feature = "pdfplumber")]
-                {
-                    let words_result = match &cached_words {
-                        Some(w) => Ok(w.clone()),
-                        None => text_extractor::extract_words_raw(pdf_path),
-                    };
-                    if let Ok(words) = words_result {
-                        let seller = layout_extractor::extract_seller_by_raw_coords(&words);
-                        if !seller.is_empty() && seller.chars().count() >= 4 {
-                            invoice.seller_name = seller;
-                        }
-
-                        if let Some(amt) = layout_extractor::extract_amount_by_coords(&words) {
-                            if amt > 0.0 {
-                                invoice.amount = amt;
-                            }
-                        }
-
-                        if !invoice.seller_name.is_empty()
-                            && invoice.seller_name.chars().count() >= 4
-                            && !invoice.invoice_number.is_empty()
-                        {
-                            return Ok(invoice);
-                        }
-                    }
-                }
-            } else {
-                eprintln!("  [pipeline] Word坐标回退已关闭");
-            }
-
-            // OCR 文本回退（可配置关闭）
-            if !config.enable_text_fallback {
-                eprintln!("  [pipeline] 文本回退已关闭，返回当前提取结果");
-                return Ok(invoice);
-            }
-
-            // ponytail: OCR 不可用时返回文字提取结果（invoice_number/amount 通常已正确），
-            // 而非硬报错。升级路径=安装 OCR 模型后自动走 OCR 补全 seller。
-            if !engine.health().unwrap_or(false) {
-                eprintln!("  [pipeline] OCR 不可用，返回文字提取结果");
-                return Ok(invoice);
-            }
-            let ocr_pages = extract_ocr_text(pdf_path, engine)?;
-            let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
-            let ocr_doc_type = classify_pdf_document_type(&ocr_items);
-            if ocr_doc_type == PdfDocumentType::Itinerary || ocr_doc_type == PdfDocumentType::Bill {
-                return Err(format!("非发票类型（OCR回退）: {:?}", ocr_doc_type));
-            }
-            check_and_parse(ocr_items, source)
-        }
-        Err(_) => {
-            // OCR 文本回退（可配置关闭）
-            if !config.enable_text_fallback {
-                return Err(format!("文字提取解析失败，且文本回退已关闭"));
-            }
-            if !engine.health().unwrap_or(false) {
-                return Err("文字提取解析失败，且 OCR 模型未安装".to_string());
-            }
-            let ocr_pages = extract_ocr_text(pdf_path, engine)?;
-            let ocr_items: Vec<_> = ocr_pages.iter().flat_map(|p| p.texts.clone()).collect();
-            let ocr_doc_type = classify_pdf_document_type(&ocr_items);
-            if ocr_doc_type == PdfDocumentType::Itinerary || ocr_doc_type == PdfDocumentType::Bill {
-                return Err(format!("非发票类型（OCR回退）: {:?}", ocr_doc_type));
-            }
-            check_and_parse(ocr_items, source)
+            return InvoiceCategory::Other;
         }
     }
+
+    // ── 税收编码简称 ──
+    // 退改签兜底（item_detail 为空时，从 all_text/remarks 检查）
+    if all_text.contains("退票") || all_text.contains("改签") || remarks.contains("退票") || remarks.contains("改签") {
+        return InvoiceCategory::TicketChange;
+    }
+    if item_name.contains("住宿") { return InvoiceCategory::Hotel; }
+    if item_name.contains("运输服务") || item_name.contains("客运服务") {
+        if all_text.contains("火车") || all_text.contains("车次") || all_text.contains("铁路") {
+            return InvoiceCategory::Train;
+        }
+        if all_text.contains("航班") || all_text.contains("机票") {
+            return InvoiceCategory::Flight;
+        }
+        return InvoiceCategory::CityTransport;
+    }
+    if item_name.contains("经纪代理") || item_name.contains("航空运输") || item_name.contains("旅客运输") {
+        return InvoiceCategory::Flight;
+    }
+    if item_name.contains("保险") { return InvoiceCategory::Insurance; }
+    if item_name.contains("餐饮") { return InvoiceCategory::Meal; }
+
+    // ── 生产生活服务（2026年新编码，囊括所有服务类）──
+    if item_name.contains("生产生活服务") {
+        // 商家自定义名称已在上面处理过；回退到上下文
+        let context: String = format!("{remarks} {seller_name} {all_text}");
+        if seller_name.contains("酒店") || seller_name.contains("宾馆")
+            || context.contains("住宿费") || context.contains("住宿服务")
+        {
+            return InvoiceCategory::Hotel;
+        }
+        if context.contains("高速") || context.contains("通行费") || context.contains("收费车道") {
+            return InvoiceCategory::Toll;
+        }
+        if remarks.contains("经济舱") || remarks.contains("头等舱") || remarks.contains("商务舱")
+            || all_text.contains("航班") || all_text.contains("机票")
+            || seller_name.contains("航空服务")
+        {
+            return InvoiceCategory::Flight;
+        }
+    }
+
+    // ── seller 关键词回退 ──
+    if seller_name.contains("滴滴") || seller_name.contains("出行科技") || seller_name.contains("优行")
+        || seller_name.contains("天府通") || seller_name.contains("轨道交通")
+        || seller_name.contains("公交") || seller_name.contains("地铁")
+    {
+        return InvoiceCategory::CityTransport;
+    }
+    if seller_name.contains("酒店") || seller_name.contains("宾馆") || seller_name.contains("民宿") {
+        return InvoiceCategory::Hotel;
+    }
+    if seller_name.contains("高速") || seller_name.contains("公路") {
+        return InvoiceCategory::Toll;
+    }
+    InvoiceCategory::Other
 }
 
 fn extract_ocr_text_only(pdf_path: &str, engine: &mut OcrEngine) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
@@ -228,9 +393,15 @@ pub fn extract_text_with_coords_or_fallback(
     engine: &mut OcrEngine,
 ) -> Result<Vec<crate::ocr::OcrTextItem>, String> {
     match text_extractor::extract_text_with_coords_flat(pdf_path) {
-        Ok(items) if text_extractor::has_sufficient_text(&items, 20) => {
+        Ok(items) if text_extractor::has_sufficient_text(&items, 20)
+            && !text_extractor::is_garbled_items(&items, 0.3) =>
+        {
             eprintln!("  [pdfplumber] 提取到 {} 个带坐标文本项", items.len());
             Ok(items)
+        }
+        Ok(items) if text_extractor::has_sufficient_text(&items, 20) => {
+            eprintln!("  [pdfplumber] 文字乱码（CID 字体映射失败），回退到 OCR");
+            extract_ocr_text_only(pdf_path, engine)
         }
         _ => {
             eprintln!("  [pdfplumber] 不可用或无文本，回退到 OCR");
@@ -290,9 +461,9 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
                     let itineraries = if has_coords {
                         eprintln!("  [pdfplumber] 行程单带坐标，按页 word 级坐标解析");
                         // 关键：用 word_pages（word 级未合并）按页解析，保留单元格坐标
-                        let coord_result = parse_itinerary_with_coords_pages_and_fallback(
-                            &extraction.word_pages, Some(&flat_texts));
-                        if !coord_result.is_empty() && !has_incomplete_entries(&coord_result) {
+                    let coord_result = parse_itinerary_with_coords_pages_and_fallback(
+                        &extraction.word_pages, Some(&flat_texts));
+                    if !coord_result.is_empty() && !has_incomplete_entries(&coord_result) {
                             coord_result
                         } else {
                             if !coord_result.is_empty() {
@@ -302,6 +473,7 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
                             }
                             let mut text_result = parse_itinerary_text(&flat_texts);
                             if !text_result.is_empty() {
+                                cross_validate_amounts(&mut text_result, &flat_texts);
                                 let fb_text: String = flat_texts.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
                                 enrich_itinerary_years(&mut text_result, &fb_text);
                                 if !has_incomplete_entries(&text_result) {
@@ -362,10 +534,17 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
 /// 构建 ItineraryDoc
 fn build_itinerary_doc(
     mut itineraries: Vec<Itinerary>,
-    _texts: &[crate::ocr::OcrTextItem],
+    texts: &[crate::ocr::OcrTextItem],
     pdf_path: &str,
 ) -> Result<ItineraryDoc, String> {
     compute_incomplete_fields(&mut itineraries);
+    let printed_total = extract_itinerary_printed_total(texts);
+    if let Some(pt) = printed_total {
+        cross_validate_with_printed_total(&mut itineraries, pt);
+        let file_name = Path::new(pdf_path).file_name()
+            .unwrap_or_default().to_string_lossy().to_string();
+        return Ok(ItineraryDoc { file_name, itineraries, total_amount: pt, printed_total: Some(pt) });
+    }
     let total_amount: f64 = itineraries.iter().map(|i| i.amount).sum();
     let file_name = Path::new(pdf_path).file_name()
         .unwrap_or_default().to_string_lossy().to_string();
