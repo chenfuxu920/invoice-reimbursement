@@ -417,15 +417,41 @@ pub fn extract_words_raw(file_path: &str) -> Result<Vec<Word>, String> {
 // Column-aware extraction (P1: fixes multi-column merging)
 // ──────────────────────────────────────────────
 
-/// pdfplumber find_tables() 返回的单元格信息（文本 + 坐标）
+/// 单元格内单个 word 的坐标信息（Type 1 数据的元素）
 #[cfg(feature = "pdfplumber")]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
+pub struct WordInCell {
+    pub text: String,
+    pub x0: f64,
+    pub top: f64,
+    pub x1: f64,
+    pub bottom: f64,
+}
+
+/// pdfplumber find_tables() 返回的单元格信息（文本 + 坐标）
+///
+/// 含 4 类文本数据，按提取场景选用：
+/// - `text`: pdfplumber 原始合并文本（向后兼容）
+/// - `words`: Type 1，原始 word 数组（每 word 独立坐标）
+/// - `line_text`: Type 2，按行组装（word 按 Y 分组，行间 \n）— 适用横排标签值
+/// - `merged_text`: Type 3，全部合并（去除空白）— 适用竖排标签 / 小单元格
+/// - `column_text`: Type 4，按列聚合（word 按 X 分组）— 适用商品详情大单元格
+#[cfg(feature = "pdfplumber")]
+#[derive(Debug, Clone, Default)]
 pub struct TableCellInfo {
     pub text: String,
     pub x0: f64,
     pub top: f64,
     pub x1: f64,
     pub bottom: f64,
+    /// Type 1: 原始 word 数组
+    pub words: Vec<WordInCell>,
+    /// Type 2: 按行组装文本
+    pub line_text: String,
+    /// Type 3: 全部合并文本（去空白）
+    pub merged_text: String,
+    /// Type 4: 按列聚合文本
+    pub column_text: String,
 }
 
 /// pdfplumber find_tables() 返回的表格信息（行 × 单元格）
@@ -454,6 +480,113 @@ pub struct PdfExtraction {
     pub raw_words: Vec<Word>,
     /// 按页组织的表格（find_tables 结果，供单元格引导提取使用）
     pub tables: Vec<Vec<TableInfo>>,
+}
+
+/// 用页面 Word 填充每个单元格的 4 类文本数据（words/line_text/merged_text/column_text）。
+///
+/// 关联方式：word 中心点 (cx, cy) 落在 cell 边界内则属于该 cell。
+/// 一个 word 可能落进多个重叠 cell（pdfplumber 表格常有共享边框），
+/// 取面积包含的 cell（通常唯一）。
+#[cfg(feature = "pdfplumber")]
+fn enrich_cells_with_words(tables: &mut [TableInfo], words: &[Word]) {
+    for table in tables.iter_mut() {
+        for row in &mut table.rows {
+            for cell in row.iter_mut() {
+                let cell_words: Vec<&Word> = words
+                    .iter()
+                    .filter(|w| {
+                        let cx = (w.bbox.x0 + w.bbox.x1) / 2.0;
+                        let cy = (w.bbox.top + w.bbox.bottom) / 2.0;
+                        cx >= cell.x0 && cx <= cell.x1 && cy >= cell.top && cy <= cell.bottom
+                    })
+                    .collect();
+                if cell_words.is_empty() {
+                    continue;
+                }
+                // Type 1: words 数组
+                cell.words = cell_words
+                    .iter()
+                    .map(|w| WordInCell {
+                        text: w.text.clone(),
+                        x0: w.bbox.x0,
+                        top: w.bbox.top,
+                        x1: w.bbox.x1,
+                        bottom: w.bbox.bottom,
+                    })
+                    .collect();
+                // Type 2: 按行组装
+                cell.line_text = build_line_text_from_words(&cell_words);
+                // Type 3: 去除所有空白
+                cell.merged_text = cell.line_text.chars().filter(|c| !c.is_whitespace()).collect();
+                // Type 4: 按列聚合
+                cell.column_text = build_column_text_from_words(&cell_words);
+            }
+        }
+    }
+}
+
+/// Type 2: word 按 Y 分组为行，每行内按 X 排序，word 间用空格连接，行间用 \n。
+#[cfg(feature = "pdfplumber")]
+fn build_line_text_from_words(words: &[&Word]) -> String {
+    if words.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&Word> = words.iter().copied().collect();
+    let avg_h = sorted.iter().map(|w| w.bbox.bottom - w.bbox.top).sum::<f64>() / sorted.len() as f64;
+    let y_tol = (avg_h * 0.5).max(2.0);
+    sorted.sort_by(|a, b| {
+        a.bbox.top.partial_cmp(&b.bbox.top).unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    let mut lines: Vec<Vec<&Word>> = Vec::new();
+    for w in sorted {
+        let cy = (w.bbox.top + w.bbox.bottom) / 2.0;
+        if let Some(last) = lines.last_mut() {
+            let last_cy = (last[0].bbox.top + last[0].bbox.bottom) / 2.0;
+            if (cy - last_cy).abs() <= y_tol {
+                last.push(w);
+                continue;
+            }
+        }
+        lines.push(vec![w]);
+    }
+    lines
+        .iter()
+        .map(|line| line.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Type 4: word 按 X 分组为列，每列内按 Y 排序，word 间直接连接（CID 间距），
+/// 列间用空格分隔。适用于商品详情等大单元格内按列布置的文本。
+#[cfg(feature = "pdfplumber")]
+fn build_column_text_from_words(words: &[&Word]) -> String {
+    if words.is_empty() {
+        return String::new();
+    }
+    let mut sorted: Vec<&Word> = words.iter().copied().collect();
+    let avg_w = sorted.iter().map(|w| w.bbox.x1 - w.bbox.x0).sum::<f64>() / sorted.len() as f64;
+    let x_tol = (avg_w * 0.5).max(2.0);
+    sorted.sort_by(|a, b| {
+        a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.bbox.top.partial_cmp(&b.bbox.top).unwrap_or(std::cmp::Ordering::Equal))
+    });
+    let mut cols: Vec<Vec<&Word>> = Vec::new();
+    for w in sorted {
+        let cx = (w.bbox.x0 + w.bbox.x1) / 2.0;
+        if let Some(last) = cols.last_mut() {
+            let last_cx = (last[0].bbox.x0 + last[0].bbox.x1) / 2.0;
+            if (cx - last_cx).abs() <= x_tol {
+                last.push(w);
+                continue;
+            }
+        }
+        cols.push(vec![w]);
+    }
+    cols.iter()
+        .map(|col| col.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(""))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// 列感知合并：检测列布局，在每列内独立合并 Word 为行。
@@ -510,6 +643,24 @@ fn column_aware_merge(words: Vec<Word>) -> Vec<(String, BBox)> {
     }
 }
 
+/// 对指定 bbox 内的 words 做列感知合并，返回合并后的完整文本（用于从商品详情格提取商家自定义名称）
+#[cfg(feature = "pdfplumber")]
+pub fn column_aware_merge_in_bbox(words: &[pdfplumber::Word], x0: f64, top: f64, x1: f64, bottom: f64) -> String {
+    let within: Vec<pdfplumber::Word> = words.iter()
+        .filter(|w| {
+            let cx = (w.bbox.x0 + w.bbox.x1) / 2.0;
+            let cy = (w.bbox.top + w.bbox.bottom) / 2.0;
+            cx >= x0 && cx <= x1 && cy >= top && cy <= bottom
+        })
+        .cloned()
+        .collect();
+    let lines = column_aware_merge(within);
+    lines.into_iter()
+        .map(|(text, _)| text)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// 单次 PDF 打开：列感知合并 + 原始 Word（供坐标提取器使用，无需二次打开）
 #[cfg(feature = "pdfplumber")]
 pub fn extract_pdf_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
@@ -544,7 +695,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
 
             // 表格单元格提取（find_tables 填充单元格文本，供 cell_extractor 使用）
             let tables = page.find_tables(&TableSettings::default());
-            let table_infos: Vec<TableInfo> = tables
+            let mut table_infos: Vec<TableInfo> = tables
                 .iter()
                 .map(|t| {
                     let rows: Vec<Vec<TableCellInfo>> = t
@@ -558,6 +709,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
                                     top: c.bbox.top,
                                     x1: c.bbox.x1,
                                     bottom: c.bbox.bottom,
+                                    ..Default::default()
                                 })
                                 .collect()
                         })
@@ -571,6 +723,7 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
                     }
                 })
                 .collect();
+            enrich_cells_with_words(&mut table_infos, &words);
             all_tables.push(table_infos);
 
             // word 级文本项（未合并，保留独立坐标，供行程单表格解析）
@@ -626,6 +779,113 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
             Err(format!("pdfplumber panic: {}", msg))
         }
     }
+}
+
+/// 从 pdfplumber Word 的 char 列表重建行文本。
+///
+/// 核心逻辑：
+/// 1. 收集所有 Word 的 chars
+/// 2. 按 Y 坐标分行（容差 = 平均行高 × 0.5）
+/// 3. 行内按 X 坐标排序
+/// 4. **间距过滤**：相邻 char 间距 < avg_char_width × 0.5 时跳过当前 char
+///    （pdfplumber word 拆分会产生位置重叠的噪声 char，间距过滤可去除）
+/// 5. 拼接剩余 char 的 text
+///
+/// 解决问题：火车票 "2025年11月14日 5:22开" 被 pdfplumber 拆成
+/// "2025年11月1" + "1"(噪声@x=124.7) + "4" + "5日:22开"，
+/// 噪声 "1" 插在 day 十位和个位之间破坏正则匹配。
+#[cfg(feature = "pdfplumber")]
+pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
+    use pdfplumber::Char;
+
+    // 收集所有 chars (text, x0, y0)
+    let mut chars: Vec<(&Char, f64, f64)> = words.iter()
+        .flat_map(|w| w.chars.iter())
+        .map(|c| (c, c.bbox.x0, c.bbox.top))
+        .collect();
+    if chars.is_empty() {
+        return Vec::new();
+    }
+
+    // 计算平均 char 宽度（用于间距过滤阈值）
+    let widths: Vec<f64> = chars.iter()
+        .map(|(c, _, _)| c.bbox.x1 - c.bbox.x0)
+        .filter(|w| *w > 0.0)
+        .collect();
+    let avg_width = if widths.is_empty() {
+        12.0
+    } else {
+        widths.iter().sum::<f64>() / widths.len() as f64
+    };
+    let gap_threshold = avg_width * 0.5; // 间距 < 半个 char 宽 = 噪声
+
+    // 计算平均行高用于 Y 分行
+    let heights: Vec<f64> = chars.iter()
+        .map(|(c, _, _)| c.bbox.height())
+        .filter(|h| *h > 0.0)
+        .collect();
+    let avg_height = if heights.is_empty() {
+        12.0
+    } else {
+        heights.iter().sum::<f64>() / heights.len() as f64
+    };
+    let y_tol = avg_height.max(6.0) * 0.5;
+
+    // 按 Y 分行
+    chars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal)
+        .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)));
+    let mut lines: Vec<Vec<(&Char, f64, f64)>> = vec![];
+    for (c, x, y) in chars {
+        if let Some(last) = lines.last_mut() {
+            let last_y = last[0].2;
+            if (y - last_y).abs() <= y_tol {
+                last.push((c, x, y));
+                continue;
+            }
+        }
+        lines.push(vec![(c, x, y)]);
+    }
+
+    // 每行内按 X 排序 + 间距过滤 + 拼接
+    lines.iter().map(|line| {
+        let mut sorted = line.to_vec();
+        sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // 间距过滤：间距 < gap_threshold 的 char 视为重叠噪声，跳过
+        // 但收集被跳过的 char，用于后续时间信息恢复
+        let mut filtered: Vec<&Char> = vec![];
+        let mut skipped: Vec<&Char> = vec![];
+        for (c, x, _y) in sorted {
+            if let Some(last_x) = filtered.last().map(|lc| lc.bbox.x0) {
+                if x - last_x < gap_threshold {
+                    // 间距过小，跳过此 char（视为重叠噪声）
+                    skipped.push(c);
+                    continue;
+                }
+            }
+            filtered.push(c);
+        }
+        let mut text: String = filtered.iter().map(|c| c.text.as_str()).collect();
+
+        // 时间信息恢复：从被跳过的 char 里找"数字+冒号"模式
+        // 火车票 PDF 渲染顺序问题：小时 char（如"15"的"1"和"5"）可能与 day char
+        // 在 X 上重叠被间距过滤跳过。如果 filtered text 的 "日" 后缺冒号，
+        // 把被跳过的时间 char（数字+冒号）插到 "日" 后。
+        let time_chars: String = skipped.iter()
+            .filter(|c| c.text.chars().all(|ch| ch.is_ascii_digit() || ch == ':'))
+            .map(|c| c.text.as_str())
+            .collect();
+        if !time_chars.is_empty() && text.contains('日') {
+            let ri_pos = text.find('日').unwrap();
+            let ri_end = ri_pos + '日'.len_utf8(); // "日" 是 3 字节 UTF-8 char
+            let after_ri = &text[ri_end..];
+            // "日" 后没有冒号 → 缺时间前缀，插回
+            if !after_ri.contains(':') {
+                text.insert_str(ri_end, &time_chars);
+            }
+        }
+        text
+    }).collect()
 }
 
 #[cfg(test)]
@@ -720,6 +980,106 @@ mod tests {
         assert_eq!(classify_pdf_document_type(&items), PdfDocumentType::Unknown);
     }
 
+    // ── reconstruct_lines_from_chars tests ──
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_reconstruct_lines_filters_noise_chars() {
+        // 模拟火车票日期拆分：Word "2025年11月1"(chars: 2,0,2,5,年,1,1,月,1)
+        // + Word "1"(噪声 char @x=124.7) + Word "4"(@x=133.5)
+        // + Word "5日:22开"(chars: 5@136.7, 日@145.5, :@148.7, 2@160.7, 2@172.7, 开@184.7)
+        // 间距 < avg_width*0.5 的噪声 char 被过滤，重建得 "2025年11月14日22开"
+        let mk_char = |text: &str, x: f64, y: f64| pdfplumber::Char {
+            text: text.to_string(),
+            bbox: BBox::new(x, y, x + 12.0, y + 12.0),
+            fontname: "SimSun".to_string(),
+            size: 12.0,
+            doctop: y,
+            upright: true,
+            direction: TextDirection::Ltr,
+            stroking_color: None,
+            non_stroking_color: None,
+            ctm: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            char_code: 0,
+            mcid: None,
+            tag: None,
+            render_mode: 0,
+            text_object_index: 0,
+        };
+        let words = vec![
+            pdfplumber::Word {
+                text: "2025年11月1".to_string(),
+                bbox: BBox::new(25.5, 134.6, 133.5, 146.6),
+                doctop: 134.6,
+                direction: TextDirection::Ltr,
+                chars: vec![
+                    mk_char("2", 25.5, 134.6), mk_char("0", 37.5, 134.6),
+                    mk_char("2", 49.5, 134.6), mk_char("5", 61.5, 134.6),
+                    mk_char("年", 73.5, 134.6), mk_char("1", 85.5, 134.6),
+                    mk_char("1", 97.5, 134.6), mk_char("月", 109.5, 134.6),
+                    mk_char("1", 121.5, 134.6),
+                ],
+                fontname: "SimSun".to_string(),
+                size: 12.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
+            },
+            pdfplumber::Word {
+                text: "1".to_string(),
+                bbox: BBox::new(124.7, 134.6, 136.7, 146.6),
+                doctop: 134.6,
+                direction: TextDirection::Ltr,
+                chars: vec![mk_char("1", 124.7, 134.6)],
+                fontname: "SimSun".to_string(),
+                size: 12.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
+            },
+            pdfplumber::Word {
+                text: "4".to_string(),
+                bbox: BBox::new(133.5, 134.6, 145.5, 146.6),
+                doctop: 134.6,
+                direction: TextDirection::Ltr,
+                chars: vec![mk_char("4", 133.5, 134.6)],
+                fontname: "SimSun".to_string(),
+                size: 12.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
+            },
+            pdfplumber::Word {
+                text: "5日:22开".to_string(),
+                bbox: BBox::new(136.7, 134.6, 196.7, 146.6),
+                doctop: 134.6,
+                direction: TextDirection::Ltr,
+                chars: vec![
+                    mk_char("5", 136.7, 134.6), mk_char("日", 145.5, 134.6),
+                    mk_char(":", 148.7, 134.6), mk_char("2", 160.7, 134.6),
+                    mk_char("2", 172.7, 134.6), mk_char("开", 184.7, 134.6),
+                ],
+                fontname: "SimSun".to_string(),
+                size: 12.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
+            },
+        ];
+        let lines = reconstruct_lines_from_chars(&words);
+        assert_eq!(lines.len(), 1, "should produce one line, got: {:?}", lines);
+        // 间距过滤去掉噪声 "1"@124.7，但保留时间 "15:"（从被跳过的 char 恢复到 "日" 后）
+        assert_eq!(lines[0], "2025年11月14日15:22开", "got: {}", lines[0]);
+    }
+
     // ── pdfplumber merge_words_into_lines tests ──
     #[cfg(feature = "pdfplumber")]
     #[test]
@@ -731,6 +1091,13 @@ mod tests {
                 doctop: 100.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             Word {
                 text: "World".to_string(),
@@ -738,6 +1105,13 @@ mod tests {
                 doctop: 100.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             Word {
                 text: "Test".to_string(),
@@ -745,6 +1119,13 @@ mod tests {
                 doctop: 100.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
         ];
 
@@ -770,6 +1151,13 @@ mod tests {
                 doctop: 100.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             Word {
                 text: "Line".to_string(),
@@ -777,6 +1165,13 @@ mod tests {
                 doctop: 100.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             // Line 2 (Y = 150 — 50px below, well beyond 0.5 * avg_height)
             Word {
@@ -785,6 +1180,13 @@ mod tests {
                 doctop: 150.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             Word {
                 text: "Line".to_string(),
@@ -792,6 +1194,13 @@ mod tests {
                 doctop: 150.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             Word {
                 text: "Too".to_string(),
@@ -799,6 +1208,13 @@ mod tests {
                 doctop: 150.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
             // Line 3 (Y = 50 — 50px above, well beyond tolerance)
             Word {
@@ -807,6 +1223,13 @@ mod tests {
                 doctop: 50.0,
                 direction: TextDirection::Ltr,
                 chars: vec![],
+                fontname: String::new(),
+                size: 0.0,
+                non_stroking_color: None,
+                render_mode: 0,
+                text_object_index: 0,
+                font_flags: None,
+                stem_v: None,
             },
         ];
 
@@ -837,6 +1260,13 @@ mod tests {
             doctop: top,
             direction: TextDirection::Ltr,
             chars: vec![],
+            fontname: String::new(),
+            size: 0.0,
+            non_stroking_color: None,
+            render_mode: 0,
+            text_object_index: 0,
+            font_flags: None,
+            stem_v: None,
         }
     }
 
