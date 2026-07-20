@@ -12,7 +12,7 @@ fn data_path(relative: &str) -> String {
 
 #[test]
 fn test_debug_extract_returns_structure_with_scaled_coords() {
-    let pdf_path = data_path("发票与行程单\\滴滴电子发票A.pdf");
+    let pdf_path = data_path("市内交通\\滴滴电子发票A.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: PDF not found at {pdf_path}");
         return;
@@ -55,7 +55,7 @@ fn test_debug_extract_returns_structure_with_scaled_coords() {
 
 #[test]
 fn test_debug_extract_different_dpi_scales_coords_proportionally() {
-    let pdf_path = data_path("发票与行程单\\滴滴电子发票A.pdf");
+    let pdf_path = data_path("市内交通\\滴滴电子发票A.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: PDF not found at {pdf_path}");
         return;

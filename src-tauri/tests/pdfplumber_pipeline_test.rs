@@ -8,9 +8,6 @@ use std::path::Path;
 const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data");
 const MODELS_DIR: &str = "models";
 
-/// Directory containing invoice and itinerary PDFs
-const INVOICE_DIR: &str = "发票与行程单";
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -125,10 +122,11 @@ fn print_result_line(category: &str, file: &str, outcome: &TestOutcome, extra: &
 
 /// Run a single invoice test. Returns the parsed Invoice on success.
 fn test_invoice_impl(
+    subdir: &str,
     file: &str,
     engine: &mut OcrEngine,
 ) -> (String, TestOutcome, Option<invoice_reimbursement_lib::models::invoice::Invoice>) {
-    let pdf_path = match pdf_exists(INVOICE_DIR, file) {
+    let pdf_path = match pdf_exists(subdir, file) {
         Some(p) => p,
         None => return (file.to_string(), TestOutcome::Skip("file not found".to_string()), None),
     };
@@ -191,10 +189,11 @@ fn test_invoice_impl(
 
 /// Run a single itinerary test. Returns the parsed ItineraryDoc on success.
 fn test_itinerary_impl(
+    subdir: &str,
     file: &str,
     engine: &mut OcrEngine,
 ) -> (String, TestOutcome, Option<invoice_reimbursement_lib::pdf::invoice_pipeline::ItineraryDoc>) {
-    let pdf_path = match pdf_exists(INVOICE_DIR, file) {
+    let pdf_path = match pdf_exists(subdir, file) {
         Some(p) => p,
         None => return (file.to_string(), TestOutcome::Skip("file not found".to_string()), None),
     };
@@ -256,7 +255,7 @@ fn test_pipeline_invoice_didi_with_pdfplumber() {
     };
 
     println!("\n=== Didi Invoice with pdfplumber ===");
-    let (file, outcome, invoice) = test_invoice_impl("滴滴电子发票A.pdf", &mut engine);
+    let (file, outcome, invoice) = test_invoice_impl("市内交通", "滴滴电子发票A.pdf", &mut engine);
     print_result_line("Invoice", &file, &outcome, "", "");
     if let Some(inv) = invoice {
         println!(
@@ -275,7 +274,7 @@ fn test_pipeline_invoice_didi_b_with_pdfplumber() {
     };
 
     println!("\n=== Didi Invoice B with pdfplumber ===");
-    let (file, outcome, invoice) = test_invoice_impl("滴滴电子发票B.pdf", &mut engine);
+    let (file, outcome, invoice) = test_invoice_impl("市内交通", "滴滴电子发票B.pdf", &mut engine);
     print_result_line("Invoice", &file, &outcome, "", "");
     if let Some(inv) = invoice {
         println!(
@@ -293,9 +292,10 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
         None => return,
     };
 
-    let vat_pdfs = find_pdfs(INVOICE_DIR, "dzfp_");
+    let mut vat_pdfs = find_pdfs("住宿", "dzfp_");
+    vat_pdfs.extend(find_pdfs("未分类", "dzfp_"));
     if vat_pdfs.is_empty() {
-        eprintln!("  [SKIP] No dzfp_* PDFs found in '{INVOICE_DIR}'");
+        eprintln!("  [SKIP] No dzfp_* PDFs found in 住宿/ or 未分类/");
         return;
     }
 
@@ -391,7 +391,7 @@ fn test_pipeline_itinerary_tianfutong_with_pdfplumber() {
     };
 
     println!("\n=== 天府通 Itinerary with pdfplumber ===");
-    let (file, outcome, doc) = test_itinerary_impl("天府通电子行程单.pdf", &mut engine);
+    let (file, outcome, doc) = test_itinerary_impl("行程单\\天府通", "天府通电子行程单.pdf", &mut engine);
     print_result_line("Itinerary", &file, &outcome, "", "");
 
     // 天府通行程单 uses a dense table format that pdfplumber coordinate extraction
@@ -426,7 +426,7 @@ fn test_pipeline_itinerary_didi_with_pdfplumber() {
     };
 
     println!("\n=== Didi Itinerary A with pdfplumber ===");
-    let (file, outcome, doc) = test_itinerary_impl("滴滴出行行程报销单A.pdf", &mut engine);
+    let (file, outcome, doc) = test_itinerary_impl("行程单\\滴滴", "滴滴出行行程报销单A.pdf", &mut engine);
     print_result_line("Itinerary", &file, &outcome, "", "");
     if let Some(d) = doc {
         println!(
@@ -446,7 +446,7 @@ fn test_pipeline_itinerary_didi_b_with_pdfplumber() {
     };
 
     println!("\n=== Didi Itinerary B with pdfplumber ===");
-    let (file, outcome, doc) = test_itinerary_impl("滴滴出行行程报销单B.pdf", &mut engine);
+    let (file, outcome, doc) = test_itinerary_impl("行程单\\滴滴", "滴滴出行行程报销单B.pdf", &mut engine);
     print_result_line("Itinerary", &file, &outcome, "", "");
     if let Some(d) = doc {
         println!(
@@ -456,13 +456,12 @@ fn test_pipeline_itinerary_didi_b_with_pdfplumber() {
         );
     }
 
-    // 滴滴B in 发票与行程单 dir has 31 items (different file from the one in 原始发票 with 238 items)
+    // 滴滴B in 滴滴行程报销单 dir has 31 items — different content from the original
     // This may or may not parse depending on the content
     if !outcome.is_ok() {
         eprintln!(
-            "  NOTE: 滴滴出行行程报销单B.pdf in '{INVOICE_DIR}' has limited pdfplumber extraction\n\
-             (31 items). The version in '原始发票' has 238 items and parses successfully.\n\
-             This is likely a different file content."
+            "  NOTE: 滴滴出行行程报销单B.pdf has limited pdfplumber extraction\n\
+             (31 items). This file may have different content from the full version."
         );
     }
 }
@@ -483,12 +482,12 @@ fn test_pipeline_summary() {
     // ── Invoice tests ──────────────────────────────────────────────────────
     println!("\n=== Invoice Pipeline Tests ===");
     let invoice_tests = [
-        ("Invoice", "滴滴电子发票A.pdf"),
-        ("Invoice", "滴滴电子发票B.pdf"),
+        ("Invoice", "市内交通", "滴滴电子发票A.pdf"),
+        ("Invoice", "市内交通", "滴滴电子发票B.pdf"),
     ];
 
-    for (label, file) in &invoice_tests {
-        let (f, outcome, invoice) = test_invoice_impl(file, &mut engine);
+    for (label, subdir, file) in &invoice_tests {
+        let (f, outcome, invoice) = test_invoice_impl(subdir, file, &mut engine);
         if let Some(inv) = &invoice {
             let extra = format!("seller='{}' no='{}'", inv.seller_name, inv.invoice_number);
             results.push((label.to_string(), f, outcome, extra, format!("{:.2}", inv.amount)));
@@ -498,7 +497,8 @@ fn test_pipeline_summary() {
     }
 
     // VAT invoices
-    let vat_pdfs = find_pdfs(INVOICE_DIR, "dzfp_");
+    let mut vat_pdfs = find_pdfs("住宿", "dzfp_");
+    vat_pdfs.extend(find_pdfs("未分类", "dzfp_"));
     for pdf_path in &vat_pdfs {
         let file_name = Path::new(pdf_path)
             .file_name()
@@ -548,13 +548,13 @@ fn test_pipeline_summary() {
     // ── Itinerary tests ────────────────────────────────────────────────────
     println!("\n=== Itinerary Pipeline Tests ===");
     let itinerary_tests = [
-        ("Itinerary", "天府通电子行程单.pdf"),
-        ("Itinerary", "滴滴出行行程报销单A.pdf"),
-        ("Itinerary", "滴滴出行行程报销单B.pdf"),
+        ("Itinerary", "行程单\\天府通", "天府通电子行程单.pdf"),
+        ("Itinerary", "行程单\\滴滴", "滴滴出行行程报销单A.pdf"),
+        ("Itinerary", "行程单\\滴滴", "滴滴出行行程报销单B.pdf"),
     ];
 
-    for (label, file) in &itinerary_tests {
-        let (f, outcome, doc) = test_itinerary_impl(file, &mut engine);
+    for (label, subdir, file) in &itinerary_tests {
+        let (f, outcome, doc) = test_itinerary_impl(subdir, file, &mut engine);
         if let Some(d) = &doc {
             let extra = format!("{} itineraries", d.itineraries.len());
             results.push((label.to_string(), f, outcome, extra, format!("{:.2}", d.total_amount)));
@@ -637,7 +637,7 @@ fn test_pipeline_summary() {
 }
 
 // ---------------------------------------------------------------------------
-// Edge-case: test with original-invoice directory PDFs
+// Edge-case: test with all type-based invoice directories
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -647,81 +647,99 @@ fn test_pipeline_original_invoice_dir() {
         None => return,
     };
 
-    let original_dir = "原始发票";
-    let pdfs = find_pdfs(original_dir, ".pdf");
+    let type_dirs = [
+        "市内交通",
+        "机票",
+        "退改签",
+        "住宿",
+        "保险",
+        "通行费",
+        "其他发票",
+        "未分类",
+    ];
 
-    if pdfs.is_empty() {
-        eprintln!("  [SKIP] No PDFs found in '{}/'", data_path(original_dir));
-        return;
-    }
-
-    println!("\n=== Original Invoice Directory: {} PDFs ===", pdfs.len());
     let mut results: Vec<(String, String, TestOutcome, String, String)> = Vec::new();
+    let mut total_count = 0;
 
-    for pdf_path in &pdfs {
-        let file_name = Path::new(pdf_path)
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
+    for type_dir in &type_dirs {
+        let pdfs = find_pdfs(type_dir, ".pdf");
+        if pdfs.is_empty() {
+            continue;
+        }
+        total_count += pdfs.len();
 
-        eprintln!("\n    Processing: {}", file_name);
+        println!("\n=== {}: {} PDFs ===", type_dir, pdfs.len());
 
-        // Try invoice first
-        match parse_invoice_from_pdf(pdf_path, &mut engine, &ExtractionConfig::default()) {
-            Ok(invoice) => {
-                let seller = if invoice.seller_name.is_empty() {
-                    "(empty)".to_string()
-                } else {
-                    invoice.seller_name.clone()
-                };
-                let inv_no = if invoice.invoice_number.is_empty() {
-                    "(empty)".to_string()
-                } else {
-                    invoice.invoice_number.clone()
-                };
+        for pdf_path in &pdfs {
+            let file_name = Path::new(pdf_path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
 
-                println!(
-                    "    ✓ (invoice) seller='{}' no='{}' amount={:.2} date={} item='{}'",
-                    seller, inv_no, invoice.amount, invoice.date.format("%Y-%m-%d"), invoice.item_name
-                );
+            eprintln!("\n    Processing: {}", file_name);
 
-                let mut issues = Vec::new();
-                if invoice.amount <= 0.0 {
-                    issues.push(format!("amount={:.2}", invoice.amount));
-                }
+            // Try invoice first
+            match parse_invoice_from_pdf(pdf_path, &mut engine, &ExtractionConfig::default()) {
+                Ok(invoice) => {
+                    let seller = if invoice.seller_name.is_empty() {
+                        "(empty)".to_string()
+                    } else {
+                        invoice.seller_name.clone()
+                    };
+                    let inv_no = if invoice.invoice_number.is_empty() {
+                        "(empty)".to_string()
+                    } else {
+                        invoice.invoice_number.clone()
+                    };
 
-                let outcome = if issues.is_empty() { TestOutcome::Ok } else { TestOutcome::Fail(issues.join("; ")) };
-                results.push(("Invoice".to_string(), file_name, outcome, format!("seller='{}' no='{}'", seller, inv_no), format!("{:.2}", invoice.amount)));
-            }
-            Err(e) => {
-                // Try itinerary parsing
-                match parse_itinerary_from_pdf(pdf_path, &mut engine) {
-                    Ok(doc) => {
-                        println!(
-                            "    ✓ (itinerary) {} itineraries, total={:.2}",
-                            doc.itineraries.len(), doc.total_amount
-                        );
-                        let outcome = if doc.itineraries.is_empty() {
-                            TestOutcome::Fail("no itineraries".to_string())
-                        } else {
-                            TestOutcome::Ok
-                        };
-                        results.push(("Itinerary".to_string(), file_name, outcome, format!("{} itineraries", doc.itineraries.len()), format!("{:.2}", doc.total_amount)));
+                    println!(
+                        "    ✓ (invoice) seller='{}' no='{}' amount={:.2} date={} item='{}'",
+                        seller, inv_no, invoice.amount, invoice.date.format("%Y-%m-%d"), invoice.item_name
+                    );
+
+                    let mut issues = Vec::new();
+                    if invoice.amount <= 0.0 {
+                        issues.push(format!("amount={:.2}", invoice.amount));
                     }
-                    Err(e2) => {
-                        eprintln!("    ✗ Invoice: {e} | Itinerary: {e2}");
-                        results.push(("Unknown".to_string(), file_name, TestOutcome::Fail(format!("inv={e}; itin={e2}")), String::new(), "-".to_string()));
+
+                    let outcome = if issues.is_empty() { TestOutcome::Ok } else { TestOutcome::Fail(issues.join("; ")) };
+                    results.push(("Invoice".to_string(), file_name, outcome, format!("seller='{}' no='{}'", seller, inv_no), format!("{:.2}", invoice.amount)));
+                }
+                Err(e) => {
+                    // Try itinerary parsing
+                    match parse_itinerary_from_pdf(pdf_path, &mut engine) {
+                        Ok(doc) => {
+                            println!(
+                                "    ✓ (itinerary) {} itineraries, total={:.2}",
+                                doc.itineraries.len(), doc.total_amount
+                            );
+                            let outcome = if doc.itineraries.is_empty() {
+                                TestOutcome::Fail("no itineraries".to_string())
+                            } else {
+                                TestOutcome::Ok
+                            };
+                            results.push(("Itinerary".to_string(), file_name, outcome, format!("{} itineraries", doc.itineraries.len()), format!("{:.2}", doc.total_amount)));
+                        }
+                        Err(e2) => {
+                            eprintln!("    ✗ Invoice: {e} | Itinerary: {e2}");
+                            results.push(("Unknown".to_string(), file_name, TestOutcome::Fail(format!("inv={e}; itin={e2}")), String::new(), "-".to_string()));
+                        }
                     }
                 }
             }
         }
     }
 
+    if total_count == 0 {
+        eprintln!("  [SKIP] No PDFs found in any type directory");
+        return;
+    }
+
     // Print summary
     println!();
     println!("====================================================================================");
-    println!("              Original Invoice Dir Summary");
+    println!("              All Type-Based Invoice Dirs Summary");
     println!("====================================================================================");
     println!("{:<12} {:<38} {:<8} {:<32} {}", "Type", "File", "Result", "Detail", "Amount");
     println!("{:-<12}-{:-<38}-{:-<8}-{:-<32}-{:-<10}", "", "", "", "", "");
@@ -737,6 +755,6 @@ fn test_pipeline_original_invoice_dir() {
     println!();
     println!("  {}", "-".repeat(80));
     println!();
-    println!("  {ok}/{} OK, {fail} FAILED, {skip} SKIPPED", results.len());
+    println!("  {ok}/{total_count} OK, {fail} FAILED, {skip} SKIPPED", ok=ok, fail=fail, skip=skip, total_count=total_count);
     println!("====================================================================================");
 }

@@ -50,7 +50,7 @@ fn data_path(relative: &str) -> String {
 
 #[test]
 fn test_pdfplumber_coords_produce_valid_items() {
-    let pdf_path = data_path("发票与行程单\\滴滴电子发票A.pdf");
+    let pdf_path = data_path("市内交通\\滴滴电子发票A.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: PDF not found at {pdf_path}");
         return;
@@ -135,7 +135,7 @@ fn test_pdfplumber_coords_produce_valid_items() {
 
 #[test]
 fn test_pdfplumber_coords_flow_through_invoice_parser() {
-    let pdf_path = data_path("发票与行程单\\滴滴电子发票A.pdf");
+    let pdf_path = data_path("市内交通\\滴滴电子发票A.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: PDF not found at {pdf_path}");
         return;
@@ -179,7 +179,7 @@ fn test_pdfplumber_coords_flow_through_invoice_parser() {
 
 #[test]
 fn test_pdfplumber_coords_flow_through_itinerary_parser() {
-    let pdf_path = data_path("发票与行程单\\天府通电子行程单.pdf");
+    let pdf_path = data_path("行程单\\天府通\\天府通电子行程单.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: PDF not found at {pdf_path}");
         return;
@@ -216,7 +216,7 @@ fn test_pdfplumber_coords_flow_through_itinerary_parser() {
 
 #[test]
 fn test_coord_scale_is_pdf_units_not_pixels() {
-    let pdf_path = data_path("发票与行程单\\滴滴电子发票A.pdf");
+    let pdf_path = data_path("市内交通\\滴滴电子发票A.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: PDF not found at {pdf_path}");
         return;

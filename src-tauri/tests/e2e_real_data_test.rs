@@ -11,7 +11,19 @@ use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_all_from_dir, Extra
 use std::path::Path;
 
 const MODELS_DIR: &str = "models";
-const INVOICE_DIR: &str = "../data/发票与行程单";
+const INVOICE_DIRS: &[&str] = &[
+    "../data/市内交通",
+    "../data/行程单/滴滴",
+    "../data/行程单/天府通",
+    "../data/行程单/高德",
+    "../data/机票",
+    "../data/退改签",
+    "../data/住宿",
+    "../data/保险",
+    "../data/通行费",
+    "../data/其他发票",
+    "../data/未分类",
+];
 const BILL_DIR: &str = "../data/账单";
 
 #[test]
@@ -21,10 +33,15 @@ fn e2e_full_pipeline_from_real_files() {
     let mut engine = OcrEngine::new(MODELS_DIR).expect("OCR init failed");
 
     // 2. 解析所有文件（发票+行程单），行程单自动配对到对应发票
-    let result = parse_all_from_dir(INVOICE_DIR, &mut engine, &ExtractionConfig::default());
-    let invoices = result.invoices;
+    let mut invoices = Vec::new();
+    let mut all_errors = Vec::new();
+    for invoice_dir in INVOICE_DIRS {
+        let result = parse_all_from_dir(invoice_dir, &mut engine, &ExtractionConfig::default());
+        invoices.extend(result.invoices);
+        all_errors.extend(result.errors);
+    }
     println!("\n=== 解析结果 ===");
-    println!("  成功: {}, 失败: {}", invoices.len(), result.errors.len());
+    println!("  成功: {}, 失败: {}", invoices.len(), all_errors.len());
     for inv in &invoices {
         let has_itinerary = if inv.itineraries.is_empty() { "" } else { " [已关联行程单]" };
         println!("  ✓ {} 类别={:?} 金额={:.2}{}", inv.invoice_number, inv.category, inv.amount, has_itinerary);
@@ -34,7 +51,7 @@ fn e2e_full_pipeline_from_real_files() {
             }
         }
     }
-    for (name, err) in &result.errors {
+    for (name, err) in &all_errors {
         println!("  ✗ {} - {}", name, err);
     }
 

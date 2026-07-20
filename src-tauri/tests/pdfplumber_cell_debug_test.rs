@@ -283,7 +283,7 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
 
 #[test]
 fn diagnose_didi_invoice_a() {
-    let pdf_path = data_path("发票与行程单\\滴滴电子发票A.pdf");
+    let pdf_path = data_path("市内交通\\滴滴电子发票A.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: {pdf_path} not found");
         return;
@@ -294,7 +294,7 @@ fn diagnose_didi_invoice_a() {
 #[test]
 fn diagnose_vat_invoice() {
     let pdf_path = data_path(
-        "发票与行程单\\dzfp_26512000001728418261_中国人民解放军国防科技大学系统工程学院_20260427084626.pdf",
+        "住宿\\dzfp_26512000001728418261_中国人民解放军国防科技大学系统工程学院_20260427084626.pdf",
     );
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: {pdf_path} not found");
@@ -305,7 +305,7 @@ fn diagnose_vat_invoice() {
 
 #[test]
 fn diagnose_tianfu_itinerary() {
-    let pdf_path = data_path("发票与行程单\\天府通电子行程单.pdf");
+    let pdf_path = data_path("行程单\\天府通\\天府通电子行程单.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: {pdf_path} not found");
         return;
@@ -317,7 +317,7 @@ fn diagnose_tianfu_itinerary() {
 fn verify_find_tables_text_population() {
     // End-to-end: page.find_tables() (unlike find_tables_debug) populates cell text.
     // Confirms the fixed pipeline yields a readable 7-column itinerary table.
-    let pdf_path = data_path("发票与行程单\\天府通电子行程单.pdf");
+    let pdf_path = data_path("行程单\\天府通\\天府通电子行程单.pdf");
     if !Path::new(&pdf_path).exists() {
         eprintln!("SKIP: {pdf_path} not found");
         return;
@@ -345,6 +345,26 @@ fn verify_find_tables_text_population() {
         }
     }
     assert!(found_7col, "expected at least one >=6-column row in 天府通 table");
+}
+
+#[test]
+fn diagnose_didi_itinerary_a() {
+    let pdf_path = data_path("行程单\\滴滴\\滴滴出行行程报销单 A.pdf");
+    if !Path::new(&pdf_path).exists() {
+        eprintln!("SKIP: {pdf_path} not found");
+        return;
+    }
+    run_diag(&pdf_path);
+}
+
+#[test]
+fn diagnose_didi_itinerary_b() {
+    let pdf_path = data_path("行程单\\滴滴\\滴滴出行行程报销单 B.pdf");
+    if !Path::new(&pdf_path).exists() {
+        eprintln!("SKIP: {pdf_path} not found");
+        return;
+    }
+    run_diag(&pdf_path);
 }
 
 fn run_diag(pdf_path: &str) {

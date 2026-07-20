@@ -6,7 +6,7 @@ use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
 
 const MODELS_DIR: &str = "models";
-const TOLL_PDF: &str = "../data/原始发票/25_【票根】人工收费车道电子发票_20260607_202032_G6021430020_1cc32f6666ccbd8a96210a9dd37e521e.pdf";
+const TOLL_PDF: &str = "../data/通行费/25_【票根】人工收费车道电子发票_20260607_202032_G6021430020_1cc32f6666ccbd8a96210a9dd37e521e.pdf";
 
 #[test]
 #[ignore]

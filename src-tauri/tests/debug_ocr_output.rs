@@ -5,7 +5,6 @@ use invoice_reimbursement_lib::models::invoice::InvoiceSource;
 use std::path::Path;
 
 const MODELS_DIR: &str = "models";
-const INVOICE_DIR: &str = "../data/发票与行程单";
 
 fn pdf_to_image(pdf_path: &str) -> Result<String, String> {
     use std::process::Command;
@@ -36,17 +35,13 @@ fn pdf_to_image(pdf_path: &str) -> Result<String, String> {
     }
 }
 
-fn invoice_file(name: &str) -> String {
-    Path::new(INVOICE_DIR).join(name).to_str().unwrap().to_string()
-}
-
 #[test]
 #[ignore]
 fn debug_dzfp_invoice() {
     let mut engine = OcrEngine::new(MODELS_DIR).expect("OCR init failed");
-    let file = invoice_file(
-        "dzfp_26512000001728418261_中国人民解放军国防科技大学系统工程学院_20260427084626.pdf"
-    );
+    let file = Path::new("../data/住宿")
+        .join("dzfp_26512000001728418261_中国人民解放军国防科技大学系统工程学院_20260427084626.pdf")
+        .to_str().unwrap().to_string();
     
     println!("Processing: {}", file);
     let img = pdf_to_image(&file).expect("PDF conversion failed");
@@ -80,7 +75,7 @@ fn debug_dzfp_invoice() {
 #[ignore]
 fn debug_didi_invoice() {
     let mut engine = OcrEngine::new(MODELS_DIR).expect("OCR init failed");
-    let file = invoice_file("滴滴电子发票A.pdf");
+    let file = "../data/市内交通/滴滴电子发票A.pdf".to_string();
     
     println!("Processing: {}", file);
     let img = pdf_to_image(&file).expect("PDF conversion failed");
@@ -110,7 +105,7 @@ fn debug_didi_invoice() {
 #[ignore]
 fn debug_hotel_invoice() {
     let mut engine = OcrEngine::new(MODELS_DIR).expect("OCR init failed");
-    let file = invoice_file("成都九眼桥美居酒店结账单(3).pdf");
+    let file = "../data/未分类/成都九眼桥美居酒店结账单(3).pdf".to_string();
     
     println!("Processing: {}", file);
     let img = pdf_to_image(&file).expect("PDF conversion failed");
@@ -140,7 +135,7 @@ fn debug_hotel_invoice() {
 #[ignore]
 fn debug_flight_invoice() {
     let mut engine = OcrEngine::new(MODELS_DIR).expect("OCR init failed");
-    let file = invoice_file("【飞猪】成都-长沙  订单9571936775622-机票款凭证 报销凭证.pdf");
+    let file = "../data/机票/【飞猪】成都-长沙  订单9571936775622-机票款凭证 报销凭证.pdf".to_string();
     
     println!("Processing: {}", file);
     let img = pdf_to_image(&file).expect("PDF conversion failed");
