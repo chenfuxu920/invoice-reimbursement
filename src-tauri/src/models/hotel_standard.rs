@@ -42,8 +42,8 @@ fn city_province_map() -> &'static HashMap<String, String> {
         let mut m = HashMap::new();
 
         // 编译时嵌入的 JSON 数据
-        let provinces_json = include_str!("../../../data/provinces.json");
-        let cities_json = include_str!("../../../data/cities.json");
+        let provinces_json = include_str!("../../../data/参考数据/provinces.json");
+        let cities_json = include_str!("../../../data/参考数据/cities.json");
 
         let provinces: Vec<ProvinceEntry> = serde_json::from_str(provinces_json).unwrap_or_default();
         let cities: Vec<CityEntry> = serde_json::from_str(cities_json).unwrap_or_default();

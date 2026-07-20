@@ -13,7 +13,7 @@ fn main() {
 
     if args.len() < 4 {
         eprintln!("用法: generate_report <发票目录> <账单目录> <输出目录>");
-        eprintln!("示例: generate_report ../data/发票与行程单 ../data/账单 ../data");
+        eprintln!("示例: generate_report ../data/市内交通 ../data/账单 ../data");
         std::process::exit(1);
     }
 
