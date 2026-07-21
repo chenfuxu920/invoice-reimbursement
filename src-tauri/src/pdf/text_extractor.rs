@@ -2,7 +2,7 @@ use crate::ocr::OcrTextItem;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "pdfplumber")]
-use pdfplumber::{Pdf, WordOptions, Word, BBox, TableSettings, TextDirection};
+use pdfplumber::{Pdf, WordOptions, Word, BBox, TableSettings};
 #[cfg(feature = "pdfplumber")]
 use crate::ocr::engine::bbox_to_json;
 #[cfg(feature = "pdfplumber")]
