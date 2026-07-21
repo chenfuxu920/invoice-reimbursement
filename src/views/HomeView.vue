@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-4xl mx-auto">
-    <h2 class="text-2xl font-bold mb-6">欢迎使用发票报销助手 v0.4.0</h2>
+    <h2 class="text-2xl font-bold mb-6">欢迎使用发票报销助手 v{{ version }}</h2>
 
     <!-- 引擎状态 -->
     <div class="bg-white rounded-lg border p-4 shadow-sm mb-6">
@@ -100,6 +100,9 @@ import { usePaymentStore } from '../stores/payment'
 import { useMatchStore } from '../stores/match'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import pkg from '../../package.json'
+
+const version = pkg.version
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
