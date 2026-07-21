@@ -252,7 +252,7 @@ pub fn debug_extract_texts(
     })
 }
 
-/// pdfplumber 原始 word 按页分组（page_number 从 1 开始）
+/// pdfplumber 原始 word 按页分组（page_number 0-based）
 #[cfg(feature = "pdfplumber")]
 fn extract_pdfplumber_by_page(
     pdf_path: &str,
@@ -261,7 +261,7 @@ fn extract_pdfplumber_by_page(
     let words = extract_raw_words_debug(pdf_path)?;
     let mut by_page: Vec<Vec<_>> = vec![Vec::new(); page_count];
     for w in words {
-        let idx = (w.5 as usize).saturating_sub(1);
+        let idx = w.5 as usize;
         if idx < page_count {
             by_page[idx].push(w);
         }
