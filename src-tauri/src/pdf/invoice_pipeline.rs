@@ -6,6 +6,8 @@ use crate::parser::invoice_parser::{
     extract_toll_travel_time,
 };
 use crate::parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords_pages_and_fallback, cross_validate_amounts, enrich_itinerary_years, cross_validate_with_printed_total, extract_itinerary_printed_total, has_incomplete_entries, compute_incomplete_fields};
+#[cfg(feature = "pdfplumber")]
+use crate::parser::itinerary_parser::parse_itinerary_from_tables;
 use crate::parser::dedup::deduplicate_invoices;
 use crate::pdf::text_extractor::{self, classify_pdf_document_type, PdfDocumentType};
 #[cfg(feature = "pdfplumber")]
@@ -455,6 +457,18 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
                     }
                     eprintln!("  [pdfplumber] 列感知提取 {} 个文本项, {} 个原始Word ({} 页)",
                         flat_texts.len(), extraction.raw_words.len(), extraction.pages.len());
+
+                    // 优先用 find_tables 单元格解析（merged_text 字段完整，不走坐标拆分）
+                    let table_itin = parse_itinerary_from_tables(&extraction.tables);
+                    if let Some(itin) = table_itin {
+                        if !itin.is_empty() && !has_incomplete_entries(&itin) {
+                            eprintln!("  [pdfplumber] 单元格表格解析成功，{} 条行程", itin.len());
+                            return build_itinerary_doc(itin, &flat_texts, pdf_path);
+                        }
+                        if !itin.is_empty() {
+                            eprintln!("  [pdfplumber] 单元格解析有缺失字段，回退坐标解析");
+                        }
+                    }
 
                     let has_coords = flat_texts.iter().any(|t| t.box_coords.is_some());
 

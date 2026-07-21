@@ -533,6 +533,224 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
     if entries.is_empty() { None } else { Some(entries) }
 }
 
+// ── 表格单元格解析（find_tables 路径） ──────────────────
+
+/// 从 pdfplumber find_tables() 输出的单元格数据中解析行程单。
+///
+/// 优先于坐标/纯文本解析，因为 find_tables 单元格的 merged_text
+/// 提供完整字段（如"滴滴 轻享"不会被拆成"滴滴轻"+"享"）。
+///
+/// 支持：
+/// - 滴滴格式（9 列：序号/车型/上车时间/城市/起点/终点/里程/金额/备注）
+/// - 天府通格式（7 列：序号/行程类型/行程编号/出行时间/进出站/支付方式/金额）
+/// - 续行合并（天府通续行 1~2 单元格行合并到前一条行程）
+#[cfg(feature = "pdfplumber")]
+pub fn parse_itinerary_from_tables(
+    tables_by_page: &[Vec<crate::pdf::text_extractor::TableInfo>],
+) -> Option<Vec<Itinerary>> {
+    let re_amount = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
+    let re_weekday = Regex::new(r"(周三|周四|周一|周二|周五|周六|周日)").unwrap();
+    let re_colon_space = Regex::new(r"([:：])\s+(\d)").unwrap();
+    let re_dropoff_tft = Regex::new(r"出站[：:]\s*([^\s~]+)").unwrap();
+    let re_pickup_tft = Regex::new(r"进站[：:]\s*([^\s~]+)").unwrap();
+    let re_has_time = Regex::new(r"\d{2}-\d{2}\s+\d{1,2}[:：]|\d{4}-\d{2}-\d{2}\s+\d{1,2}[:：]").unwrap();
+
+    let mut all_entries: Vec<Itinerary> = Vec::new();
+
+    for tables in tables_by_page {
+        for table in tables {
+            if table.rows.is_empty() {
+                continue;
+            }
+
+            // 找表头行：含"序"关键词 + 金额相关关键词
+            let header_idx = match table.rows.iter().position(|row| {
+                let has_seq = row.iter().any(|c| c.merged_text.contains("序"));
+                let has_amount = row.iter().any(|c| {
+                    c.merged_text.contains("额") || c.merged_text.contains("元")
+                });
+                has_seq && has_amount
+            }) {
+                Some(idx) => idx,
+                None => continue,
+            };
+
+            let header_row = &table.rows[header_idx];
+            let header_texts: Vec<&str> =
+                header_row.iter().map(|c| c.merged_text.as_str()).collect();
+
+            // 语义列索引映射
+            let mut col_indices: HashMap<SemanticCol, usize> = HashMap::new();
+            for (sem, kws) in COL_KEYWORDS {
+                if let Some(pos) = header_texts.iter().position(|h| {
+                    kws.iter().any(|kw| h.contains(kw))
+                }) {
+                    col_indices.insert(*sem, pos);
+                }
+            }
+
+            let amount_col = match col_indices.get(&SemanticCol::Amount) {
+                Some(&idx) => idx,
+                None => continue, // 无金额列则跳过该表
+            };
+
+            // 处理数据行
+            let mut entries: Vec<Itinerary> = Vec::new();
+
+            for row in table.rows.iter().skip(header_idx + 1) {
+                if row.is_empty() {
+                    continue;
+                }
+
+                let non_empty = row.iter().filter(|c| !c.merged_text.is_empty()).count();
+
+                // 1-cell 行：检测是否是完整行程被 find_tables 压扁（高德/天府通处理版）
+                // 而非真正的续行。条件：含时间模式 + 金额数值。
+                if non_empty <= 2 {
+                    let row_text: String = row
+                        .iter()
+                        .map(|c| c.line_text.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if re_has_time.is_match(&row_text) && re_amount.is_match(&row_text) {
+                        // 完整行程被压成 1-cell，该表无法按列提取 → 跳过该表，
+                        // 让 pipeline 回退坐标/文本解析（不 return None，避免影响已提取的其他页）
+                        // ponytail: 若该页是唯一页，all_entries 为空，最终返回 None 触发回退
+                        eprintln!("  [table] 1-cell 完整行程检测到，跳过该表");
+                        // 已累积的其他页结果仍保留，此表丢弃
+                        // 不 continue 外层循环，用标志跳过本表数据行处理
+                        // 直接 break 跳出本表行循环
+                        break;
+                    }
+                }
+
+                // 续行：≤ 2 非空单元格，合并到上一条行程（天府通 case）
+                if non_empty <= 2 && !entries.is_empty() {
+                    let cont_text: String = row
+                        .iter()
+                        .map(|c| c.line_text.as_str())
+                        .filter(|t| !t.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let last = entries.last_mut().unwrap();
+                    // 续行含"出站：XX"补 dropoff
+                    if let Some(c) = re_dropoff_tft.captures(&cont_text) {
+                        if last.dropoff.is_empty() {
+                            last.dropoff = c[1].to_string();
+                        }
+                    }
+                    // 续行含"进站：XX"补 pickup
+                    if let Some(c) = re_pickup_tft.captures(&cont_text) {
+                        if last.pickup.is_empty() {
+                            last.pickup = c[1].to_string();
+                        }
+                    }
+                    continue;
+                }
+
+                // 正常行：金额提取（merged_text 去空格，合并里程+金额列取末位数字）
+                let amount_text = row.get(amount_col).map(|c| c.merged_text.as_str()).unwrap_or("");
+                let amount: f64 = re_amount
+                    .find_iter(amount_text)
+                    .last()
+                    .and_then(|m| m.as_str().parse().ok())
+                    .unwrap_or(0.0);
+                if amount <= 0.0 {
+                    continue;
+                }
+
+                // 时间：用 line_text（保留空格用于清洗）
+                let date_time = col_indices
+                    .get(&SemanticCol::Time)
+                    .and_then(|&idx| row.get(idx))
+                    .map(|cell| {
+                        let t = re_weekday.replace_all(&cell.line_text, "");
+                        let t = re_colon_space.replace_all(&t, "$1$2");
+                        t.trim().to_string()
+                    })
+                    .unwrap_or_default();
+
+                // 供应商：merged_text 已去所有空格（"滴滴 轻享" → "滴滴轻享"）
+                let provider = col_indices
+                    .get(&SemanticCol::Provider)
+                    .and_then(|&idx| row.get(idx))
+                    .map(|cell| cell.merged_text.trim().to_string())
+                    .unwrap_or_default();
+
+                // 起点：line_text 保留完整文本
+                // 滴滴起点/终点是独立列，单元格内 "|" 是地点详情分隔（"兴联路|比亚迪汽车王朝网..."），不应截断
+                // 天府通"进出站/线路"同列用 "~" 分隔进站/出站
+                let pickup = col_indices
+                    .get(&SemanticCol::Pickup)
+                    .and_then(|&idx| row.get(idx))
+                    .map(|cell| {
+                        let text = cell.line_text.trim();
+                        // 天府通"进站：XX"（简单无空格）
+                        if let Some(c) = re_pickup_tft.captures(text) {
+                            return c[1].to_string();
+                        }
+                        // 天府通同一列"进出站/线路"格式："进站：XX ~ 出站：YY"
+                        if text.contains('~') {
+                            if let Some(first) = text.split('~').next() {
+                                let cleaned = first.trim()
+                                    .trim_start_matches("进站：").trim_start_matches("进站:").trim();
+                                if !cleaned.is_empty() {
+                                    return cleaned.to_string();
+                                }
+                            }
+                        }
+                        // 滴滴/其他：返回完整文本（含 "|" 地点详情分隔符）
+                        text.to_string()
+                    })
+                    .unwrap_or_default();
+
+                // 终点：line_text 保留完整文本（同 pickup 逻辑）
+                let dropoff = col_indices
+                    .get(&SemanticCol::Dropoff)
+                    .and_then(|&idx| row.get(idx))
+                    .map(|cell| {
+                        let text = cell.line_text.trim();
+                        // 天府通"出站：XX"（简单无空格）
+                        if let Some(c) = re_dropoff_tft.captures(text) {
+                            return c[1].to_string();
+                        }
+                        // 天府通同一列"进出站/线路"格式："进站：XX ~ 出站：YY"
+                        if text.contains('~') {
+                            if let Some(last) = text.split('~').last() {
+                                let cleaned = last.trim()
+                                    .trim_start_matches("出站：").trim_start_matches("出站:").trim();
+                                if !cleaned.is_empty() {
+                                    return cleaned.to_string();
+                                }
+                            }
+                        }
+                        // 滴滴/其他：返回完整文本（含 "|" 地点详情分隔符）
+                        text.to_string()
+                    })
+                    .unwrap_or_default();
+
+                entries.push(Itinerary {
+                    date_time,
+                    provider,
+                    pickup,
+                    dropoff,
+                    amount,
+                    incomplete_fields: Vec::new(),
+                });
+            }
+
+            // 累积本表结果到 all_entries（跨页合并，避免只返回第一页）
+            all_entries.extend(entries);
+        }
+    }
+
+    if all_entries.is_empty() {
+        None
+    } else {
+        Some(all_entries)
+    }
+}
+
 fn build_col_boundaries(header: &[&PositionedText], col_map: &[(SemanticCol, f64)]) -> HashMap<SemanticCol, (f64, f64)> {
     let mut all_xs: Vec<f64> = header.iter().map(|p| p.x).collect();
     all_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -1899,5 +2117,196 @@ mod tests {
         assert_eq!(result.len(), 2, "应解析出 2 条行程");
         assert_eq!(result[0].date_time, "06-07 20:17");
         assert_eq!(result[1].date_time, "06-12 21:41");
+    }
+
+    // ── 表格单元格解析 tests ──
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_parse_itinerary_from_tables_didi_mock() {
+        // 模拟滴滴行程单表格数据（从真实诊断输出提取）
+        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+
+        fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
+            TableCellInfo {
+                text: text.to_string(),
+                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                words: Vec::new(),
+                line_text: line_text.to_string(),
+                merged_text: merged_text.to_string(),
+                column_text: String::new(),
+            }
+        }
+
+        // 模拟 page 0 表：滴滴A 的 9 列表头 + 5 行数据
+        let header = vec![
+            cell("序号", "序号", "序号"),
+            cell("车型", "车型", "车型"),
+            cell("上车时间", "上车时间", "上车时间"),
+            cell("城市", "城市", "城市"),
+            cell("起点", "起点", "起点"),
+            cell("终点", "终点", "终点"),
+            cell("里程[公里]", "里程[公里]", "里程[公里]"),
+            cell("金额[元]", "金额[元]", "金额[元]"),
+            cell("备注", "备注", "备注"),
+        ];
+
+        let row1 = vec![
+            cell("1", "1", "1"),
+            cell("专车", "专车", "专车"),
+            cell("04-22 21: 10 周三", "04-22 21: 10 周三", "04-2221:10周三"),
+            cell("成都 ...", "成都 ...", "成都..."),
+            cell("天府机场...", "天府机场-停车场", "天府机场-停车场"),
+            cell("跳伞塔|...", "跳伞塔|汉庭酒店", "跳伞塔|汉庭酒店"),
+            cell("60.6", "60.6", "60.6"),
+            cell("195.37", "195.37", "195.37"),
+            cell("", "", ""),
+        ];
+        let row5 = vec![
+            cell("5", "5", "5"),
+            cell("滴滴 轻享", "滴滴 轻享", "滴滴轻享"),
+            cell("04-27 08: 51 周一", "04-27 08: 51 周一", "04-2708:51周一"),
+            cell("成都 ...", "成都 ...", "成都..."),
+            cell("花牌坊|...", "花牌坊|美居酒店", "花牌坊|美居酒店"),
+            cell("跳伞塔|...", "跳伞塔|社区党群服务中心", "跳伞塔|社区党群服务中心"),
+            cell("9.0", "9.0", "9.0"),
+            cell("26.60", "26.60", "26.60"),
+            cell("", "", ""),
+        ];
+        let row11 = vec![
+            cell("11", "11", "11"),
+            cell("滴滴 轻享", "滴滴 轻享", "滴滴轻享"),
+            cell("04-28 14: 45 周二", "04-28 14: 45 周二", "04-2814:45周二"),
+            cell("成都 ...", "成都 ...", "成都..."),
+            cell("九眼桥|...", "九眼桥|星巴克咖啡", "九眼桥|星巴克咖啡"),
+            cell("跳伞塔|...", "跳伞塔|社区党群服务中心", "跳伞塔|社区党群服务中心"),
+            cell("3.8", "3.8", "3.8"),
+            cell("11.30", "11.30", "11.30"),
+            cell("", "", ""),
+        ];
+        let row13 = vec![
+            cell("13", "13", "13"),
+            cell("滴滴 特快", "滴滴 特快", "滴滴特快"),
+            cell("04-29 08: 26 周三", "04-29 08: 26 周三", "04-2908:26周三"),
+            cell("成都 ...", "成都 ...", "成都..."),
+            cell("星巴克咖啡|...", "星巴克咖啡|主路", "星巴克咖啡|主路"),
+            cell("跳伞塔|...", "跳伞塔|社区党群服务中心", "跳伞塔|社区党群服务中心"),
+            cell("3.2", "3.2", "3.2"),
+            cell("12.90", "12.90", "12.90"),
+            cell("", "", ""),
+        ];
+        let row14 = vec![
+            cell("14", "14", "14"),
+            cell("滴滴 轻享", "滴滴 轻享", "滴滴轻享"),
+            cell("04-29 15: 31 周三", "04-29 15: 31 周三", "04-2915:31周三"),
+            cell("成都 ...", "成都 ...", "成都..."),
+            cell("跳伞塔|...", "跳伞塔|物理研究所", "跳伞塔|物理研究所"),
+            cell("合江亭|...", "合江亭|美居酒店", "合江亭|美居酒店"),
+            cell("3.0", "3.0", "3.0"),
+            cell("11.60", "11.60", "11.60"),
+            cell("", "", ""),
+        ];
+
+        let page_tables = vec![TableInfo {
+            rows: vec![header, row1, row5, row11, row13, row14],
+            x0: 64.5, top: 321.3, x1: 530.7, bottom: 719.4,
+        }];
+        let tables_by_page = vec![page_tables];
+
+        let result = parse_itinerary_from_tables(&tables_by_page);
+        assert!(result.is_some(), "应返回 Some");
+        let entries = result.unwrap();
+        assert_eq!(entries.len(), 5, "应有 5 条行程，实际 {}", entries.len());
+
+        // row 5: provider "滴滴 轻享" → merged_text → "滴滴轻享"
+        let entry5 = entries.iter().find(|e| (e.amount - 26.60).abs() < 0.01);
+        assert!(entry5.is_some(), "应找到金额 26.60 的条目");
+        let e5 = entry5.unwrap();
+        assert!(e5.provider.contains("滴滴轻享"),
+            "row5 provider 应为滴滴轻享，实际: '{}'", e5.provider);
+        assert!(e5.date_time.contains("04-27 08:51") || e5.date_time.contains("04-27"),
+            "row5 时间应为 04-27 08:51，实际: '{}'", e5.date_time);
+
+        // row 13: provider "滴滴 特快" → merged_text → "滴滴特快"
+        let entry13 = entries.iter().find(|e| (e.amount - 12.90).abs() < 0.01);
+        assert!(entry13.is_some(), "应找到金额 12.90 的条目");
+        let e13 = entry13.unwrap();
+        assert_eq!(e13.provider, "滴滴特快",
+            "row13 provider 应为滴滴特快，实际: '{}'", e13.provider);
+
+        // 所有条目 provider 不应为空
+        assert!(entries.iter().all(|e| !e.provider.is_empty()),
+            "所有条目 provider 不应为空");
+
+        // 所有条目应有时间
+        assert!(entries.iter().all(|e| e.date_time.contains(':')),
+            "所有条目应有时间");
+
+        eprintln!("  [TEST] 行程单表格解析: {} 条, provider 样例: {}",
+            entries.len(), entries[0].provider);
+    }
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_parse_itinerary_from_tables_tianfutong() {
+        // 模拟天府通行程单：7 列表头 + 正常行 + 续行
+        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+
+        fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
+            TableCellInfo {
+                text: text.to_string(),
+                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                words: Vec::new(),
+                line_text: line_text.to_string(),
+                merged_text: merged_text.to_string(),
+                column_text: String::new(),
+            }
+        }
+
+        let header = vec![
+            cell("序号", "序号", "序号"),
+            cell("行程类型", "行程类型", "行程类型"),
+            cell("行程编号", "行程编号", "行程编号"),
+            cell("出行时间", "出行时间", "出行时间"),
+            cell("进出站/线路", "进出站/线路", "进出站/线路"),
+            cell("支付方式", "支付方式", "支付方式"),
+            cell("金额(元)", "金额(元)", "金额(元)"),
+        ];
+
+        let row1 = vec![
+            cell("1", "1", "1"),
+            cell("地铁", "地铁", "地铁"),
+            cell("4458359453167616", "4458359453167616", "4458359453167616"),
+            cell("2026-04-24 17:58:59", "2026-04-24 17:58:59", "2026-04-2417:58:59"),
+            cell("进站：省体育馆~出站：花牌坊", "进站：省体育馆~出站：花牌坊", "进站：省体育馆~出站：花牌坊"),
+            cell("支付宝APP", "支付宝APP", "支付宝APP"),
+            cell("3", "3", "3"),
+        ];
+
+        // 续行 row3: 1 个单元格，内容为第 2 行的剩余未拆分列
+        let row2_cont = vec![
+            cell("进站：天宇路~出站：花牌坊 支付宝APP 3 地铁 ...", "进站：天宇路~ 出站：花牌坊 支付宝APP 3 地铁 ...", "进站：天宇路~出站：花牌坊支付宝APP3地铁..."),
+        ];
+
+        let page_tables = vec![TableInfo {
+            rows: vec![header, row1, row2_cont],
+            x0: 18.4, top: 420.1, x1: 576.9, bottom: 564.0,
+        }];
+        let tables_by_page = vec![page_tables];
+
+        let result = parse_itinerary_from_tables(&tables_by_page);
+        assert!(result.is_some(), "应返回 Some");
+        let entries = result.unwrap();
+        assert!(!entries.is_empty(), "至少应有 1 条行程");
+        // 应只有一条（续行被合并到第一条）
+        assert_eq!(entries.len(), 1, "天府通续行应合并为 1 条行程");
+        assert_eq!(entries[0].provider, "地铁",
+            "天府通 provider 应为地铁，实际: '{}'", entries[0].provider);
+        assert_eq!(entries[0].pickup, "省体育馆",
+            "天府通 pickup 应为省体育馆，实际: '{}'", entries[0].pickup);
+        assert!(!entries[0].dropoff.is_empty(),
+            "天府通 dropoff 不应为空");
+        assert!((entries[0].amount - 3.0).abs() < 0.01,
+            "天府通 amount 应为 3.0，实际: {}", entries[0].amount);
     }
 }
