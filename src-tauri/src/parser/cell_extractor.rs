@@ -248,11 +248,6 @@ fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f6
 
 // ── 文本工具 ────────────────────────────────────────────
 
-/// 去除所有空白字符，用于标签匹配（"销 售 方 信 息" → "销售方信息"）
-fn normalize_label(text: &str) -> String {
-    text.chars().filter(|c| !c.is_whitespace()).collect()
-}
-
 /// 去除 CJK 字符间的空格（旧版发票 pdfplumber 输出字符间有空格："名 长 沙" → "长沙"）
 /// 保留 CJK 与非 CJK 间的空格（"公司 91430" → "公司 91430"）
 fn remove_cjk_spaces(text: &str) -> String {
