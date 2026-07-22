@@ -891,6 +891,8 @@ pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "pdfplumber")]
+    use pdfplumber::TextDirection;
 
     #[test]
     fn test_has_sufficient_text_empty() {

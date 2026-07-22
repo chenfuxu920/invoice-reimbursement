@@ -14,6 +14,8 @@ pub struct CellInvoiceFields {
     pub item_name: Option<String>,
     /// 商品详情单元格 bbox，供 pipeline 用 raw_words 做列感知提取 item_detail
     pub item_cell_bbox: Option<(f64, f64, f64, f64)>,
+    /// 商品详情单元格的按列聚合文本（Type 4），跨行不丢字，供 pipeline 提取 item_detail
+    pub item_cell_text: Option<String>,
     pub remarks: Option<String>,
 }
 
@@ -67,11 +69,12 @@ fn extract_fields_from_table(table: &TableInfo, fields: &mut CellInvoiceFields) 
             }
         }
 
-        // 项目名称：搜索含 *xxx* 模式的单元格，记录编码简称和bbox供pipeline列感知提取
+        // 项目名称：搜索含 *xxx* 模式的单元格，记录编码简称、bbox、按列聚合文本
         if fields.item_name.is_none() {
-            if let Some((name, bbox)) = extract_item_from_row(row) {
+            if let Some((name, bbox, column_text)) = extract_item_from_row(row) {
                 fields.item_name = Some(name);
                 fields.item_cell_bbox = Some(bbox);
+                fields.item_cell_text = Some(column_text);
             }
         }
     }
@@ -211,9 +214,10 @@ fn extract_remarks_value(text: &str) -> Option<String> {
     }
 }
 
-/// 从行中搜索含 `*xxx*` 的单元格，返回 (税收编码简称, 单元格bbox)
+/// 从行中搜索含 `*xxx*` 的单元格，返回 (税收编码简称, 单元格bbox, 按列聚合文本)
 /// 用 merged_text (Type 3) 匹配：*运 输 服 务* → *运输服务*
-fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f64, f64))> {
+/// column_text (Type 4) 按列聚合，跨行不丢字，供 pipeline 提取完整 item_detail
+fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f64, f64), String)> {
     let re = Regex::new(r"\*(.+?)\*").ok()?;
     for cell in row {
         // Type 3: merged_text 去除所有空白，适合 *xxx* 税收编码匹配
@@ -221,7 +225,7 @@ fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f6
             let name = caps[1].to_string();
             if name.chars().any(|c| is_cjk(c)) {
                 let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
-                return Some((name, bbox));
+                return Some((name, bbox, cell.column_text.clone()));
             }
         }
         // Type 4: column_text 按列聚合，适合大单元格内多列项目详情
@@ -230,7 +234,7 @@ fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f6
             let name = caps[1].to_string();
             if name.chars().any(|c| is_cjk(c)) {
                 let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
-                return Some((name, bbox));
+                return Some((name, bbox, cell.column_text.clone()));
             }
         }
         // Fallback: pdfplumber 原始 text + remove_cjk_spaces
@@ -239,7 +243,7 @@ fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f6
             let name = caps[1].to_string();
             if name.chars().any(|c| is_cjk(c)) {
                 let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
-                return Some((name, bbox));
+                return Some((name, bbox, cell.column_text.clone()));
             }
         }
     }

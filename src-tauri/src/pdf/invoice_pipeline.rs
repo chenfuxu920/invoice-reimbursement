@@ -138,19 +138,13 @@ pub fn parse_invoice_from_pdf(pdf_path: &str, engine: &mut OcrEngine, _config: &
     // 单元格提取建票
     let cell_fields = cell_extractor::extract_fields_from_tables(&tables);
 
-    // 对商品详情单元格做列感知提取 → item_detail
-    let item_detail = cell_fields.item_cell_bbox.and_then(|(x0, top, x1, bottom)| {
-        let merged = text_extractor::column_aware_merge_in_bbox(&raw_words, x0, top, x1, bottom);
-        if merged.is_empty() { return None; }
-        // 从合并文本中取 *税收编码* 后第一段连续文本
-        let pos = merged.find('*')?;
-        let end = merged[pos+1..].find('*')?;
-        let after = &merged[pos + end + 2..];
-        let detail: String = after.chars()
-            .take_while(|c| !c.is_ascii_digit() && !c.is_whitespace() && *c != '¥')
-            .collect();
-        if detail.is_empty() { None } else { Some(detail) }
-    });
+    // 对商品详情提取 item_detail（商家自定义名称）
+    // 优先用单元格的按列聚合文本（Type 4，跨行不丢字），回退到 raw_words 重新合并
+    let item_detail = extract_item_detail(
+        cell_fields.item_cell_text.as_deref(),
+        cell_fields.item_cell_bbox,
+        &raw_words,
+    );
 
     if cell_fields.seller_name.is_none() || cell_fields.amount.unwrap_or(0.0) <= 0.0 {
         // cell 路径未提取到 seller 或 amount 时回退到文本解析：
@@ -253,8 +247,18 @@ fn build_invoice_from_cells(
     };
 
     // 票据城市/日期（仅 Train/Flight）
-    let (departure_city, arrival_city) = extract_ticket_cities(all_text, &category);
-    let travel_date = extract_ticket_travel_date(all_text, &category);
+    // 优先从单元格提取的备注（精确）提取，回退到全文（备注为空或未匹配时）
+    let (departure_city, arrival_city) = {
+        let (d, a) = extract_ticket_cities(&remarks, &category);
+        if d.is_some() && a.is_some() {
+            (d, a)
+        } else {
+            let (d2, a2) = extract_ticket_cities(all_text, &category);
+            (d.or(d2), a.or(a2))
+        }
+    };
+    let travel_date = extract_ticket_travel_date(&remarks, &category)
+        .or_else(|| extract_ticket_travel_date(all_text, &category));
 
     // 通行费发票：从备注提取通行时间
     let toll_travel_time = if category == InvoiceCategory::Toll {
@@ -285,6 +289,93 @@ fn build_invoice_from_cells(
     })
 }
 
+/// 从商品详情文本提取 item_detail（商家自定义名称）。
+/// 优先用单元格按列聚合文本（Type 4，跨行不丢字如"组合险"换行到第二行），
+/// 回退到 raw_words 重新做列感知合并。
+///
+/// 提取逻辑：定位 `*税收编码*` 后的内容，跳过 `**` 规格分隔符，
+/// 收集 CJK 字符（允许中间空格——列聚合时同列跨行字会被空格分隔），
+/// 遇到数字/¥/表头词（项目名称/规格型号/单位/数量/单价/金额/税率/税额/合计）停止。
+#[cfg(feature = "pdfplumber")]
+fn extract_item_detail(
+    cell_text: Option<&str>,
+    bbox: Option<(f64, f64, f64, f64)>,
+    raw_words: &[pdfplumber::Word],
+) -> Option<String> {
+    // 候选文本：优先单元格按列聚合文本，回退到 raw_words 重新合并
+    let fallback_merged;
+    let text = match cell_text {
+        Some(t) if !t.is_empty() => t,
+        _ => {
+            let (x0, top, x1, bottom) = bbox?;
+            fallback_merged = text_extractor::column_aware_merge_in_bbox(raw_words, x0, top, x1, bottom);
+            if fallback_merged.is_empty() { return None; }
+            &fallback_merged
+        }
+    };
+
+    // 定位 *税收编码* 后的内容
+    let pos = text.find('*')?;
+    let end = text[pos + 1..].find('*')?;
+    let after = &text[pos + end + 2..];
+
+    // 商品名在 *编码* 和 **（规格分隔符）之间，或 *编码* 和数字/表头之间。
+    // 先截到第二个 **（如果有），否则截到数字/表头词。
+    // ponytail: ** 是税收编码后的规格分隔符，商品名不会含 **，直接截断最稳
+    let segment = match after.find("**") {
+        Some(p) => after[..p].trim(),
+        None => after.trim_start(),
+    };
+
+    // 表头词：遇到即停（列聚合可能把表头混入商品名后）
+    const STOP_WORDS: &[&str] = &[
+        "项目名称", "规格型号", "单位", "数量", "单价", "金额", "税率", "税额", "合计",
+    ];
+    // 单字停止词：列聚合时"合计"被拆到不同列只剩"合"，但"组合险"含"合"不能误伤
+    // → "合"后跟"计"或空格/结尾才停，跟其他字（如"险"）则继续
+    fn is_standalone_he(chars: &[char], i: usize) -> bool {
+        // 当前是"合"，看下一个非空格字符
+        let next = chars.get(i + 1).copied();
+        match next {
+            None => true,           // "合"在末尾
+            Some(c) if c.is_whitespace() => true,  // "合 " 后面是别的列
+            Some('计') => true,     // "合计"
+            _ => false,             // "组合险"等 → 继续
+        }
+    }
+    // 计量单位单字：商品名后紧跟单位时停（"国内机票份"→"国内机票"）
+    const UNIT_CHARS: &[char] = &['份', '个', '张', '次', '台', '套', '件', '升', '吨', '度', '人', '间', '晚', '日', '天', '月', '年', '页', '本', '册', '盒', '箱', '包', '批'];
+
+    let mut detail = String::new();
+    let chars: Vec<char> = segment.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        // 数字或 ¥ → 停
+        if c.is_ascii_digit() || c == '¥' { break; }
+        // "合" 单独判断（避免误伤"组合险"）
+        if c == '合' && is_standalone_he(&chars, i) { break; }
+        // 计量单位单字 → 停（商品名后紧跟单位）
+        if UNIT_CHARS.contains(&c) { break; }
+        // 空格 → 跳过（列聚合的同列跨行分隔），但先检查后面是否表头词
+        if c.is_whitespace() {
+            let rest: String = chars[i..].iter().take(8).collect();
+            if STOP_WORDS.iter().any(|w| rest.starts_with(w)) { break; }
+            i += 1;
+            continue;
+        }
+        // 检查当前位置是否是表头词开头
+        let rest: String = chars[i..].iter().take(8).collect();
+        if STOP_WORDS.iter().any(|w| rest.starts_with(w)) { break; }
+        // CJK 或允许的字符 → 收集
+        detail.push(c);
+        i += 1;
+    }
+
+    let detail = detail.trim().to_string();
+    if detail.is_empty() { None } else { Some(detail) }
+}
+
 /// 分类：优先用 item_detail（商家自定义名称，精确），其次 item_name（税收编码简称），回退到上下文。
 #[cfg(feature = "pdfplumber")]
 fn classify_from_item(
@@ -294,13 +385,19 @@ fn classify_from_item(
     all_text: &str,
     remarks: &str,
 ) -> InvoiceCategory {
+    // 保险优先：税收编码简称（item_name）含"保险"时直接归 Insurance，
+    // 防止 item_detail（商家自定义名如"境内机票航意航延"）含"机票"误判为 Flight
+    if item_name.contains("保险") { return InvoiceCategory::Insurance; }
+
     // ── 商家自定义名称判断（优先级最高）──
     if !item_detail.is_empty() {
         let d = item_detail;
         // 退改签优先识别（"退票费"含"票"但不是机票，"经纪代理"后面会误判为 Flight）
         if d.contains("退票") || d.contains("改签") { return InvoiceCategory::TicketChange; }
         // 保险优先级最高（"航空意外险"含"航空"但不该判为机票）
-        if d.contains("保险") || d.contains("意外险") || d.contains("意外") { return InvoiceCategory::Insurance; }
+        // "航意"=航意险、"航延"=航延险，均为保险专有缩写，不会出现在真实机票上
+        if d.contains("保险") || d.contains("意外险") || d.contains("意外")
+            || d.contains("航意") || d.contains("航延") { return InvoiceCategory::Insurance; }
         if d.contains("住宿") || d.contains("酒店") || d.contains("宾馆") { return InvoiceCategory::Hotel; }
         if d.contains("机票") || d.contains("航空") || d.contains("客票") { return InvoiceCategory::Flight; }
         if d.contains("火车") || d.contains("车票") || d.contains("铁路") { return InvoiceCategory::Train; }
@@ -693,5 +790,80 @@ pub fn pair_invoices_with_itineraries(
                 toll_travel_time: None,
             });
         }
+    }
+}
+
+#[cfg(all(test, feature = "pdfplumber"))]
+mod tests {
+    use super::*;
+
+    // 回归：item_name="保险服务" + item_detail="境内机票航意航延组合险"（含"机票"但"保险"被剥离）
+    // 真实样本：15_电子发票_20260522_102238_电子发票.pdf（众安在线财产保险）
+    // 完整商品名"*保险服务*境内机票航意航延组合险"，"组合险"换行到第二行
+    // 修复前 classify_from_item 返回 Flight，修复后返回 Insurance
+    #[test]
+    fn test_classify_insurance_item_detail_contains_jipiao() {
+        let category = classify_from_item(
+            "保险服务",
+            "境内机票航意航延组合险",
+            "众安在线财产保险股份有限公司",
+            "*保险服务*境内机票航意航延组合险 ** 1 59.433962 59.43 6% 3.57",
+            "保单号PI157MP260571970064610",
+        );
+        assert_eq!(category, InvoiceCategory::Insurance);
+    }
+
+    // 边界：item_name 为空、item_detail 含"航意"时也应归 Insurance
+    #[test]
+    fn test_classify_insurance_hangyi_in_detail() {
+        let category = classify_from_item(
+            "",
+            "境内机票航意航延组合险",
+            "众安在线财产保险股份有限公司",
+            "*保险服务*境内机票航意航延组合险",
+            "",
+        );
+        assert_eq!(category, InvoiceCategory::Insurance);
+    }
+
+    // 确保正常机票仍归 Flight（item_name 不含"保险"、item_detail 含"机票"）
+    #[test]
+    fn test_classify_flight_still_works() {
+        let category = classify_from_item(
+            "运输服务",
+            "国内机票",
+            "中国国航",
+            "航班号 CA1234",
+            "",
+        );
+        assert_eq!(category, InvoiceCategory::Flight);
+    }
+
+    // 回归：extract_item_detail 从单元格按列聚合文本提取完整商品名（跨行不丢字）
+    // 真实样本 column_text: "*保险服务*境内机票航意航延 组合险 合 项目名称 ..."
+    // 修复前 take_while 在空白处截断 → "境内机票航意航延"（丢"组合险"）
+    // 修复后跳过空白、遇表头词停止 → "境内机票航意航延组合险"
+    #[test]
+    fn test_extract_item_detail_column_text_cross_line() {
+        let cell_text = "*保险服务*境内机票航意航延 组合险 合 项目名称 计 规格型号 ** 单份 位 数 量1 59.433962单 价 ¥ 59.4359.43金额 税率/征税率";
+        let detail = extract_item_detail(Some(cell_text), None, &[]);
+        assert_eq!(detail.as_deref(), Some("境内机票航意航延组合险"));
+    }
+
+    // 回归：extract_item_detail 从 raw_words 合并文本提取（cell_text 为空时回退）
+    // 模拟 column_aware_merge_in_bbox 输出：商品名后跟 ** 份 1 ...
+    #[test]
+    fn test_extract_item_detail_fallback_merged() {
+        let merged = "*保险服务*境内机票航意航延 ** 份 1 59.433962 59.43 6% 3.57 组合险 合 计 ¥ ¥ 59.43 3.57";
+        let detail = extract_item_detail(Some(merged), None, &[]);
+        assert_eq!(detail.as_deref(), Some("境内机票航意航延"));
+    }
+
+    // 回归：普通商品名（无跨行）仍正确提取
+    #[test]
+    fn test_extract_item_detail_normal() {
+        let cell_text = "*运输服务*国内机票 份 1 100.00 100.00 9% 9.00";
+        let detail = extract_item_detail(Some(cell_text), None, &[]);
+        assert_eq!(detail.as_deref(), Some("国内机票"));
     }
 }
