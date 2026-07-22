@@ -130,14 +130,13 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
         }
     }
 
-    // 城市间交通费 4行 + 小计1行 = 5行
+    // 城市间交通费 4行 + 小计1行 + 市内交通费1行 = 6行
     // 住宿费 4级别 + 小计 = 5行
     // 取较大值作为总行数
-    let transport_row_count = 5; // 4 detail + 1 subtotal
+    let transport_row_count = 6; // 4 detail + 1 subtotal + 1 市内交通费
     let hotel_levels = ["战区级以上", "军级", "师级", "其他人员"];
     let hotel_row_count = hotel_levels.len() + 1; // 4 levels + 1 subtotal = 5
-    // total_rows must be at least transport_row_count+1 (for 市内交通费 overflow) and hotel_row_count
-    let total_rows = (transport_row_count + 1).max(hotel_row_count); // max(6, 5) = 6
+    let total_rows = transport_row_count.max(hotel_row_count); // max(6, 5) = 6
 
     let hotel_actual_total: f64 = form.hotel_levels.iter().map(|h| h.actual_amount).sum();
 
@@ -176,7 +175,7 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
         } else {
             // 市内交通费行（住宿费行末行对齐）
             html.push_str(&format!(
-                r##"<td class="lbl" colspan="2">市内交通费</td><td class="amt">{}</td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
+                r##"<td class="lbl">市内交通费</td><td class="amt">{}</td><td class="amt">{:.2}</td><td class="amt">{:.2}</td>"##,
                 form.city_transport_count, form.city_transport_actual_amount, form.city_transport_amount
             ));
         }
