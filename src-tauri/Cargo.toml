@@ -62,11 +62,12 @@ inherits = "release"
 lto = false
 codegen-units = 16
 
-# ponytail: fork zpdf to patch zpdf-font ASCII half-width (crates.io 0.9.0 未修)
+# ponytail: fork zpdf to patch zpdf-font (crates.io 0.9.0 未修)
 # = chenfuxu920/zpdf branch cjk-ascii-width
 #   98005f6: 修复 Type0 CID 字体 ASCII 0x20-0x7E 字符 2× 过宽（/W 缺 ASCII 条目时 fallback 0.5× /DW）
 #   f6a0412: 修复 CID 范围 1..=0x7E 覆盖 GBK-EUC-H 的 CID 1-95（旧范围 0x20-0x7E 漏 CID 1-31，
 #            导致 '0'-'9' 等 ASCII 字符 CID 17-26 仍走 /DW=1000 → 2× 过宽）
-# TEMP: path 依赖（GitHub 推送失败，网络恢复后 push f6a0412 并切回 git 依赖 + cargo update -p zpdf-font）
+#   911d61d: 修复 Identity-H 子集字体 CJK 字形被错误半角化（glyph_advance 优先查 hmtx，
+#            不再走 1..=0x7E 启发式；legacy CMap 路径不变）
 [patch.crates-io]
-zpdf-font = { path = "../../zpdf-fork/crates/zpdf-font" }
+zpdf-font = { git = "https://github.com/chenfuxu920/zpdf.git", branch = "cjk-ascii-width" }

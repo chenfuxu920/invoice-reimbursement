@@ -6937,6 +6937,8 @@ dependencies = [
 [[package]]
 name = "zpdf-core"
 version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "399ba8a77c2cb0fe85007f645e86178c6de4f557f3a437630c980fd22157f0da"
 dependencies = [
  "smallvec",
  "thiserror 2.0.19",
@@ -6945,8 +6947,7 @@ dependencies = [
 [[package]]
 name = "zpdf-core"
 version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "399ba8a77c2cb0fe85007f645e86178c6de4f557f3a437630c980fd22157f0da"
+source = "git+https://github.com/chenfuxu920/zpdf.git?branch=cjk-ascii-width#911d61dd2b1ae65bec7372e7a30f4ae5df010321"
 dependencies = [
  "smallvec",
  "thiserror 2.0.19",
@@ -6977,10 +6978,11 @@ dependencies = [
 [[package]]
 name = "zpdf-font"
 version = "0.9.0"
+source = "git+https://github.com/chenfuxu920/zpdf.git?branch=cjk-ascii-width#911d61dd2b1ae65bec7372e7a30f4ae5df010321"
 dependencies = [
  "tracing",
  "ttf-parser 0.25.1",
- "zpdf-core 0.9.0",
+ "zpdf-core 0.9.0 (git+https://github.com/chenfuxu920/zpdf.git?branch=cjk-ascii-width)",
 ]
 
 [[package]]
