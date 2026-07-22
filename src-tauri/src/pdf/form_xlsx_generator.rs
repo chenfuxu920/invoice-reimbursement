@@ -265,7 +265,7 @@ fn write_transport_hotel_section(
     let thin = Format::new().set_border(FormatBorder::Thin);
 
     // Rowspan merges
-    ws.merge_range(4, 0, 9, 0, "城市间\n交通费", sec_fmt)?;  // rows 4-9 = 6 rows (incl. 市内交通费)
+    ws.merge_range(4, 0, 8, 0, "城市间\n交通费", sec_fmt)?;  // rows 4-8 = 5 rows
     ws.merge_range(4, 5, 8, 5, "住\n宿\n费", sec_fmt)?;      // rows 4-8 = 5 rows
 
     for row_idx in 0..total_rows {
@@ -293,8 +293,8 @@ fn write_transport_hotel_section(
             ws.write_number_with_format(xlsx_row, 3, form.transport_subtotal, amt_fmt)?;
             ws.write_blank(xlsx_row, 4, &thin)?;
         } else {
-            // row_idx == 5: 市内交通费
-            ws.write_string_with_format(xlsx_row, 1, "市内交通费", center_fmt)?;
+            // row_idx == 5: 市内交通费（横跨 A+B）
+            ws.merge_range(xlsx_row, 0, xlsx_row, 1, "市内交通费", center_fmt)?;
             ws.write_number_with_format(xlsx_row, 2, form.city_transport_count as f64, center_fmt)?;
             ws.write_number_with_format(xlsx_row, 3, form.city_transport_actual_amount, amt_fmt)?;
             ws.write_number_with_format(xlsx_row, 4, form.city_transport_amount, amt_fmt)?;
