@@ -87,6 +87,8 @@ export const useMatchStore = defineStore('match', () => {
   }
 
   function createTripFromTicket(match: MatchResult) {
+    const idx = unassigned.value.findIndex(m => m.invoice_id === match.invoice_id)
+    if (idx === -1) return
     trips.value.push({
       id: `trip-${Date.now()}`,
       destination: match.invoice.arrival_city || '',
@@ -96,7 +98,7 @@ export const useMatchStore = defineStore('match', () => {
       ticketIds: [match.invoice_id],
       matches: [match],
     })
-    unassigned.value = unassigned.value.filter(m => m.invoice_id !== match.invoice_id)
+    unassigned.value.splice(idx, 1)
   }
 
   async function autoMatch(invoices: Invoice[], payments: PaymentRecord[], tolerance = 1.0) {

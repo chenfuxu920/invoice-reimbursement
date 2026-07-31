@@ -134,4 +134,24 @@ describe('matchStore 分趟逻辑', () => {
     expect(store.trips[0].ticketIds).toEqual(['t1'])
     expect(store.unassigned).toHaveLength(0)
   })
+
+  it('createTripFromTicket 守卫：已在 trip 中的票据不重复归入', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValue({
+      trips: [
+        { id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22', ticket_ids: ['t1'], invoice_ids: ['t1'] },
+        { id: 'trip-2', destination: '成都', travel_start: '2026-06-01', travel_end: '2026-06-03', ticket_ids: ['t2'], invoice_ids: ['t2'] },
+      ],
+      unassigned_ids: [],
+    })
+    const matches = [makeMatch('t1'), makeMatch('t2')]
+    await store.resegment(matches, '')
+
+    store.moveToTrip('t1', 'trip-2')
+    store.createTripFromTicket(store.trips[1].matches[0])
+
+    expect(store.trips).toHaveLength(2)
+    expect(store.trips[1].matches.map(m => m.invoice_id)).toEqual(['t2', 't1'])
+    expect(store.unassigned).toHaveLength(0)
+  })
 })
