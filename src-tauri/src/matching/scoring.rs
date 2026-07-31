@@ -238,25 +238,7 @@ impl MultiDimensionalScorer {
     }
 
     fn parse_datetime(&self, time_str: &str) -> Option<NaiveDateTime> {
-        let formats = vec![
-            "%Y-%m-%d %H:%M",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d",
-            "%Y/%m/%d %H:%M",
-            "%Y/%m/%d %H:%M:%S",
-            "%Y/%m/%d",
-        ];
-
-        for fmt in formats {
-            if let Ok(dt) = NaiveDateTime::parse_from_str(time_str, fmt) {
-                return Some(dt);
-            }
-            if let Ok(d) = NaiveDate::parse_from_str(time_str, fmt) {
-                return Some(d.and_hms_opt(0, 0, 0).unwrap());
-            }
-        }
-
-        None
+        crate::parser::datetime_util::parse_datetime(time_str)
     }
 
     fn calculate_time_diff_hours(&self, ref_date: NaiveDate, payment_time: &str) -> f64 {
