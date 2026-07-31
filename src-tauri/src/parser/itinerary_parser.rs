@@ -549,8 +549,6 @@ pub fn parse_itinerary_from_tables(
     tables_by_page: &[Vec<crate::pdf::text_extractor::TableInfo>],
 ) -> Option<Vec<Itinerary>> {
     let re_amount = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
-    let re_weekday = Regex::new(r"(周三|周四|周一|周二|周五|周六|周日)").unwrap();
-    let re_colon_space = Regex::new(r"([:：])\s+(\d)").unwrap();
     let re_dropoff_tft = Regex::new(r"出站[：:]\s*([^\s~]+)").unwrap();
     let re_pickup_tft = Regex::new(r"进站[：:]\s*([^\s~]+)").unwrap();
     let re_has_time = Regex::new(r"\d{2}-\d{2}\s+\d{1,2}[:：]|\d{4}-\d{2}-\d{2}\s+\d{1,2}[:：]").unwrap();
@@ -659,15 +657,11 @@ pub fn parse_itinerary_from_tables(
                     continue;
                 }
 
-                // 时间：用 line_text（保留空格用于清洗）
+                // 时间：直接从单元格文本按格式列表提取（周几/换行天然被忽略）
                 let date_time = col_indices
                     .get(&SemanticCol::Time)
                     .and_then(|&idx| row.get(idx))
-                    .map(|cell| {
-                        let t = re_weekday.replace_all(&cell.line_text, "");
-                        let t = re_colon_space.replace_all(&t, "$1$2");
-                        t.trim().to_string()
-                    })
+                    .and_then(|cell| crate::parser::datetime_util::extract_datetime(&cell.line_text))
                     .unwrap_or_default();
 
                 // 供应商：merged_text 已去所有空格（"滴滴 轻享" → "滴滴轻享"）
@@ -2244,6 +2238,131 @@ mod tests {
 
         eprintln!("  [TEST] 行程单表格解析: {} 条, provider 样例: {}",
             entries.len(), entries[0].provider);
+    }
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_parse_itinerary_from_tables_page2_weekday_split_across_newline() {
+        // 滴滴第 2 页：line_text 中周几被换行拆开（"周\n一"），
+        // 旧 re_weekday 精确匹配 "周一" 无法命中 → 周几泄漏进 date_time。
+        // 修复后 re_weekday 用 \s* 容忍换行，必须剥掉周几。
+        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+
+        fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
+            TableCellInfo {
+                text: text.to_string(),
+                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                words: Vec::new(),
+                line_text: line_text.to_string(),
+                merged_text: merged_text.to_string(),
+                column_text: String::new(),
+            }
+        }
+
+        let header = vec![
+            cell("序号", "序号", "序号"),
+            cell("车型", "车型", "车型"),
+            cell("上车时间", "上车时间", "上车时间"),
+            cell("城市", "城市", "城市"),
+            cell("起点", "起点", "起点"),
+            cell("终点", "终点", "终点"),
+            cell("里程[公里]", "里程[公里]", "里程[公里]"),
+            cell("金额[元]", "金额[元]", "金额[元]"),
+            cell("备注", "备注", "备注"),
+        ];
+        let row1 = vec![
+            cell("11", "11", "11"),
+            cell("滴滴 轻享", "滴滴\n轻享", "滴滴轻享"),
+            cell("05-11 11:48 周\n一", "05-11 11:48 周\n一", "05-1111:48周一"),
+            cell("成都 ...", "成都\n市", "成都市"),
+            cell("跳伞塔|...", "跳伞塔|西南技术物理研究所", "跳伞塔|西南技术物理研究所"),
+            cell("合江亭|...", "合江亭|美居酒店", "合江亭|美居酒店"),
+            cell("3.7", "3.7", "3.7"),
+            cell("14.10", "14.10", "14.10"),
+            cell("", "", ""),
+        ];
+        let page_tables = vec![TableInfo {
+            rows: vec![header, row1],
+            x0: 0.0, top: 0.0, x1: 500.0, bottom: 100.0,
+        }];
+        let tables_by_page = vec![page_tables];
+
+        let result = parse_itinerary_from_tables(&tables_by_page);
+        let entries = result.expect("应返回 Some");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].date_time, "05-11 11:48",
+            "换行拆开的周几应被剥掉，实际: '{}'", entries[0].date_time);
+    }
+
+    #[cfg(feature = "pdfplumber")]
+    #[test]
+    fn test_parse_itinerary_from_tables_weekday_never_leaks() {
+        // 滴滴行程单 line_text 中周几可能被换行拆开（"周\n一"）或连续（"周三"），
+        // 两种形态都不应泄漏进 date_time——extract_datetime 按格式列表直接提取时间
+        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+
+        fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
+            TableCellInfo {
+                text: text.to_string(),
+                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                words: Vec::new(),
+                line_text: line_text.to_string(),
+                merged_text: merged_text.to_string(),
+                column_text: String::new(),
+            }
+        }
+
+        let header = vec![
+            cell("序号", "序号", "序号"),
+            cell("车型", "车型", "车型"),
+            cell("上车时间", "上车时间", "上车时间"),
+            cell("城市", "城市", "城市"),
+            cell("起点", "起点", "起点"),
+            cell("终点", "终点", "终点"),
+            cell("里程[公里]", "里程[公里]", "里程[公里]"),
+            cell("金额[元]", "金额[元]", "金额[元]"),
+            cell("备注", "备注", "备注"),
+        ];
+        // 第 1 页形态：周几连续在行尾
+        let row1 = vec![
+            cell("1", "1", "1"),
+            cell("专车", "专车", "专车"),
+            cell("05-06 15:22\n周三", "05-06 15:22\n周三", "05-0615:22周三"),
+            cell("成都 ...", "成都\n市", "成都市"),
+            cell("A", "A", "A"),
+            cell("B", "B", "B"),
+            cell("20.5", "20.5", "20.5"),
+            cell("41.00", "41.00", "41.00"),
+            cell("", "", ""),
+        ];
+        // 第 2 页形态：周几被换行拆开（"周\n一"）
+        let row2 = vec![
+            cell("11", "11", "11"),
+            cell("滴滴 轻享", "滴滴\n轻享", "滴滴轻享"),
+            cell("05-11 11:48 周\n一", "05-11 11:48 周\n一", "05-1111:48周一"),
+            cell("成都 ...", "成都\n市", "成都市"),
+            cell("C", "C", "C"),
+            cell("D", "D", "D"),
+            cell("3.7", "3.7", "3.7"),
+            cell("14.10", "14.10", "14.10"),
+            cell("", "", ""),
+        ];
+        let page_tables = vec![TableInfo {
+            rows: vec![header, row1, row2],
+            x0: 0.0, top: 0.0, x1: 500.0, bottom: 200.0,
+        }];
+        let tables_by_page = vec![page_tables];
+
+        let result = parse_itinerary_from_tables(&tables_by_page);
+        let entries = result.expect("应返回 Some");
+        assert_eq!(entries.len(), 2, "应解析出 2 条行程，实际 {}", entries.len());
+        for e in &entries {
+            assert!(!["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                .iter().any(|w| e.date_time.contains(w)),
+                "date_time 不应含周几: '{}'", e.date_time);
+        }
+        assert_eq!(entries[0].date_time, "05-06 15:22", "实际: {}", entries[0].date_time);
+        assert_eq!(entries[1].date_time, "05-11 11:48", "实际: {}", entries[1].date_time);
     }
 
     #[cfg(feature = "pdfplumber")]
