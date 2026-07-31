@@ -25,31 +25,73 @@
         </div>
       </div>
 
-      <!-- 从票据提取 -->
-      <div class="mb-4">
-        <button
-          @click="extractTripFromTickets()"
-          class="px-4 py-2 rounded bg-green-500 text-white hover:bg-green-600 transition-colors text-sm"
-        >
-          🎫 从票据提取
+      <!-- 分趟工具栏：存在待调整票据时提供出发城市重匹配 -->
+      <div v-if="hasUnassignedTickets"
+           class="bg-white rounded-lg border p-4 shadow-sm mb-6 flex flex-wrap items-center gap-3">
+        <div class="flex items-center gap-2">
+          <label class="text-sm text-gray-600">出发城市</label>
+          <input v-model="originInput" class="w-32 border rounded px-2 py-1.5 text-sm focus:outline-none focus:border-blue-500"
+                 placeholder="如：长沙" />
+        </div>
+        <button @click="handleResegment"
+                class="px-3 py-2 rounded bg-green-500 text-white text-sm hover:bg-green-600 transition-colors">
+          重新匹配行程
         </button>
+        <button @click="handleResetAuto"
+                class="px-3 py-2 rounded border text-sm hover:bg-gray-50 transition-colors">
+          恢复自动分趟
+        </button>
+        <span v-if="matchStore.segmentOrigin" class="text-xs text-gray-400">
+          当前按出发城市「{{ matchStore.segmentOrigin }}」分组
+        </span>
       </div>
 
-      <!-- 报销信息表单 -->
-      <ReimbursementForm :model-value="matchStore.exportForm" @update="handleFormUpdate" class="mb-6" />
-
-      <!-- 预览 -->
-      <div class="flex gap-3 mb-6">
-        <button @click="previewForm"
-                class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors">
-          预览报销单
-        </button>
+      <!-- 分趟列表 -->
+      <div class="space-y-6 mb-6">
+        <TripCard
+          v-for="(trip, idx) in matchStore.trips"
+          :key="trip.id"
+          :trip="trip"
+          :index="idx + 1"
+          :other-trips="otherTrips(trip)"
+          @move="handleMove"
+          @form-update="handleTripFormUpdate"
+          @preview="previewTrip(trip)"
+        />
       </div>
 
-      <!-- 报销单预览（iframe 隔离样式，防止全局 CSS 泄漏） -->
+      <!-- 待调整区 -->
+      <div v-if="matchStore.unassigned.length" class="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-6">
+        <h3 class="text-sm font-medium text-orange-700 mb-1">待调整（{{ matchStore.unassigned.length }}）</h3>
+        <p class="text-xs text-orange-500 mb-3">
+          以下发票无法自动归入某趟出差（票据未配对成功或日期在行程之外），可移入某趟；票据可「新建出差」。
+        </p>
+        <div class="space-y-2">
+          <div v-for="m in matchStore.unassigned" :key="m.invoice_id"
+               class="flex items-center gap-2 bg-white rounded px-3 py-2 border border-orange-100 text-sm flex-wrap">
+            <span class="w-20 shrink-0 text-xs font-medium" :class="getCategoryBadgeClass(m.invoice.category)">
+              {{ CATEGORY_LABELS[m.invoice.category] }}
+            </span>
+            <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
+            <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
+            <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
+            <button v-if="isTicket(m.invoice)" @click="handleCreateTrip(m)"
+                    class="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors shrink-0">
+              新建出差
+            </button>
+            <select @change="handleMove(m.invoice_id, ($event.target as HTMLSelectElement).value)"
+                    class="text-xs border rounded px-1 py-0.5 shrink-0">
+              <option value="" disabled selected>移到出差...</option>
+              <option v-for="t in matchStore.trips" :key="t.id" :value="t.id">出差 {{ t.destination || t.id }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 报销单预览 -->
       <div v-if="matchStore.reimbursementHtml" class="border rounded-lg overflow-hidden mb-6">
         <div class="bg-gray-100 px-4 py-2 text-sm text-gray-600">
-          <span>报销单预览</span>
+          <span>报销单预览{{ previewingTrip ? ' · ' + (previewingTrip.destination || previewingTrip.id) : '' }}</span>
         </div>
         <iframe
           :srcdoc="matchStore.reimbursementHtml"
@@ -58,84 +100,96 @@
           title="报销单预览"
         />
       </div>
-
-      <!-- 导出按钮 -->
-      <ExportButton
-        :match-results="matchStore.matches"
-        :unmatched-invoice-ids="matchStore.unmatchedInvoices.map(i => i.id)"
-        :unmatched-payment-ids="matchStore.unmatchedPayments.map(p => p.id)"
-        :form-info="exportFormInfo"
-      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useMatchStore } from '../stores/match'
-import ReimbursementForm from '../components/ReimbursementForm.vue'
-import ExportButton from '../components/ExportButton.vue'
+import TripCard from '../components/TripCard.vue'
+import type { Invoice, MatchResult, Trip } from '../types'
+import { CATEGORY_LABELS } from '../types/invoice'
+import { getCategoryBadgeClass } from '../utils/category'
 
 const matchStore = useMatchStore()
 
-const exportFormInfo = computed(() => ({
-  name: '',
-  department: '',
-  destination: matchStore.exportForm.destination,
-  travelStart: matchStore.exportForm.travelStart,
-  travelEnd: matchStore.exportForm.travelEnd,
-  companions: 0,
-  hotelLevel: matchStore.exportForm.hotelLevel,
-}))
+const originInput = ref('')
+const previewingTrip = ref<Trip | null>(null)
 
-function handleFormUpdate(val: { destination: string; travelStart: string; travelEnd: string; hotelLevel: string }) {
-  matchStore.exportForm.destination = val.destination
-  matchStore.exportForm.travelStart = val.travelStart
-  matchStore.exportForm.travelEnd = val.travelEnd
-  matchStore.exportForm.hotelLevel = val.hotelLevel
+function isTicket(invoice: Invoice) {
+  return invoice.category === 'Train' || invoice.category === 'Flight'
 }
 
-async function previewForm() {
+const hasUnassignedTickets = computed(() =>
+  matchStore.unassigned.some(m => isTicket(m.invoice))
+)
+
+function otherTrips(trip: Trip): Trip[] {
+  return matchStore.trips.filter(t => t.id !== trip.id)
+}
+
+async function handleResegment() {
+  const origin = originInput.value.trim()
+  if (!origin) {
+    alert('请先输入出发城市')
+    return
+  }
   try {
-    await matchStore.renderReimbursementHtml(exportFormInfo.value)
+    matchStore.segmentOrigin = origin
+    await matchStore.resegment(matchStore.matches, origin)
+  } catch (e) {
+    console.error('重新匹配失败:', e)
+    alert('重新匹配失败: ' + e)
+  }
+}
+
+async function handleResetAuto() {
+  originInput.value = ''
+  try {
+    matchStore.segmentOrigin = ''
+    await matchStore.resegment(matchStore.matches, '')
+  } catch (e) {
+    console.error('恢复自动分趟失败:', e)
+    alert('恢复自动分趟失败: ' + e)
+  }
+}
+
+function handleMove(invoiceId: string, targetTripId: string | null) {
+  matchStore.moveToTrip(invoiceId, targetTripId)
+}
+
+function handleTripFormUpdate(tripId: string, form: { destination: string; travelStart: string; travelEnd: string; hotelLevel: string }) {
+  const trip = matchStore.trips.find(t => t.id === tripId)
+  if (!trip) return
+  trip.destination = form.destination
+  trip.travelStart = form.travelStart
+  trip.travelEnd = form.travelEnd
+  trip.hotelLevel = form.hotelLevel
+}
+
+function handleCreateTrip(match: MatchResult) {
+  matchStore.createTripFromTicket(match)
+}
+
+async function previewTrip(trip: Trip) {
+  previewingTrip.value = trip
+  try {
+    await matchStore.renderReimbursementHtml(
+      {
+        name: '',
+        department: '',
+        destination: trip.destination,
+        travelStart: trip.travelStart,
+        travelEnd: trip.travelEnd,
+        companions: 0,
+        hotelLevel: trip.hotelLevel,
+      },
+      trip.matches,
+    )
   } catch (e) {
     console.error('预览失败:', e)
     alert('预览失败: ' + e)
   }
-}
-
-// 首次进入且无城市信息时自动从票据提取；用户已修改则 destination 非空，跳过以保留修改
-onMounted(() => {
-  if (!matchStore.exportForm.destination) extractTripFromTickets(true)
-})
-
-function extractTripFromTickets(silent = false) {
-  // 过滤 Train/Flight 类且有到达城市的发票
-  const tickets = matchStore.matches
-    .filter(m => {
-      const inv = m.invoice
-      return (inv.category === 'Train' || inv.category === 'Flight') && inv.arrival_city && inv.travel_date
-    })
-    .map(m => m.invoice)
-
-  if (tickets.length === 0) {
-    if (!silent) alert('未找到可提取的火车票或机票')
-    return
-  }
-
-  // 按出行日期排序（字符串比较，格式为 "YYYY-MM-DD" 可直接比较）
-  tickets.sort((a, b) => a.travel_date!.localeCompare(b.travel_date!))
-
-  // 目的地 = 最早一张票的到达城市
-  const dest = tickets[0].arrival_city
-  if (!dest) {
-    if (!silent) alert('票据数据异常：缺少到达城市')
-    return
-  }
-  matchStore.exportForm.destination = dest
-
-  // 日期范围 = min/max
-  matchStore.exportForm.travelStart = tickets[0].travel_date!
-  matchStore.exportForm.travelEnd = tickets[tickets.length - 1].travel_date!
 }
 </script>
