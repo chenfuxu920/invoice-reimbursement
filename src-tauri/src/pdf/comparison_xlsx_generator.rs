@@ -1,7 +1,6 @@
 use crate::models::invoice::{HotelDetail, Invoice, InvoiceCategory};
 use crate::models::match_result::{MatchResult, MatchType};
 use crate::models::payment::{PaymentRecord, PaymentSource};
-use chrono::NaiveDateTime;
 use rust_xlsxwriter::*;
 use std::error::Error;
 
@@ -510,64 +509,19 @@ fn payment_source_label(source: &PaymentSource) -> &str {
 /// Calculate the time difference between an itinerary time and a payment time.
 /// Returns a human-readable string like "23分钟" or "1小时15分", or empty string on parse failure.
 fn compute_time_diff(itinerary_time: &str, payment_time: &str) -> String {
-    // Parse payment time first to get the year
-    let pay_dt = {
-        let mut result = None;
-        // Try "YYYY-MM-DD HH:MM:SS"
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(payment_time, "%Y-%m-%d %H:%M:%S").ok();
-        }
-        // Try "YYYY-MM-DD HH:MM" (WeChat format, no seconds)
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(
-                &format!("{}:00", payment_time),
-                "%Y-%m-%d %H:%M:%S"
-            ).ok();
-        }
-        // Try "YYYY/MM/DD HH:MM:SS"
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(payment_time, "%Y/%m/%d %H:%M:%S").ok();
-        }
-        // Try "YYYY/MM/DD HH:MM" (no seconds)
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(
-                &format!("{}:00", payment_time),
-                "%Y/%m/%d %H:%M:%S"
-            ).ok();
-        }
-        match result {
-            Some(dt) => dt,
-            None => return String::new(),
-        }
+    // 支付时间：直接委托 datetime_util 解析（支持完整/斜杠/无秒格式）
+    let pay_dt = match crate::parser::datetime_util::parse_datetime(payment_time) {
+        Some(dt) => dt,
+        None => return String::new(),
     };
-
     let pay_year = pay_dt.format("%Y").to_string();
 
-    // Parse itinerary time, using the payment year for formats that lack a year
-    let itin_dt = {
-        let mut result = None;
-        // Try "MM-DD HH:MM" with payment year
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(
-                &format!("{}-{}:00", pay_year, itinerary_time),
-                "%Y-%m-%d %H:%M:%S"
-            ).ok();
-        }
-        // Try "YYYY-MM-DD HH:MM:SS"
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(itinerary_time, "%Y-%m-%d %H:%M:%S").ok();
-        }
-        // Try "MM-DD HH:MM:SS" with payment year
-        if result.is_none() {
-            result = NaiveDateTime::parse_from_str(
-                &format!("{}-{}", pay_year, itinerary_time),
-                "%Y-%m-%d %H:%M:%S"
-            ).ok();
-        }
-        match result {
-            Some(dt) => dt,
-            None => return String::new(),
-        }
+    // 行程时间：无年份时用支付年份补全（跨年行程保持一致），否则直接解析
+    let itin_dt = crate::parser::datetime_util::parse_datetime(&format!("{}-{}", pay_year, itinerary_time))
+        .or_else(|| crate::parser::datetime_util::parse_datetime(itinerary_time));
+    let itin_dt = match itin_dt {
+        Some(dt) => dt,
+        None => return String::new(),
     };
 
     let duration = (pay_dt - itin_dt).num_minutes().abs();
