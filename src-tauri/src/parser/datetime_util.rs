@@ -1,3 +1,5 @@
+use chrono::Datelike;
+use chrono::NaiveDateTime;
 use regex::Regex;
 use std::sync::OnceLock;
 
@@ -54,6 +56,78 @@ pub fn extract_datetime(text: &str) -> Option<String> {
                 Kind::ShortIncomplete => format!("{}-{} {}:??", &c[1], &c[2], pad2(&c[3])),
                 Kind::ShortDate => format!("{}-{}", &c[1], &c[2]),
             });
+        }
+    }
+    None
+}
+
+/// Layer 2：把规范化 datetime 字符串解析为 NaiveDateTime。
+/// 支持：完整/斜杠/粘连格式、无年份 MM-DD（按当年/去年）、尾部冒号、`:??` 视为 None。
+pub fn parse_datetime(s: &str) -> Option<NaiveDateTime> {
+    let cleaned = s.trim().trim_end_matches(':').trim().to_string();
+    if cleaned.contains("??") {
+        return None;
+    }
+    const FORMATS: &[&str] = &[
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d",
+        "%Y-%m-%d%H:%M:%S",
+        "%Y-%m-%d%H:%M",
+    ];
+    for fmt in FORMATS {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(&cleaned, fmt) {
+            return Some(dt);
+        }
+        if let Ok(d) = chrono::NaiveDate::parse_from_str(&cleaned, fmt) {
+            return d.and_hms_opt(0, 0, 0);
+        }
+    }
+    // 无年份 MM-DD：按当年/去年解析
+    if cleaned.len() >= 5
+        && cleaned.as_bytes().get(2) == Some(&b'-')
+        && cleaned[..2].chars().all(|c| c.is_ascii_digit())
+        && cleaned[3..5].chars().all(|c| c.is_ascii_digit())
+    {
+        let current_year = chrono::Local::now().year();
+        for year in [current_year, current_year - 1] {
+            let with_year = format!("{}-{}", year, cleaned);
+            for fmt in FORMATS {
+                if let Ok(dt) = NaiveDateTime::parse_from_str(&with_year, fmt) {
+                    return Some(dt);
+                }
+                if let Ok(d) = chrono::NaiveDate::parse_from_str(&with_year, fmt) {
+                    return d.and_hms_opt(0, 0, 0);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Layer 2b：从 datetime 字符串提取 YYYY-MM-DD 日期部分。
+/// 支持：完整字符串、无年份 MM-DD（补当年）、Excel 序列号。
+pub fn extract_date(s: &str) -> Option<String> {
+    if s.len() >= 10 && s.as_bytes()[4] == b'-' {
+        return Some(s[..10].to_string());
+    }
+    if s.len() >= 5 && s.as_bytes()[2] == b'-' {
+        let mmdd = &s[..5];
+        if mmdd.bytes().all(|c| c.is_ascii_digit() || c == b'-') {
+            let year = chrono::Local::now().year();
+            return Some(format!("{}-{}", year, mmdd));
+        }
+    }
+    if let Ok(serial) = s.parse::<f64>() {
+        if serial > 40000.0 && serial < 55000.0 {
+            let days_since_epoch = serial as i64 - 25569;
+            let timestamp = days_since_epoch * 86400;
+            if let Some(dt) = chrono::DateTime::from_timestamp(timestamp, 0).map(|dt| dt.naive_utc()) {
+                return Some(dt.format("%Y-%m-%d").to_string());
+            }
         }
     }
     None
@@ -122,5 +196,55 @@ mod tests {
     #[test]
     fn test_extract_no_datetime_returns_none() {
         assert_eq!(extract_datetime("专车 成都"), None);
+    }
+
+    #[test]
+    fn test_parse_full_datetime() {
+        let dt = parse_datetime("2026-04-24 17:58:59").unwrap();
+        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-04-24 17:58:59");
+    }
+
+    #[test]
+    fn test_parse_no_year_uses_current_year() {
+        let now = chrono::Local::now();
+        let dt = parse_datetime("04-22 21:10").unwrap();
+        assert_eq!(dt.year(), now.year());
+        assert_eq!(dt.month(), 4);
+        assert_eq!(dt.day(), 22);
+    }
+
+    #[test]
+    fn test_parse_incomplete_returns_none() {
+        assert_eq!(parse_datetime("04-22 21:??"), None);
+    }
+
+    #[test]
+    fn test_parse_trailing_colon() {
+        let dt = parse_datetime("2026-04-24 17:58:59:").unwrap();
+        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-04-24 17:58:59");
+    }
+
+    #[test]
+    fn test_parse_no_space() {
+        assert!(parse_datetime("2026-04-2408:48:00").is_some());
+    }
+
+    #[test]
+    fn test_extract_date_full() {
+        assert_eq!(extract_date("2026-04-24 17:58:59").as_deref(), Some("2026-04-24"));
+    }
+
+    #[test]
+    fn test_extract_date_no_year() {
+        let d = extract_date("04-22 21:10").expect("应补当年");
+        let year = chrono::Local::now().year();
+        assert!(d.starts_with(&format!("{year}-04-22")), "实际: {d}");
+    }
+
+    #[test]
+    fn test_extract_date_excel_serial() {
+        let d = extract_date("46134.932").expect("应解析 Excel 序列号");
+        let year = chrono::Local::now().year();
+        assert!(d.starts_with(&format!("{year}-")), "实际: {d}");
     }
 }
