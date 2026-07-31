@@ -69,14 +69,14 @@ pub fn parse_datetime(s: &str) -> Option<NaiveDateTime> {
         return None;
     }
     const FORMATS: &[&str] = &[
-        "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d %H:%M",
+        "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d",
-        "%Y/%m/%d %H:%M:%S",
         "%Y/%m/%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
         "%Y/%m/%d",
-        "%Y-%m-%d%H:%M:%S",
         "%Y-%m-%d%H:%M",
+        "%Y-%m-%d%H:%M:%S",
     ];
     for fmt in FORMATS {
         if let Ok(dt) = NaiveDateTime::parse_from_str(&cleaned, fmt) {
