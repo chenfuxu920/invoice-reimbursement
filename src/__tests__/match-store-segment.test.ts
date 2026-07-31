@@ -119,6 +119,47 @@ describe('matchStore 分趟逻辑', () => {
     expect(store.unassigned).toHaveLength(0)
   })
 
+  it('moveToTrip 同步票据 ticketIds', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValue({
+      trips: [
+        { id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22', ticket_ids: ['t1'], invoice_ids: ['t1'] },
+        { id: 'trip-2', destination: '成都', travel_start: '2026-06-01', travel_end: '2026-06-03', ticket_ids: ['t2'], invoice_ids: ['t2'] },
+      ],
+      unassigned_ids: [],
+    })
+    const matches = [makeMatch('t1'), makeMatch('t2')]
+    await store.resegment(matches, '')
+
+    store.moveToTrip('t1', 'trip-2')
+    expect(store.trips[0].ticketIds).toEqual([])
+    expect(store.trips[1].ticketIds).toEqual(['t2', 't1'])
+
+    store.moveToTrip('t1', null)
+    expect(store.trips[1].ticketIds).toEqual(['t2'])
+    expect(store.unassigned.map(m => m.invoice_id)).toEqual(['t1'])
+
+    store.moveToTrip('t1', 'trip-1')
+    expect(store.trips[0].ticketIds).toEqual(['t1'])
+    expect(store.unassigned).toHaveLength(0)
+  })
+
+  it('moveToTrip 非票据不改变 ticketIds', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValue({
+      trips: [
+        { id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22', ticket_ids: ['t1'], invoice_ids: ['t1', 'm1'] },
+      ],
+      unassigned_ids: [],
+    })
+    const matches = [makeMatch('t1'), makeMatch('m1', { category: 'Meal' })]
+    await store.resegment(matches, '')
+
+    store.moveToTrip('m1', null)
+    expect(store.trips[0].ticketIds).toEqual(['t1'])
+    expect(store.unassigned.map(m => m.invoice_id)).toEqual(['m1'])
+  })
+
   it('createTripFromTicket 从待调整票据新建出差', async () => {
     const store = useMatchStore()
     invokeMock.mockResolvedValue({ trips: [], unassigned_ids: ['t1'] })

@@ -70,6 +70,9 @@ export const useMatchStore = defineStore('match', () => {
       const idx = trip.matches.findIndex(m => m.invoice_id === invoiceId)
       if (idx >= 0) {
         match = trip.matches.splice(idx, 1)[0]
+        if (isTicket(match.invoice)) {
+          trip.ticketIds = trip.ticketIds.filter(id => id !== invoiceId)
+        }
         break
       }
     }
@@ -83,7 +86,12 @@ export const useMatchStore = defineStore('match', () => {
       return
     }
     const target = trips.value.find(t => t.id === targetTripId)
-    if (target) target.matches.push(match)
+    if (target) {
+      target.matches.push(match)
+      if (isTicket(match.invoice) && !target.ticketIds.includes(invoiceId)) {
+        target.ticketIds.push(invoiceId)
+      }
+    }
   }
 
   function createTripFromTicket(match: MatchResult) {
