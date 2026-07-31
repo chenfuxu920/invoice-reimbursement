@@ -1056,7 +1056,7 @@ pub fn classify_from_full_text(
 }
 
 /// 从高速费发票备注中提取通行时间。
-/// 支持格式："YYYY-MM-DD HH:MM:SS" 或 "YYYY-MM-DD"。
+/// 委托 datetime_util（支持 "YYYY-MM-DD HH:MM:SS"、"YYYY-MM-DD"、斜杠/中文日期、粘连格式等）。
 /// 取第一个匹配的日期时间字符串。
 pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> {
     crate::parser::datetime_util::extract_datetime(remarks)
