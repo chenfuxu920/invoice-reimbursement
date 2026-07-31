@@ -129,7 +129,7 @@ fn segment_with_origin(tickets: &[Ticket], origin: &str) -> (Vec<TripGroup>, Vec
                         travel_start: fmt(*start_date),
                         travel_end: fmt(t.travel_date),
                         ticket_ids: chain.clone(),
-                        invoice_ids: chain.clone(),
+                        invoice_ids: std::mem::take(chain),
                     });
                     open = None;
                 } else if t.departure == *frontier {
@@ -168,7 +168,8 @@ fn effective_date(inv: &Invoice) -> Option<NaiveDate> {
 }
 
 /// 非票据发票按日期落入趟窗口 [start, end]；跨窗口取最早开始；窗口外进待调整。
-/// 票据（含完整票据与缺字段票据的补位处理）只随链归属，绝不按窗口归入。
+/// 三字段齐全的票据（在 ticket_ids 中）只随链归属，绝不按窗口归入；
+/// 缺字段的 Train/Flight（未被收集为票据）与普通发票一样按窗口归入。
 fn assign_by_date(
     match_results: &[MatchResult],
     tickets: &[Ticket],
@@ -241,6 +242,7 @@ mod tests {
     use super::*;
     use crate::models::invoice::{HotelDetail, InvoiceSource};
     use crate::models::match_result::MatchType;
+    use chrono::NaiveDateTime;
 
     fn inv(id: &str, cat: InvoiceCategory, date: &str) -> Invoice {
         Invoice {
@@ -485,6 +487,61 @@ mod tests {
         let seg = segment_trips(&results, None);
         assert_eq!(seg.trips[0].invoice_ids.len(), 3);
         assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let seg = segment_trips(&[], None);
+        assert!(seg.trips.is_empty());
+        assert!(seg.unassigned_ids.is_empty());
+
+        let seg = segment_trips(&[], Some("长沙"));
+        assert!(seg.trips.is_empty());
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    #[test]
+    fn test_auto_toll_uses_travel_time() {
+        let mut toll = inv("f1", InvoiceCategory::Toll, "2026-05-25");
+        toll.toll_travel_time =
+            Some(NaiveDateTime::parse_from_str("2026-05-21 10:06:04", "%Y-%m-%d %H:%M:%S").unwrap());
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(toll),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips.len(), 1);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "f1"));
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    #[test]
+    fn test_auto_city_transport_fallback_to_invoice_date() {
+        let ct = inv("c1", InvoiceCategory::CityTransport, "2026-05-21");
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips.len(), 1);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    #[test]
+    fn test_auto_hotel_fallback_to_invoice_date() {
+        let hotel = inv("h1", InvoiceCategory::Hotel, "2026-05-21");
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(hotel),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips.len(), 1);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "h1"));
         assert!(seg.unassigned_ids.is_empty());
     }
 }
