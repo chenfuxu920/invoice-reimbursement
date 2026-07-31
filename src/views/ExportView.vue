@@ -136,8 +136,8 @@ async function handleResegment() {
     return
   }
   try {
-    matchStore.segmentOrigin = origin
     await matchStore.resegment(matchStore.matches, origin)
+    matchStore.segmentOrigin = origin
   } catch (e) {
     console.error('重新匹配失败:', e)
     alert('重新匹配失败: ' + e)
@@ -145,10 +145,10 @@ async function handleResegment() {
 }
 
 async function handleResetAuto() {
-  originInput.value = ''
   try {
-    matchStore.segmentOrigin = ''
     await matchStore.resegment(matchStore.matches, '')
+    matchStore.segmentOrigin = ''
+    originInput.value = ''
   } catch (e) {
     console.error('恢复自动分趟失败:', e)
     alert('恢复自动分趟失败: ' + e)
@@ -189,6 +189,7 @@ async function previewTrip(trip: Trip) {
     )
   } catch (e) {
     console.error('预览失败:', e)
+    previewingTrip.value = null
     alert('预览失败: ' + e)
   }
 }
