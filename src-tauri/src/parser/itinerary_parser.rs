@@ -285,14 +285,6 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
 
     let time_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Time).map(|(_, x)| *x);
 
-    let re_datetime_full = Regex::new(r"(\d{4}-\d{2}-\d{2})\s*(\d{2}:\d{2}:\d{2})").unwrap();
-    let re_datetime_full_nosec = Regex::new(r"(\d{4}-\d{2}-\d{2})\s*(\d{1,2}:\d{2})").unwrap();
-    let re_datetime_full_nospace = Regex::new(r"(\d{4}-\d{2}-\d{2})(\d{1,2}:\d{2})").unwrap();
-    let re_datetime_short = Regex::new(r"(\d{2}-\d{2})\s*(\d{1,2}:\d{2})").unwrap();
-    let re_datetime_colon_cont = Regex::new(r"(\d{2}-\d{2})\s*(\d{1,2})[:：]\s+(\d{2})").unwrap();
-    let re_datetime_mins_cont = Regex::new(r"(\d{2}-\d{2})(\d{1,2})\s+(\d{2})").unwrap();
-    let re_datetime_merged = Regex::new(r"(\d{2}-\d{2})(\d{1,2})[:：]").unwrap();
-    let re_datetime_short_garbled = Regex::new(r"(\d{2}-\d{2})(\d{1,2})").unwrap();
     let re_amount = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
 
     let pickup_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Pickup).map(|(_, x)| *x);
@@ -413,25 +405,8 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
                 collect_col_in_range(&data, tx, col_span, y_lo, y_hi)
             };
             let time_text = clean_time_text(&raw_time_text);
-            if let Some(c) = re_datetime_full.captures(&time_text) {
-                format!("{} {}", &c[1], &c[2])
-            } else if let Some(c) = re_datetime_full_nospace.captures(&time_text) {
-                format!("{} {}", &c[1], &c[2])
-            } else if let Some(c) = re_datetime_full_nosec.captures(&time_text) {
-                format!("{} {}", &c[1], &c[2])
-            } else if let Some(c) = re_datetime_short.captures(&time_text) {
-                format!("{} {}", &c[1], &c[2])
-            } else if let Some(c) = re_datetime_colon_cont.captures(&time_text) {
-                format!("{} {}:{}", &c[1], &c[2], &c[3])
-            } else if let Some(c) = re_datetime_mins_cont.captures(&time_text) {
-                format!("{} {}:{}", &c[1], &c[2], &c[3])
-            } else if let Some(c) = re_datetime_merged.captures(&time_text) {
-                format!("{} {}:??", &c[1], &c[2])
-            } else if let Some(c) = re_datetime_short_garbled.captures(&time_text) {
-                format!("{} {}:??", &c[1], &c[2])
-            } else {
-                time_text.trim().to_string()
-            }
+            crate::parser::datetime_util::extract_datetime(&time_text)
+                .unwrap_or_else(|| time_text.trim().to_string())
         } else {
             String::new()
         };
