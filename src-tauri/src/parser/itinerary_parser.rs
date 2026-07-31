@@ -2242,60 +2242,6 @@ mod tests {
 
     #[cfg(feature = "pdfplumber")]
     #[test]
-    fn test_parse_itinerary_from_tables_page2_weekday_split_across_newline() {
-        // 滴滴第 2 页：line_text 中周几被换行拆开（"周\n一"），
-        // 旧 re_weekday 精确匹配 "周一" 无法命中 → 周几泄漏进 date_time。
-        // 修复后 re_weekday 用 \s* 容忍换行，必须剥掉周几。
-        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
-
-        fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
-            TableCellInfo {
-                text: text.to_string(),
-                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
-                words: Vec::new(),
-                line_text: line_text.to_string(),
-                merged_text: merged_text.to_string(),
-                column_text: String::new(),
-            }
-        }
-
-        let header = vec![
-            cell("序号", "序号", "序号"),
-            cell("车型", "车型", "车型"),
-            cell("上车时间", "上车时间", "上车时间"),
-            cell("城市", "城市", "城市"),
-            cell("起点", "起点", "起点"),
-            cell("终点", "终点", "终点"),
-            cell("里程[公里]", "里程[公里]", "里程[公里]"),
-            cell("金额[元]", "金额[元]", "金额[元]"),
-            cell("备注", "备注", "备注"),
-        ];
-        let row1 = vec![
-            cell("11", "11", "11"),
-            cell("滴滴 轻享", "滴滴\n轻享", "滴滴轻享"),
-            cell("05-11 11:48 周\n一", "05-11 11:48 周\n一", "05-1111:48周一"),
-            cell("成都 ...", "成都\n市", "成都市"),
-            cell("跳伞塔|...", "跳伞塔|西南技术物理研究所", "跳伞塔|西南技术物理研究所"),
-            cell("合江亭|...", "合江亭|美居酒店", "合江亭|美居酒店"),
-            cell("3.7", "3.7", "3.7"),
-            cell("14.10", "14.10", "14.10"),
-            cell("", "", ""),
-        ];
-        let page_tables = vec![TableInfo {
-            rows: vec![header, row1],
-            x0: 0.0, top: 0.0, x1: 500.0, bottom: 100.0,
-        }];
-        let tables_by_page = vec![page_tables];
-
-        let result = parse_itinerary_from_tables(&tables_by_page);
-        let entries = result.expect("应返回 Some");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].date_time, "05-11 11:48",
-            "换行拆开的周几应被剥掉，实际: '{}'", entries[0].date_time);
-    }
-
-    #[cfg(feature = "pdfplumber")]
-    #[test]
     fn test_parse_itinerary_from_tables_weekday_never_leaks() {
         // 滴滴行程单 line_text 中周几可能被换行拆开（"周\n一"）或连续（"周三"），
         // 两种形态都不应泄漏进 date_time——extract_datetime 按格式列表直接提取时间
