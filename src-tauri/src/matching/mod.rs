@@ -5,6 +5,7 @@ pub mod scoring;
 pub mod strategy_selector;
 pub mod batch_optimizer;
 pub mod benchmarks;
+pub mod segment;
 
 pub use engine::MatchEngine;
 pub use batch::{batch_match, BatchMatchResult};
