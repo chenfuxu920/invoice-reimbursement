@@ -602,6 +602,15 @@ async fn generate_comparison_xlsx(
     Ok(output_path)
 }
 
+// 多趟出差自动分趟命令：origin 为 None 自动分趟，Some 时以指定出发城市全量重分
+#[tauri::command]
+fn segment_trips(
+    match_results: Vec<MatchResult>,
+    origin: Option<String>,
+) -> Result<matching::segment::SegmentResult, String> {
+    Ok(matching::segment::segment_trips(&match_results, origin.as_deref()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -637,6 +646,7 @@ pub fn run() {
             render_pdf_preview,
             debug_extract_texts,
             open_file_with_system,
+            segment_trips,
 
         ])
         .setup(|app| {
