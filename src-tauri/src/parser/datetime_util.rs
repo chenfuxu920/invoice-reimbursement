@@ -226,7 +226,8 @@ mod tests {
 
     #[test]
     fn test_parse_no_space() {
-        assert!(parse_datetime("2026-04-2408:48:00").is_some());
+        let dt = parse_datetime("2026-04-2408:48:00").unwrap();
+        assert_eq!(dt.format("%Y-%m-%d %H:%M:%S").to_string(), "2026-04-24 08:48:00");
     }
 
     #[test]
@@ -243,8 +244,16 @@ mod tests {
 
     #[test]
     fn test_extract_date_excel_serial() {
-        let d = extract_date("46134.932").expect("应解析 Excel 序列号");
-        let year = chrono::Local::now().year();
-        assert!(d.starts_with(&format!("{year}-")), "实际: {d}");
+        // ponytail: 46134.932 → 2026-04-22 是 Excel epoch 的固定映射，非动态（.932 被 as i64 截断）
+        assert_eq!(extract_date("46134.932").as_deref(), Some("2026-04-22"));
+    }
+
+    #[test]
+    fn test_extract_date_excel_serial_bounds() {
+        // 40001 ≈ 2009-07-07；54999 ≈ 2050-07-30（Excel epoch 固定映射）
+        let lo = extract_date("40001.0").unwrap();
+        let hi = extract_date("54999.0").unwrap();
+        assert_eq!(lo, "2009-07-07", "实际: {lo}");
+        assert_eq!(hi, "2050-07-30", "实际: {hi}");
     }
 }
