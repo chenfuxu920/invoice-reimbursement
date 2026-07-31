@@ -1059,23 +1059,8 @@ pub fn classify_from_full_text(
 /// 支持格式："YYYY-MM-DD HH:MM:SS" 或 "YYYY-MM-DD"。
 /// 取第一个匹配的日期时间字符串。
 pub fn extract_toll_travel_time(remarks: &str) -> Option<chrono::NaiveDateTime> {
-    // 优先匹配 "YYYY-MM-DD HH:MM:SS"，日期与时间之间空格可选
-    // OCR 常将日期和时间粘连，如 "2026-05-2510:06:04"
-    let re_datetime = regex::Regex::new(r"(\d{4}-\d{2}-\d{2})\s*(\d{2}:\d{2}:\d{2})").ok()?;
-    if let Some(caps) = re_datetime.captures(remarks) {
-        let combined = format!("{} {}", &caps[1], &caps[2]);
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(&combined, "%Y-%m-%d %H:%M:%S") {
-            return Some(dt);
-        }
-    }
-    // 回退匹配 "YYYY-MM-DD"
-    let re_date = regex::Regex::new(r"(\d{4}-\d{2}-\d{2})").ok()?;
-    if let Some(caps) = re_date.captures(remarks) {
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(&caps[1], "%Y-%m-%d") {
-            return d.and_hms_opt(0, 0, 0);
-        }
-    }
-    None
+    crate::parser::datetime_util::extract_datetime(remarks)
+        .and_then(|s| crate::parser::datetime_util::parse_datetime(&s))
 }
 
 pub(crate) fn extract_amount(text: &str) -> Result<f64, String> {
