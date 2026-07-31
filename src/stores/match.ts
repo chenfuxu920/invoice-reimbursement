@@ -1,6 +1,6 @@
+import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { ref, reactive } from 'vue'
-import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory, ItineraryPaymentPair } from '../types'
+import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory, ItineraryPaymentPair, Trip } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
 export const useMatchStore = defineStore('match', () => {
@@ -11,12 +11,93 @@ export const useMatchStore = defineStore('match', () => {
   const reimbursementHtml = ref<string | null>(null)
 
   // 报销表单信息：放在 store 中跨视图持久化，避免切换导出页时组件重挂载导致城市/日期被清空
-  const exportForm = reactive({
-    destination: '',
-    travelStart: '',
-    travelEnd: '',
-    hotelLevel: '其他人员',
-  })
+
+  // 后端 segment_trips 返回的趟分组（snake_case）
+  interface TripGroupDto {
+    id: string
+    destination: string
+    travel_start: string
+    travel_end: string
+    ticket_ids: string[]
+    invoice_ids: string[]
+  }
+
+  const trips = ref<Trip[]>([])
+  const unassigned = ref<MatchResult[]>([])
+  const segmentOrigin = ref('')
+
+  function isTicket(inv: Invoice) {
+    return inv.category === 'Train' || inv.category === 'Flight'
+  }
+
+  async function resegment(matches: MatchResult[], origin: string) {
+    const result = await invoke<{ trips: TripGroupDto[]; unassigned_ids: string[] }>('segment_trips', {
+      matchResults: matches,
+      origin: origin || null,
+    })
+    trips.value = result.trips.map(t => ({
+      id: t.id,
+      destination: t.destination,
+      travelStart: t.travel_start,
+      travelEnd: t.travel_end,
+      hotelLevel: '其他人员',
+      ticketIds: t.ticket_ids,
+      matches: t.invoice_ids
+        .map(id => matches.find(m => m.invoice_id === id))
+        .filter((m): m is MatchResult => !!m),
+    }))
+    unassigned.value = result.unassigned_ids
+      .map(id => matches.find(m => m.invoice_id === id))
+      .filter((m): m is MatchResult => !!m)
+    // 兜底：无任何票据时全部作为单趟展示（保持原有单张导出可用）
+    if (trips.value.length === 0 && !matches.some(m => isTicket(m.invoice))) {
+      trips.value = [{
+        id: 'trip-1',
+        destination: '',
+        travelStart: '',
+        travelEnd: '',
+        hotelLevel: '其他人员',
+        ticketIds: [],
+        matches,
+      }]
+      unassigned.value = []
+    }
+  }
+
+  function moveToTrip(invoiceId: string, targetTripId: string | null) {
+    let match: MatchResult | undefined
+    for (const trip of trips.value) {
+      const idx = trip.matches.findIndex(m => m.invoice_id === invoiceId)
+      if (idx >= 0) {
+        match = trip.matches.splice(idx, 1)[0]
+        break
+      }
+    }
+    if (!match) {
+      const idx = unassigned.value.findIndex(m => m.invoice_id === invoiceId)
+      if (idx >= 0) match = unassigned.value.splice(idx, 1)[0]
+    }
+    if (!match) return
+    if (targetTripId === null) {
+      unassigned.value.push(match)
+      return
+    }
+    const target = trips.value.find(t => t.id === targetTripId)
+    if (target) target.matches.push(match)
+  }
+
+  function createTripFromTicket(match: MatchResult) {
+    trips.value.push({
+      id: `trip-${Date.now()}`,
+      destination: match.invoice.arrival_city || '',
+      travelStart: match.invoice.travel_date || '',
+      travelEnd: match.invoice.travel_date || '',
+      hotelLevel: '其他人员',
+      ticketIds: [match.invoice_id],
+      matches: [match],
+    })
+    unassigned.value = unassigned.value.filter(m => m.invoice_id !== match.invoice_id)
+  }
 
   async function autoMatch(invoices: Invoice[], payments: PaymentRecord[], tolerance = 1.0) {
     loading.value = true
@@ -27,6 +108,7 @@ export const useMatchStore = defineStore('match', () => {
       matches.value = result.matched
       unmatchedInvoices.value = result.unmatched_invoices
       unmatchedPayments.value = result.unmatched_payments
+      await resegment(matches.value, segmentOrigin.value)
     } catch (e) {
       // 后端反序列化/匹配失败时显式抛出，避免被静默吞掉（表现为"点击无反应"）
       console.error('自动匹配失败:', e)
@@ -91,21 +173,25 @@ export const useMatchStore = defineStore('match', () => {
     }
   }
 
-  async function renderReimbursementHtml(formInfo: {
-    name: string
-    department: string
-    destination: string
-    travelStart: string
-    travelEnd: string
-    companions: number
-    hotelLevel: string
-  }) {
-    if (matches.value.length === 0) {
+  async function renderReimbursementHtml(
+    formInfo: {
+      name: string
+      department: string
+      destination: string
+      travelStart: string
+      travelEnd: string
+      companions: number
+      hotelLevel: string
+    },
+    matchesOverride?: MatchResult[],
+  ) {
+    const results = matchesOverride ?? matches.value
+    if (results.length === 0) {
       reimbursementHtml.value = null
       return
     }
     const html = await invoke<string>('render_reimbursement_html', {
-      matchResults: matches.value,
+      matchResults: results,
       name: formInfo.name,
       department: formInfo.department,
       destination: formInfo.destination,
@@ -145,16 +231,16 @@ export const useMatchStore = defineStore('match', () => {
     unmatchedInvoices.value = []
     unmatchedPayments.value = []
     reimbursementHtml.value = null
-    // 清空导入时一并重置报销表单，避免残留旧城市/日期
-    exportForm.destination = ''
-    exportForm.travelStart = ''
-    exportForm.travelEnd = ''
-    exportForm.hotelLevel = '其他人员'
+    trips.value = []
+    unassigned.value = []
+    segmentOrigin.value = ''
   }
 
   return {
-    matches, unmatchedInvoices, unmatchedPayments, loading, reimbursementHtml, exportForm,
+    matches, unmatchedInvoices, unmatchedPayments, loading, reimbursementHtml,
+    trips, unassigned, segmentOrigin,
     autoMatch, unmatchInvoice, manualMatch, removePayment, updateInvoiceCategory,
     renderReimbursementHtml, saveReimbursementHtml, clearMatches,
+    resegment, moveToTrip, createTripFromTicket,
   }
 })

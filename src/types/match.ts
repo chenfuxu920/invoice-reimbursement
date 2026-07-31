@@ -21,3 +21,14 @@ export interface MatchResult {
   /// 行程-支付显式配对。非行程场景或旧数据为空。
   itinerary_payment_pairs?: ItineraryPaymentPair[]
 }
+
+/// 一趟出差分组：destination/travelStart/travelEnd 预填自票据，用户可手动修改
+export interface Trip {
+  id: string
+  destination: string
+  travelStart: string
+  travelEnd: string
+  hotelLevel: string
+  ticketIds: string[]
+  matches: MatchResult[]
+}
