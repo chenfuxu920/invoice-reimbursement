@@ -3,7 +3,7 @@ use crate::models::match_result::{MatchResult, MatchType, ItineraryPaymentPair};
 use crate::models::payment::PaymentRecord;
 use super::engine::{MatchEngine, filter_payments_by_date_direction, parse_payment_date};
 use super::strategy_selector::{MatchingStrategy, StrategySelector};
-use chrono::{Datelike, NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -705,50 +705,7 @@ fn sort_payments_by_time(payments: &mut [PaymentRecord]) {
 /// 支持: "YYYY-MM-DD HH:MM", "YYYY-MM-DD HH:MM:SS", "YYYY-MM-DD"
 ///       "YYYY/MM/DD ..."、无空格 "YYYY-MM-DDHH:MM"、无年份 "MM-DD HH:MM"
 fn parse_datetime(time_str: &str) -> Option<NaiveDateTime> {
-    // 去除尾部 ':'（行程 OCR 可能产出 "04-22 21:" 格式）
-    let cleaned = time_str.trim().trim_end_matches(':').trim().to_string();
-
-    let formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y/%m/%d",
-        "%Y-%m-%d%H:%M:%S",  // 无空格 如 "2026-04-2408:48:00"
-        "%Y-%m-%d%H:%M",     // 无空格 如 "2026-04-2408:48"
-    ];
-    for fmt in formats {
-        if let Ok(dt) = NaiveDateTime::parse_from_str(&cleaned, fmt) {
-            return Some(dt);
-        }
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(&cleaned, fmt) {
-            return d.and_hms_opt(0, 0, 0);
-        }
-    }
-
-    // Fallback: 无年份 MM-DD 格式，尝试拼接当年/去年
-    // 检测 "04-25 08:48" 或 "04-22 21" 等
-    if cleaned.len() >= 5
-        && cleaned.as_bytes().get(2) == Some(&b'-')
-        && cleaned[..2].chars().all(|c| c.is_ascii_digit())
-        && cleaned[3..5].chars().all(|c| c.is_ascii_digit())
-    {
-        let current_year = chrono::Local::now().year();
-        for year in [current_year, current_year - 1] {
-            let with_year = format!("{}-{}", year, cleaned);
-            for fmt in &formats {
-                if let Ok(dt) = NaiveDateTime::parse_from_str(&with_year, fmt) {
-                    return Some(dt);
-                }
-                if let Ok(d) = chrono::NaiveDate::parse_from_str(&with_year, fmt) {
-                    return d.and_hms_opt(0, 0, 0);
-                }
-            }
-        }
-    }
-
-    None
+    crate::parser::datetime_util::parse_datetime(time_str)
 }
 
 /// 判断支付时间是否在行程当天或次日凌晨
@@ -775,28 +732,7 @@ fn is_same_day_or_next_morning(itinerary_time: &str, payment_time: &str) -> bool
 /// 从时间字符串中提取日期 "YYYY-MM-DD"
 /// 支持: "YYYY-MM-DD HH:MM:SS" / "MM-DD HH:" / Excel序列号
 fn extract_date(time_str: &str) -> String {
-    // "2026-04-24 17:58:59" -> "2026-04-24"
-    if time_str.len() >= 10 && time_str.as_bytes()[4] == b'-' {
-        return time_str[..10].to_string();
-    }
-    // "04-22 21:" 或 "04-22" -> "2026-04-22"
-    if time_str.len() >= 5 && time_str.as_bytes()[2] == b'-' {
-        let mmdd = &time_str[..5];
-        if mmdd.bytes().all(|c| c.is_ascii_digit() || c == b'-') {
-            return format!("2026-{}", mmdd);
-        }
-    }
-    // Excel 序列号 "46134.932" -> 日期
-    if let Ok(serial) = time_str.parse::<f64>() {
-        if serial > 40000.0 && serial < 55000.0 {
-            let days_since_epoch = serial as i64 - 25569;
-            let timestamp = days_since_epoch * 86400;
-            if let Some(dt) = chrono::DateTime::from_timestamp(timestamp, 0).map(|dt| dt.naive_utc()) {
-                return dt.format("%Y-%m-%d").to_string();
-            }
-        }
-    }
-    String::new()
+    crate::parser::datetime_util::extract_date(time_str).unwrap_or_default()
 }
 
 #[cfg(test)]
