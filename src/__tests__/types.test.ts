@@ -179,7 +179,6 @@ describe('Type definitions integrity', () => {
       meal_subsidy: { persons: 1, days: 6, daily_rate: 100.0, amount: 600.0 },
       baggage_amount: 0.0,
       meal_reimbursement: 0.0,
-      advance_payment: 0.0,
       summaries: [
         { category: 'Train', count: 1, total_amount: 553.0 },
         { category: 'Hotel', count: 2, total_amount: 900.0 },
