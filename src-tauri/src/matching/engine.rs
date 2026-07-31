@@ -10,23 +10,7 @@ const MAX_PAYMENT_CANDIDATES: usize = 20;
 /// 解析支付时间字符串为日期，用于与发票日期比较天数差。
 /// 支持 "YYYY-MM-DD HH:MM[:SS]" / "YYYY-MM-DD" / "YYYY/MM/DD ..." 等格式。
 pub fn parse_payment_date(time_str: &str) -> Option<NaiveDate> {
-    let formats = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y/%m/%d",
-    ];
-    for fmt in &formats {
-        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(time_str, fmt) {
-            return Some(dt.date());
-        }
-        if let Ok(d) = chrono::NaiveDate::parse_from_str(time_str, fmt) {
-            return Some(d);
-        }
-    }
-    None
+    crate::parser::datetime_util::parse_datetime(time_str).map(|dt| dt.date())
 }
 
 /// 过滤支付记录：只保留支付日期 ≤ max_date 的记录。
