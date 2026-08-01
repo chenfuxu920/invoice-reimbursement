@@ -67,18 +67,20 @@
         </p>
         <div class="space-y-2">
           <div v-for="m in matchStore.unassigned" :key="m.invoice_id"
-               class="flex items-center gap-2 bg-white rounded px-3 py-2 border border-orange-100 text-sm flex-wrap">
+               class="flex items-center gap-2 bg-white rounded px-3 py-2 border border-orange-100 text-sm flex-wrap cursor-pointer hover:bg-orange-50"
+               @click="openDetail(m.invoice)">
             <span class="w-20 shrink-0 text-xs font-medium" :class="getCategoryBadgeClass(m.invoice.category)">
               {{ CATEGORY_LABELS[m.invoice.category] }}
             </span>
             <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
             <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
             <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
-            <button v-if="isTicket(m.invoice)" @click="handleCreateTrip(m)"
+            <span class="text-blue-400 text-xs shrink-0">详情</span>
+            <button v-if="isTicket(m.invoice)" @click.stop="handleCreateTrip(m)"
                     class="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors shrink-0">
               新建出差
             </button>
-            <select @change="handleMove(m.invoice_id, ($event.target as HTMLSelectElement).value)"
+            <select @click.stop @change="handleMove(m.invoice_id, ($event.target as HTMLSelectElement).value)"
                     class="text-xs border rounded px-1 py-0.5 shrink-0">
               <option value="" disabled selected>移到出差...</option>
               <option v-for="t in matchStore.trips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
@@ -86,6 +88,13 @@
           </div>
         </div>
       </div>
+
+      <InvoiceDetailModal
+        :visible="detailVisible"
+        :invoice="detailInvoice"
+        @close="detailVisible = false"
+        @save="handleDetailSave"
+      />
     </template>
   </div>
 </template>
@@ -93,14 +102,30 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useMatchStore } from '../stores/match'
+import { useInvoiceStore } from '../stores/invoice'
 import TripCard from '../components/TripCard.vue'
+import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import type { Invoice, MatchResult, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 
 const matchStore = useMatchStore()
+const invoiceStore = useInvoiceStore()
 
 const originInput = ref('')
+const detailVisible = ref(false)
+const detailInvoice = ref<Invoice | null>(null)
+
+function openDetail(invoice: Invoice) {
+  detailInvoice.value = invoice
+  detailVisible.value = true
+}
+
+function handleDetailSave(updated: Invoice) {
+  matchStore.updateMatchInvoice(updated)
+  invoiceStore.updateInvoice(updated)
+  detailVisible.value = false
+}
 
 function isTicket(invoice: Invoice) {
   return invoice.category === 'Train' || invoice.category === 'Flight'
