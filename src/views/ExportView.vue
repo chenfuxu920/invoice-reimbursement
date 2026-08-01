@@ -81,7 +81,7 @@
             <select @change="handleMove(m.invoice_id, ($event.target as HTMLSelectElement).value)"
                     class="text-xs border rounded px-1 py-0.5 shrink-0">
               <option value="" disabled selected>移到出差...</option>
-              <option v-for="t in matchStore.trips" :key="t.id" :value="t.id">出差 {{ t.destination || t.id }}</option>
+              <option v-for="t in matchStore.trips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
             </select>
           </div>
         </div>

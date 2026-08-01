@@ -33,7 +33,7 @@
           <span class="text-blue-400 text-xs shrink-0">详情</span>
           <select :value="trip.id" @click.stop @change="handleMoveInvoice(m.invoice_id, ($event.target as HTMLSelectElement).value)"
                   class="text-xs border rounded px-1 py-0.5 shrink-0">
-            <option v-for="t in otherTrips" :key="t.id" :value="t.id">移到出差 {{ t.destination || t.id }}</option>
+            <option v-for="t in otherTrips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
             <option value="">移到待调整</option>
           </select>
         </div>
