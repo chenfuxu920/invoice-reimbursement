@@ -187,8 +187,33 @@ fn candidate_dates(inv: &Invoice) -> Vec<NaiveDate> {
     }
 }
 
+/// 市内交通发票的打车城市是否命中趟有效城市。
+/// 城市信号来源：销售方/项目/备注 + 各行程上下车点。
+/// 无行程（无城市信息）时无法判断 → 放行按日期归入（兜底）。
+fn city_matches_trip(inv: &Invoice, trip_cities: &HashSet<String>) -> bool {
+    if trip_cities.is_empty() {
+        return true;
+    }
+    if inv.itineraries.is_empty() {
+        return true;
+    }
+    let haystacks: Vec<String> = std::iter::once(inv.seller_name.clone())
+        .chain(std::iter::once(inv.item_name.clone()))
+        .chain(std::iter::once(inv.remarks.clone()))
+        .chain(
+            inv.itineraries
+                .iter()
+                .flat_map(|it| [it.pickup.clone(), it.dropoff.clone()]),
+        )
+        .collect();
+    trip_cities
+        .iter()
+        .any(|c| haystacks.iter().any(|h| h.contains(c.as_str())))
+}
+
 /// 非票据发票按日期落入趟窗口 [start, end]：候选日期任一命中即归入，跨窗口取最早开始；
 /// 全部在窗口外进待调整。
+/// 市内交通（滴滴/高德等）额外要求打车城市 ∈ 该趟票据链城市，否则剔除进待调整。
 /// 三字段齐全的票据（在 ticket_ids 中）只随链归属，绝不按窗口归入；
 /// 缺字段的 Train/Flight（未被收集为票据）与普通发票一样按窗口归入。
 fn assign_by_date(
@@ -208,6 +233,22 @@ fn assign_by_date(
         })
         .collect();
 
+    // 每趟有效城市 = 票据链上所有出发/到达城市（如 长沙→武汉→北京→长沙 → {长沙,武汉,北京}）
+    let ticket_by_id: HashMap<&str, &Ticket> = tickets
+        .iter()
+        .map(|t| (t.invoice_id.as_str(), t))
+        .collect();
+    let trip_cities: Vec<HashSet<String>> = trips
+        .iter()
+        .map(|trip| {
+            trip.ticket_ids
+                .iter()
+                .filter_map(|id| ticket_by_id.get(id.as_str()))
+                .flat_map(|t| [t.departure.clone(), t.arrival.clone()])
+                .collect()
+        })
+        .collect();
+
     let mut assigned: HashMap<&str, usize> = HashMap::new();
     let mut unassigned_set: HashSet<String> = unassigned.iter().cloned().collect();
 
@@ -220,6 +261,11 @@ fn assign_by_date(
         let mut best: Option<usize> = None;
         for (i, (s, e)) in windows.iter().enumerate() {
             if dates.iter().any(|d| *d >= *s && *d <= *e) {
+                if inv.category == InvoiceCategory::CityTransport
+                    && !city_matches_trip(inv, &trip_cities[i])
+                {
+                    continue;
+                }
                 match best {
                     None => best = Some(i),
                     Some(b) if windows[i].0 < windows[b].0 => best = Some(i),
@@ -541,11 +587,12 @@ mod tests {
     #[test]
     fn test_auto_city_transport_uses_any_itinerary_date() {
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.seller_name = "滴滴出行".to_string();
         ct.itineraries = vec![
             crate::models::invoice::Itinerary {
                 date_time: "2026-06-01 08:00".to_string(),
                 provider: "滴滴".to_string(),
-                pickup: "A".to_string(),
+                pickup: "杭州站".to_string(),
                 dropoff: "B".to_string(),
                 amount: 30.0,
                 incomplete_fields: vec![],
@@ -553,7 +600,7 @@ mod tests {
             crate::models::invoice::Itinerary {
                 date_time: "2026-05-21 09:00".to_string(),
                 provider: "滴滴".to_string(),
-                pickup: "C".to_string(),
+                pickup: "上海站".to_string(),
                 dropoff: "D".to_string(),
                 amount: 40.0,
                 incomplete_fields: vec![],
@@ -590,6 +637,79 @@ mod tests {
         let seg = segment_trips(&results, None);
         assert_eq!(seg.trips.len(), 1);
         assert_eq!(seg.unassigned_ids, vec!["c1".to_string()]);
+    }
+
+    // 回归：滴滴行程单有"城市"信息（上下车点/销售方含城市名），
+    // 城市不在该趟票据链城市内 → 即使日期在窗口内也剔除（进待调整）
+    #[test]
+    fn test_auto_city_transport_wrong_city_unassigned() {
+        let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.seller_name = "滴滴出行".to_string();
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            date_time: "2026-05-21 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "武汉站".to_string(),
+            dropoff: "江汉路".to_string(),
+            amount: 30.0,
+            incomplete_fields: vec![],
+        }];
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips.len(), 1);
+        assert_eq!(seg.unassigned_ids, vec!["c1".to_string()]);
+    }
+
+    // 城市命中（上下车点含链上城市）且日期在窗口内 → 归入
+    #[test]
+    fn test_auto_city_transport_matching_city_assigned() {
+        let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.seller_name = "滴滴出行".to_string();
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            date_time: "2026-05-21 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "上海虹桥站".to_string(),
+            dropoff: "人民广场".to_string(),
+            amount: 30.0,
+            incomplete_fields: vec![],
+        }];
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips[0].invoice_ids.len(), 3);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    // 长出差链：长沙→武汉→北京，武汉的滴滴发票应归入该趟（武汉为链上城市）
+    #[test]
+    fn test_auto_city_transport_chain_city_assigned() {
+        let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.seller_name = "滴滴出行".to_string();
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            date_time: "2026-05-21 09:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "武汉站".to_string(),
+            dropoff: "光谷".to_string(),
+            amount: 30.0,
+            incomplete_fields: vec![],
+        }];
+        let results = vec![
+            mr(ticket("t1", "长沙", "武汉", "2026-05-20")),
+            mr(ticket("t2", "武汉", "北京", "2026-05-21")),
+            mr(flight("t3", "北京", "长沙", "2026-05-23")),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips[0].invoice_ids.len(), 4);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
+        assert!(seg.unassigned_ids.is_empty());
     }
 
     #[test]
