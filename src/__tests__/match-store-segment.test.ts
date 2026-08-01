@@ -195,4 +195,19 @@ describe('matchStore 分趟逻辑', () => {
     expect(store.trips[1].matches.map(m => m.invoice_id)).toEqual(['t2', 't1'])
     expect(store.unassigned).toHaveLength(0)
   })
+
+  it('updateMatchInvoice 就地更新匹配中的发票（趟内同步）', () => {
+    const store = useMatchStore()
+    const m = makeMatch('t1', { category: 'Hotel' })
+    store.matches.push(m)
+    store.trips.push({
+      id: 'trip-1', destination: '上海', travelStart: '2026-05-20', travelEnd: '2026-05-22',
+      hotelLevel: '其他人员', ticketIds: ['t1'], matches: [m],
+    })
+
+    store.updateMatchInvoice({ ...m.invoice, amount: 999 })
+
+    expect(store.matches[0].invoice.amount).toBe(999)
+    expect(store.trips[0].matches[0].invoice.amount).toBe(999)
+  })
 })

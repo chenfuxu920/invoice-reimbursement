@@ -246,11 +246,18 @@ export const useMatchStore = defineStore('match', () => {
     segmentOrigin.value = ''
   }
 
+  // 就地更新 match 中的发票（趟内/待调整引用同一 MatchResult 对象，自动同步）
+  function updateMatchInvoice(updated: Invoice) {
+    for (const m of matches.value) {
+      if (m.invoice_id === updated.id) m.invoice = updated
+    }
+  }
+
   return {
     matches, unmatchedInvoices, unmatchedPayments, loading, reimbursementHtml,
     trips, unassigned, segmentOrigin,
     autoMatch, unmatchInvoice, manualMatch, removePayment, updateInvoiceCategory,
     renderReimbursementHtml, saveReimbursementHtml, clearMatches,
-    resegment, moveToTrip, createTripFromTicket,
+    resegment, moveToTrip, createTripFromTicket, updateMatchInvoice,
   }
 })

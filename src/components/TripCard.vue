@@ -22,14 +22,16 @@
       </button>
       <div v-if="showInvoices" class="divide-y divide-gray-100">
         <div v-for="m in trip.matches" :key="m.invoice_id"
-             class="flex items-center gap-2 px-3 py-2 text-sm">
+             class="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
+             @click="openDetail(m.invoice)">
           <span class="w-20 shrink-0 text-xs font-medium" :class="getCategoryBadgeClass(m.invoice.category)">
             {{ CATEGORY_LABELS[m.invoice.category] }}
           </span>
           <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
           <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
           <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
-          <select :value="trip.id" @change="handleMoveInvoice(m.invoice_id, ($event.target as HTMLSelectElement).value)"
+          <span class="text-blue-400 text-xs shrink-0">详情</span>
+          <select :value="trip.id" @click.stop @change="handleMoveInvoice(m.invoice_id, ($event.target as HTMLSelectElement).value)"
                   class="text-xs border rounded px-1 py-0.5 shrink-0">
             <option v-for="t in otherTrips" :key="t.id" :value="t.id">移到出差 {{ t.destination || t.id }}</option>
             <option value="">移到待调整</option>
@@ -37,6 +39,13 @@
         </div>
       </div>
     </div>
+
+    <InvoiceDetailModal
+      :visible="detailVisible"
+      :invoice="detailInvoice"
+      @close="detailVisible = false"
+      @save="handleDetailSave"
+    />
 
     <div class="flex gap-3">
       <button @click="$emit('preview')"
@@ -58,7 +67,10 @@
 import { computed, ref } from 'vue'
 import ReimbursementForm from './ReimbursementForm.vue'
 import ExportButton from './ExportButton.vue'
-import type { Trip } from '../types'
+import InvoiceDetailModal from './InvoiceDetailModal.vue'
+import { useMatchStore } from '../stores/match'
+import { useInvoiceStore } from '../stores/invoice'
+import type { Invoice, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 
@@ -74,7 +86,12 @@ const emit = defineEmits<{
   (e: 'preview'): void
 }>()
 
+const matchStore = useMatchStore()
+const invoiceStore = useInvoiceStore()
+
 const showInvoices = ref(false)
+const detailVisible = ref(false)
+const detailInvoice = ref<Invoice | null>(null)
 
 const tripTotal = computed(() => props.trip.matches.reduce((s, m) => s + m.invoice.amount, 0))
 
@@ -101,5 +118,17 @@ function handleFormUpdate(form: { destination: string; travelStart: string; trav
 
 function handleMoveInvoice(invoiceId: string, targetTripId: string) {
   emit('move', invoiceId, targetTripId || null)
+}
+
+function openDetail(invoice: Invoice) {
+  detailInvoice.value = invoice
+  detailVisible.value = true
+}
+
+function handleDetailSave(updated: Invoice) {
+  // 就地更新 match 与发票 store（趟内/待调整引用同一 MatchResult，自动同步）
+  matchStore.updateMatchInvoice(updated)
+  invoiceStore.updateInvoice(updated)
+  detailVisible.value = false
 }
 </script>
