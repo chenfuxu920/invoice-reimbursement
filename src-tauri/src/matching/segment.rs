@@ -152,22 +152,43 @@ fn segment_with_origin(tickets: &[Ticket], origin: &str) -> (Vec<TripGroup>, Vec
     (trips, unassigned)
 }
 
-/// 非票据发票的归口日期
-fn effective_date(inv: &Invoice) -> Option<NaiveDate> {
+/// 非票据发票的候选归口日期：任一日期命中趟窗口即归入该趟
+/// - Hotel：入住日（无则开票日）
+/// - CityTransport：行程单所有行程的日期（含年-less "MM-DD HH:MM"，由 datetime_util 补当年；无行程则开票日）
+/// - Toll：通行时间（无则开票日）
+/// - 其他：开票日
+fn candidate_dates(inv: &Invoice) -> Vec<NaiveDate> {
     match inv.category {
-        InvoiceCategory::Hotel => inv.hotel_detail.as_ref().and_then(|h| h.check_in).or(Some(inv.date)),
-        InvoiceCategory::CityTransport => inv
-            .itineraries
-            .first()
-            .and_then(|it| it.date_time.split_whitespace().next())
-            .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
-            .or(Some(inv.date)),
-        InvoiceCategory::Toll => inv.toll_travel_time.map(|t| t.date()).or(Some(inv.date)),
-        _ => Some(inv.date),
+        InvoiceCategory::Hotel => inv
+            .hotel_detail
+            .as_ref()
+            .and_then(|h| h.check_in)
+            .map(|d| vec![d])
+            .unwrap_or_else(|| vec![inv.date]),
+        InvoiceCategory::CityTransport => {
+            let ride_dates: Vec<NaiveDate> = inv
+                .itineraries
+                .iter()
+                .filter_map(|it| {
+                    crate::parser::datetime_util::parse_datetime(&it.date_time).map(|dt| dt.date())
+                })
+                .collect();
+            if ride_dates.is_empty() {
+                vec![inv.date]
+            } else {
+                ride_dates
+            }
+        }
+        InvoiceCategory::Toll => inv
+            .toll_travel_time
+            .map(|t| vec![t.date()])
+            .unwrap_or_else(|| vec![inv.date]),
+        _ => vec![inv.date],
     }
 }
 
-/// 非票据发票按日期落入趟窗口 [start, end]；跨窗口取最早开始；窗口外进待调整。
+/// 非票据发票按日期落入趟窗口 [start, end]：候选日期任一命中即归入，跨窗口取最早开始；
+/// 全部在窗口外进待调整。
 /// 三字段齐全的票据（在 ticket_ids 中）只随链归属，绝不按窗口归入；
 /// 缺字段的 Train/Flight（未被收集为票据）与普通发票一样按窗口归入。
 fn assign_by_date(
@@ -195,10 +216,10 @@ fn assign_by_date(
         if ticket_ids.contains(inv.id.as_str()) {
             continue;
         }
-        let Some(date) = effective_date(inv) else { continue };
+        let dates = candidate_dates(inv);
         let mut best: Option<usize> = None;
         for (i, (s, e)) in windows.iter().enumerate() {
-            if date >= *s && date <= *e {
+            if dates.iter().any(|d| *d >= *s && *d <= *e) {
                 match best {
                     None => best = Some(i),
                     Some(b) if windows[i].0 < windows[b].0 => best = Some(i),
@@ -242,7 +263,7 @@ mod tests {
     use super::*;
     use crate::models::invoice::{HotelDetail, InvoiceSource};
     use crate::models::match_result::MatchType;
-    use chrono::NaiveDateTime;
+    use chrono::{Datelike, NaiveDateTime};
 
     fn inv(id: &str, cat: InvoiceCategory, date: &str) -> Invoice {
         Invoice {
@@ -488,6 +509,87 @@ mod tests {
         assert_eq!(seg.trips[0].invoice_ids.len(), 3);
         assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
         assert!(seg.unassigned_ids.is_empty());
+    }
+
+    // 回归：行程单时间可能是年-less 格式（"04-25 08:48"），旧实现按 "%Y-%m-%d"
+    // 解析失败 → 回退开票日期（行程之后）→ 滴滴落不进趟窗口
+    #[test]
+    fn test_auto_city_transport_yearless_itinerary_date() {
+        let year = chrono::Local::now().year();
+        let y = year.to_string();
+        let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            date_time: "04-25 08:48".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "长沙站".to_string(),
+            dropoff: "国贸".to_string(),
+            amount: 35.0,
+            incomplete_fields: vec![],
+        }];
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", &format!("{y}-04-25"))),
+            mr(ticket("t2", "上海", "长沙", &format!("{y}-04-27"))),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips[0].invoice_ids.len(), 3);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    // 回归：滴滴发票多条行程跨多天，首条行程在窗口外、后续行程在窗口内 → 仍应归入
+    #[test]
+    fn test_auto_city_transport_uses_any_itinerary_date() {
+        let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.itineraries = vec![
+            crate::models::invoice::Itinerary {
+                date_time: "2026-06-01 08:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 30.0,
+                incomplete_fields: vec![],
+            },
+            crate::models::invoice::Itinerary {
+                date_time: "2026-05-21 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.0,
+                incomplete_fields: vec![],
+            },
+        ];
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips[0].invoice_ids.len(), 3);
+        assert!(seg.trips[0].invoice_ids.iter().any(|id| id == "c1"));
+        assert!(seg.unassigned_ids.is_empty());
+    }
+
+    // 滴滴全部行程都在所有趟窗口外 → 待调整
+    #[test]
+    fn test_auto_city_transport_outside_windows_unassigned() {
+        let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            date_time: "2026-06-10 08:00".to_string(),
+            provider: "滴滴".to_string(),
+            pickup: "A".to_string(),
+            dropoff: "B".to_string(),
+            amount: 30.0,
+            incomplete_fields: vec![],
+        }];
+        let results = vec![
+            mr(ticket("t1", "长沙", "上海", "2026-05-20")),
+            mr(ticket("t2", "上海", "长沙", "2026-05-22")),
+            mr(ct),
+        ];
+        let seg = segment_trips(&results, None);
+        assert_eq!(seg.trips.len(), 1);
+        assert_eq!(seg.unassigned_ids, vec!["c1".to_string()]);
     }
 
     #[test]
