@@ -56,7 +56,6 @@
           :other-trips="otherTrips(trip)"
           @move="handleMove"
           @form-update="handleTripFormUpdate"
-          @preview="previewTrip(trip)"
         />
       </div>
 
@@ -87,19 +86,6 @@
           </div>
         </div>
       </div>
-
-      <!-- 报销单预览 -->
-      <div v-if="matchStore.reimbursementHtml" class="border rounded-lg overflow-hidden mb-6">
-        <div class="bg-gray-100 px-4 py-2 text-sm text-gray-600">
-          <span>报销单预览{{ previewingTrip ? ' · ' + (previewingTrip.destination || previewingTrip.id) : '' }}</span>
-        </div>
-        <iframe
-          :srcdoc="matchStore.reimbursementHtml"
-          class="w-full"
-          style="min-height: 600px; border: none;"
-          title="报销单预览"
-        />
-      </div>
     </template>
   </div>
 </template>
@@ -115,7 +101,6 @@ import { getCategoryBadgeClass } from '../utils/category'
 const matchStore = useMatchStore()
 
 const originInput = ref('')
-const previewingTrip = ref<Trip | null>(null)
 
 function isTicket(invoice: Invoice) {
   return invoice.category === 'Train' || invoice.category === 'Flight'
@@ -170,27 +155,5 @@ function handleTripFormUpdate(tripId: string, form: { destination: string; trave
 
 function handleCreateTrip(match: MatchResult) {
   matchStore.createTripFromTicket(match)
-}
-
-async function previewTrip(trip: Trip) {
-  previewingTrip.value = trip
-  try {
-    await matchStore.renderReimbursementHtml(
-      {
-        name: '',
-        department: '',
-        destination: trip.destination,
-        travelStart: trip.travelStart,
-        travelEnd: trip.travelEnd,
-        companions: 0,
-        hotelLevel: trip.hotelLevel,
-      },
-      trip.matches,
-    )
-  } catch (e) {
-    console.error('预览失败:', e)
-    previewingTrip.value = null
-    alert('预览失败: ' + e)
-  }
 }
 </script>

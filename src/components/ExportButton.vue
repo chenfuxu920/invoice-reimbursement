@@ -1,21 +1,21 @@
 <template>
-  <div class="space-y-3">
+  <div class="flex items-center gap-1.5">
     <LoadingOverlay :visible="loading" :message="loadingMessage" />
-    <button @click="exportFormHtml" :disabled="disabled || loading"
-            class="w-full px-4 py-3 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 disabled:opacity-50 transition-colors">
-      📄 生成报销单 HTML
+    <button @click="exportFormHtml" :disabled="disabled || loading" title="生成报销单 HTML"
+            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      📄
     </button>
-    <button @click="exportComparisonImagePdf" :disabled="disabled || loading"
-            class="w-full px-4 py-3 rounded bg-orange-500 text-white font-medium hover:bg-orange-600 disabled:opacity-50 transition-colors">
-      🖼️ 生成对照 PDF（含发票图片）
+    <button @click="exportComparisonImagePdf" :disabled="disabled || loading" title="生成对照 PDF（含发票图片）"
+            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      🖼️
     </button>
-    <button @click="exportFormXlsx" :disabled="disabled || loading"
-            class="w-full px-4 py-3 rounded bg-green-500 text-white font-medium hover:bg-green-600 disabled:opacity-50 transition-colors">
-      📊 生成报销单 Excel
+    <button @click="exportFormXlsx" :disabled="disabled || loading" title="生成报销单 Excel"
+            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      📊
     </button>
-    <button @click="exportComparisonXlsx" :disabled="disabled || loading"
-            class="w-full px-4 py-3 rounded bg-purple-500 text-white font-medium hover:bg-purple-600 disabled:opacity-50 transition-colors">
-      📋 生成完整信息对照单
+    <button @click="exportComparisonXlsx" :disabled="disabled || loading" title="生成完整信息对照单"
+            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      📋
     </button>
   </div>
 </template>
@@ -88,8 +88,6 @@ async function exportComparisonImagePdf() {
         if (invoiceDir) break
       }
     }
-    // invoiceDir 可能为空（例如全部为手动添加的空发票），此时行程单查找会自动跳过，
-    // 不再阻断生成——对照单仍可正常输出空发票留白页。
 
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({

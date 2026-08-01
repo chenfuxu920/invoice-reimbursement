@@ -194,11 +194,11 @@ export const useMatchStore = defineStore('match', () => {
       hotelLevel: string
     },
     matchesOverride?: MatchResult[],
-  ) {
+  ): Promise<string> {
     const results = matchesOverride ?? matches.value
     if (results.length === 0) {
       reimbursementHtml.value = null
-      return
+      return ''
     }
     const html = await invoke<string>('render_reimbursement_html', {
       matchResults: results,
@@ -211,6 +211,7 @@ export const useMatchStore = defineStore('match', () => {
       hotelLevel: formInfo.hotelLevel,
     })
     reimbursementHtml.value = html
+    return html
   }
 
   async function saveReimbursementHtml(formInfo: {

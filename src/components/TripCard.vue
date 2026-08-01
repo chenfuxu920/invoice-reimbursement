@@ -47,18 +47,20 @@
       @save="handleDetailSave"
     />
 
-    <div class="flex gap-3">
-      <button @click="$emit('preview')"
-              class="px-3 py-2 rounded bg-gray-500 text-white text-sm hover:bg-gray-600 shrink-0">
-        预览
+    <div class="flex items-center gap-1.5">
+      <button @click="togglePreview" :title="previewing ? '收起预览' : '预览本趟报销单'"
+              class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm">
+        {{ previewing ? '🙈' : '👁' }}
       </button>
       <ExportButton
         :match-results="trip.matches"
         :unmatched-invoice-ids="[]"
         :unmatched-payment-ids="[]"
         :form-info="formInfo"
-        class="flex-1"
       />
+    </div>
+    <div v-if="previewing && previewHtml" class="border rounded overflow-hidden">
+      <iframe :srcdoc="previewHtml" class="w-full" style="min-height: 500px; border: none;" title="报销单预览" />
     </div>
   </div>
 </template>
@@ -83,7 +85,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'move', invoiceId: string, targetTripId: string | null): void
   (e: 'form-update', tripId: string, form: { destination: string; travelStart: string; travelEnd: string; hotelLevel: string }): void
-  (e: 'preview'): void
 }>()
 
 const matchStore = useMatchStore()
@@ -92,6 +93,8 @@ const invoiceStore = useInvoiceStore()
 const showInvoices = ref(false)
 const detailVisible = ref(false)
 const detailInvoice = ref<Invoice | null>(null)
+const previewing = ref(false)
+const previewHtml = ref<string | null>(null)
 
 const tripTotal = computed(() => props.trip.matches.reduce((s, m) => s + m.invoice.amount, 0))
 
@@ -130,5 +133,21 @@ function handleDetailSave(updated: Invoice) {
   matchStore.updateMatchInvoice(updated)
   invoiceStore.updateInvoice(updated)
   detailVisible.value = false
+}
+
+async function togglePreview() {
+  if (previewing.value) {
+    previewing.value = false
+    previewHtml.value = null
+    return
+  }
+  try {
+    const html = await matchStore.renderReimbursementHtml(formInfo.value, props.trip.matches)
+    previewHtml.value = html
+    previewing.value = true
+  } catch (e) {
+    console.error('预览失败:', e)
+    alert('预览失败: ' + e)
+  }
 }
 </script>
