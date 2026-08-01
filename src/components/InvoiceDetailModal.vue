@@ -70,7 +70,12 @@
                   <input v-model="it.provider"
                          class="w-full border rounded px-2 py-1 text-sm" />
                 </div>
-                <div></div>
+                <div>
+                  <label class="text-xs text-gray-400">城市</label>
+                  <input v-model="it.city"
+                         class="w-full border rounded px-2 py-1 text-sm bg-gray-50"
+                         placeholder="未提取" />
+                </div>
                 <div>
                   <label class="text-xs text-gray-400">起点</label>
                   <input v-model="it.pickup"
@@ -175,6 +180,7 @@ const hasEdits = computed(() => {
     it.date_time !== orig[i].date_time ||
     it.amount !== orig[i].amount ||
     it.provider !== orig[i].provider ||
+    it.city !== orig[i].city ||
     it.pickup !== orig[i].pickup ||
     it.dropoff !== orig[i].dropoff
   )
