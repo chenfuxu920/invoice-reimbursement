@@ -54,13 +54,14 @@ const form = reactive<FormState>({
 })
 
 // 父→子同步（如「从票据提取」按钮批量更新）；flag 防止与下方 form watch 形成回环
+// immediate: 挂载即同步初始值（否则预填的 destination/起止日期不显示）
 let syncing = false
 watch(() => props.modelValue, (val) => {
   if (!val || syncing) return
   syncing = true
   Object.assign(form, val)
   nextTick(() => { syncing = false })
-}, { deep: true })
+}, { deep: true, immediate: true })
 
 // 子→父同步（用户手动编辑输入框）
 watch(form, (val) => {
