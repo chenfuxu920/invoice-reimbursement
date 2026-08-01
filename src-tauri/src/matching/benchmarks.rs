@@ -43,7 +43,7 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
         };
         
         let itineraries = if category == InvoiceCategory::CityTransport {
-            vec![Itinerary {
+            vec![Itinerary { city: String::new(),
                 date_time: format!("2025-01-{:02} 09:00", (i % 28) + 1),
                 provider: if i % 2 == 0 { "滴滴" } else { "高德" }.to_string(),
                 pickup: "起点".to_string(),
@@ -247,7 +247,7 @@ mod performance_tests {
                 travel_date: None,
                 category: InvoiceCategory::CityTransport,
                 source: InvoiceSource::Link(format!("http://example.com/invoice/{}", i)),
-                itineraries: vec![Itinerary {
+                itineraries: vec![Itinerary { city: String::new(),
                     date_time: format!("2025-01-{:02} 09:00", (i % 28) + 1),
                     provider: "滴滴".to_string(),
                     pickup: "起点".to_string(),

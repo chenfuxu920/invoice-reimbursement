@@ -152,6 +152,7 @@ function deepCopy(src: Itinerary[]): Itinerary[] {
     pickup: it.pickup,
     dropoff: it.dropoff,
     amount: it.amount,
+    city: it.city,
     incomplete_fields: [...(it.incomplete_fields || [])],
   }))
 }

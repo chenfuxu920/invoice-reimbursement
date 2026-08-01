@@ -97,7 +97,7 @@ mod tests {
 
     fn make_invoice(id: &str, category: InvoiceCategory, seller: &str, has_itineraries: bool) -> Invoice {
         let itineraries = if has_itineraries {
-            vec![Itinerary {
+            vec![Itinerary { city: String::new(),
                 date_time: "2025-01-15 10:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),

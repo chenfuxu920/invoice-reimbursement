@@ -775,7 +775,7 @@ mod tests {
             travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
-            itineraries: vec![Itinerary {
+            itineraries: vec![Itinerary { city: String::new(),
                 date_time: "2025-01-01 09:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),
@@ -981,7 +981,7 @@ mod tests {
             travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
-            itineraries: vec![Itinerary {
+            itineraries: vec![Itinerary { city: String::new(),
                 date_time: itin_time.to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),
@@ -1085,8 +1085,8 @@ mod tests {
         // 2条行程的市内交通发票：行程1(09:00,30元) 行程2(14:00,40元)
         let mut invoice = make_city_transport_invoice("inv1", 70.00);
         invoice.itineraries = vec![
-            Itinerary { date_time: "2025-01-15 09:00".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 30.00, incomplete_fields: vec![] },
-            Itinerary { date_time: "2025-01-15 14:00".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.00, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2025-01-15 09:00".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 30.00, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2025-01-15 14:00".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.00, incomplete_fields: vec![] },
         ];
         // 支付顺序故意打乱：p1 对应行程2，p2 对应行程1
         let payments = vec![
@@ -1159,7 +1159,7 @@ mod tests {
     fn test_toll_auto_links_to_nearest_city_transport() {
         // 行程发票 50元，高速费 10元，支付 60元
         let mut invoice = make_city_transport_invoice("inv1", 50.00);
-        invoice.itineraries = vec![Itinerary {
+        invoice.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1207,7 +1207,7 @@ mod tests {
     fn test_toll_combination_amount_matches_payment() {
         // 行程 50 + 高速费 10 = 60，支付 60元
         let mut invoice = make_city_transport_invoice("inv1", 50.00);
-        invoice.itineraries = vec![Itinerary {
+        invoice.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1233,7 +1233,7 @@ mod tests {
         // 高速费 20元，通行时间 14:30（更近行程2）
         // 支付1: 60元（行程1+高速费=70 不匹配） 支付2: 60元（行程2+高速费=60 匹配）
         let mut inv1 = make_city_transport_invoice("inv1", 50.00);
-        inv1.itineraries = vec![Itinerary {
+        inv1.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1242,7 +1242,7 @@ mod tests {
             incomplete_fields: vec![],
         }];
         let mut inv2 = make_city_transport_invoice("inv2", 40.00);
-        inv2.itineraries = vec![Itinerary {
+        inv2.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 14:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "C".to_string(),
@@ -1269,7 +1269,7 @@ mod tests {
         // 反例场景：Toll 通行时间更近 inv1，但 inv1 组合金额不匹配，
         // 应解除关联并重新关联到 inv2（组合金额匹配）
         let mut inv1 = make_city_transport_invoice("inv1", 50.00);
-        inv1.itineraries = vec![Itinerary {
+        inv1.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1278,7 +1278,7 @@ mod tests {
             incomplete_fields: vec![],
         }];
         let mut inv2 = make_city_transport_invoice("inv2", 40.00);
-        inv2.itineraries = vec![Itinerary {
+        inv2.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 14:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "C".to_string(),
@@ -1311,7 +1311,7 @@ mod tests {
     fn test_toll_independent_match_before_trip() {
         // 高速费有单独支付，应先单独匹配，不关联行程
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary {
+        inv.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1343,7 +1343,7 @@ mod tests {
     fn test_toll_combination_match_when_independent_fails() {
         // 高速费无单独支付，应关联行程组合匹配
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary {
+        inv.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1370,7 +1370,7 @@ mod tests {
     fn test_toll_independent_match_does_not_block_trip() {
         // 高速费先单独匹配占用自己的支付，行程再匹配自己的支付
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary {
+        inv.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1408,7 +1408,7 @@ mod tests {
         // 行程 50 元，支付 60 元（多 10 元可能是未开票高速费），无高速费发票
         // 行程仍应匹配（toll_best 容差：差额 <= 行程金额且时间相近）
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary {
+        inv.itineraries = vec![Itinerary { city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),

@@ -321,7 +321,7 @@ mod tests {
             travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
-            itineraries: vec![Itinerary {
+            itineraries: vec![Itinerary { city: String::new(),
                 date_time: "2025-01-15 09:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),

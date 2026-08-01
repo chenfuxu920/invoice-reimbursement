@@ -20,6 +20,7 @@ export interface Itinerary {
   pickup: string
   dropoff: string
   amount: number
+  city?: string
   incomplete_fields: string[]
 }
 

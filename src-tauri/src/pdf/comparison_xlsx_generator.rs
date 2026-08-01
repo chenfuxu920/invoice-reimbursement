@@ -609,7 +609,7 @@ mod tests {
                     category: InvoiceCategory::CityTransport,
                     source: InvoiceSource::Photo("didi.jpg".to_string()),
                     itineraries: vec![
-                        Itinerary {
+                        Itinerary { city: String::new(),
                             date_time: "08-05 09:15".to_string(),
                             provider: "滴滴".to_string(),
                             pickup: "北京站".to_string(),
@@ -617,7 +617,7 @@ mod tests {
                             amount: 35.0,
                             incomplete_fields: vec![],
                         },
-                        Itinerary {
+                        Itinerary { city: String::new(),
                             date_time: "08-05 18:30".to_string(),
                             provider: "滴滴".to_string(),
                             pickup: "国贸".to_string(),

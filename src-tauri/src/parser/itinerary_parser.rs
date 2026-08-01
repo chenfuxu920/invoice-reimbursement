@@ -43,7 +43,7 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
     .unwrap();
 
     for cap in re.captures_iter(&all_text) {
-        itineraries.push(Itinerary {
+        itineraries.push(Itinerary { city: String::new(),
             date_time: cap[1].to_string(),
             provider: cap[2].trim().to_string(),
             pickup: String::new(),
@@ -61,7 +61,7 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
     // 匹配：序号 车型 MM-DD HH: 城市 ... 里程 金额
     // 例：1 专车 04-22 21: 成都 ... 60.6 195.37
     let re_table = Regex::new(
-        r"(\d+)\s+\S+\s+(\d{2}-\d{2}\s+\d{2}:\d{0,2})\s+\S+\s+"
+        r"(\d+)\s+\S+\s+(\d{2}-\d{2}\s+\d{2}:\d{0,2})\s+(\S+)\s+"
     ).unwrap();
     let re_cont_min = Regex::new(r"^(\d{1,2})\b").unwrap();
 
@@ -72,6 +72,7 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
         if let Some(cap) = re_table.captures(line) {
             let _seq: u32 = cap[1].parse().unwrap_or(0);
             let mut date_time = cap[2].trim().to_string();
+            let city = cap[3].trim().to_string();
 
             // ponytail: 修复换行时间 — 当捕获的时间以冒号结尾时，
             // 检查下一行是否以分钟数字开头（滴滴行程单续行分钟）
@@ -90,6 +91,7 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
                 let amount = nums[nums.len() - 1];
                 if amount > 0.0 {
                     itineraries.push(Itinerary {
+                        city,
                         date_time,
                         provider: String::new(),
                         pickup: String::new(),
@@ -226,6 +228,7 @@ enum SemanticCol {
     Dropoff,
     Amount,
     Provider,
+    City,
 }
 
 const COL_KEYWORDS: &[(SemanticCol, &[&str])] = &[
@@ -235,6 +238,7 @@ const COL_KEYWORDS: &[(SemanticCol, &[&str])] = &[
     (SemanticCol::Dropoff, &["终点", "出站", "终"]),
     (SemanticCol::Amount, &["金额", "元"]),
     (SemanticCol::Provider, &["服务商", "行程类型", "车型", "型"]),
+    (SemanticCol::City, &["城市", "城"]),
 ];
 
 /// 通用表格行程单解析
@@ -291,6 +295,7 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
     let dropoff_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Dropoff).map(|(_, x)| *x);
     let amount_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Amount)?.1;
     let provider_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Provider).map(|(_, x)| *x);
+    let city_x = col_map.iter().find(|(s, _)| *s == SemanticCol::City).map(|(_, x)| *x);
 
     let col_boundaries = build_col_boundaries(&header, &col_map);
 
@@ -483,9 +488,15 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
         } else {
             (String::new(), String::new(), String::new())
         };
-
         if amount > 0.0 {
+            let city = city_x.map_or(String::new(), |cx| {
+                let t = collect_text_main_cont(
+                    &main, &cont, &col_boundaries, SemanticCol::City, Some(cx), col_span,
+                );
+                t.trim().to_string()
+            });
             entries.push(Itinerary {
+                city,
                 date_time,
                 provider,
                 pickup,
@@ -646,6 +657,13 @@ pub fn parse_itinerary_from_tables(
                     .map(|cell| cell.merged_text.trim().to_string())
                     .unwrap_or_default();
 
+                // 城市：行程单"城市"列（滴滴格式"序号/车型/上车时间/城市/起点/终点/里程/金额"）
+                let city = col_indices
+                    .get(&SemanticCol::City)
+                    .and_then(|&idx| row.get(idx))
+                    .map(|cell| cell.merged_text.trim().to_string())
+                    .unwrap_or_default();
+
                 // 起点：line_text 保留完整文本
                 // 滴滴起点/终点是独立列，单元格内 "|" 是地点详情分隔（"兴联路|比亚迪汽车王朝网..."），不应截断
                 // 天府通"进出站/线路"同列用 "~" 分隔进站/出站
@@ -697,8 +715,8 @@ pub fn parse_itinerary_from_tables(
                         text.to_string()
                     })
                     .unwrap_or_default();
-
                 entries.push(Itinerary {
+                    city,
                     date_time,
                     provider,
                     pickup,
@@ -1163,7 +1181,7 @@ fn parse_tianfutong_format(all_text: &str) -> Vec<Itinerary> {
     for cap in re_line.captures_iter(all_text) {
         let amount: f64 = cap[3].parse().unwrap_or(0.0);
         if amount > 0.0 {
-            entries.push(Itinerary {
+            entries.push(Itinerary { city: String::new(),
                 date_time: cap[2].to_string(),
                 provider: "天府通".to_string(),
                 pickup: cap[1].to_string(),
@@ -1531,7 +1549,7 @@ fn parse_fallback_format(text: &str) -> Vec<Itinerary> {
                 String::new()
             });
 
-            results.push(Itinerary {
+            results.push(Itinerary { city: String::new(),
                 date_time: time,
                 provider: String::new(),
                 pickup: String::new(),
@@ -1582,6 +1600,18 @@ mod tests {
         assert_eq!(result[0].amount, 35.0);
         assert_eq!(result[0].provider, "滴滴出行");
         assert_eq!(result[1].amount, 28.5);
+    }
+
+    #[test]
+    fn test_parse_table_format_extracts_city() {
+        let texts = vec![
+            make_text_item("1 专车 04-22 21:30 成都 60.6 195.37"),
+            make_text_item("2 快车 04-25 08:48 武汉 55.2 150.00"),
+        ];
+        let result = parse_itinerary_text(&texts);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].city, "成都");
+        assert_eq!(result[1].city, "武汉");
     }
 
     #[test]
@@ -1777,8 +1807,8 @@ mod tests {
     fn test_enrich_year_from_header_period() {
         // 行程单顶部"行程时间：2026年4月"，行程条目无年份 "04-22 21:30"
         let mut entries = vec![
-            Itinerary { date_time: "04-22 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0, incomplete_fields: vec![] },
-            Itinerary { date_time: "04-25 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "04-22 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "04-25 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0, incomplete_fields: vec![] },
         ];
         let all_text = "滴滴出行行程单\n行程时间：2026年4月\n1 专车 04-22 21:30 成都 35.00\n2 专车 04-25 08:48 成都 40.00";
         enrich_itinerary_years(&mut entries, all_text);
@@ -1789,7 +1819,7 @@ mod tests {
     #[test]
     fn test_enrich_year_skips_already_dated() {
         let mut entries = vec![
-            Itinerary { date_time: "2026-04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
         ];
         enrich_itinerary_years(&mut entries, "2026年4月");
         assert_eq!(entries[0].date_time, "2026-04-22 21:30");
@@ -1798,7 +1828,7 @@ mod tests {
     #[test]
     fn test_enrich_year_no_year_in_text_keeps_original() {
         let mut entries = vec![
-            Itinerary { date_time: "04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
         ];
         enrich_itinerary_years(&mut entries, "滴滴行程单\n无年份信息");
         assert_eq!(entries[0].date_time, "04-22 21:30");
@@ -1808,7 +1838,7 @@ mod tests {
     fn test_enrich_year_from_iso_date_in_text() {
         // 顶部有 "2026-04-22 至 2026-04-25" 区间
         let mut entries = vec![
-            Itinerary { date_time: "04-25 08:48".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "04-25 08:48".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0, incomplete_fields: vec![] },
         ];
         enrich_itinerary_years(&mut entries, "行程时间 2026-04-22 至 2026-04-25");
         assert_eq!(entries[0].date_time, "2026-04-25 08:48");
@@ -1819,9 +1849,9 @@ mod tests {
         // 跨年行程：12-28 → 12-30 → 01-02
         // 月份从12降到1，说明跨年了，1月的条目应该年份+1
         let mut entries = vec![
-            Itinerary { date_time: "12-28 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0, incomplete_fields: vec![] },
-            Itinerary { date_time: "12-30 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0, incomplete_fields: vec![] },
-            Itinerary { date_time: "01-02 09:00".to_string(), provider: "滴滴".to_string(), pickup: "E".to_string(), dropoff: "F".to_string(), amount: 45.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "12-28 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "12-30 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "01-02 09:00".to_string(), provider: "滴滴".to_string(), pickup: "E".to_string(), dropoff: "F".to_string(), amount: 45.0, incomplete_fields: vec![] },
         ];
         enrich_itinerary_years(&mut entries, "行程时间：2025年12月-2026年1月");
         assert_eq!(entries[0].date_time, "2025-12-28 21:30", "12月应使用基准年2025");
@@ -1833,9 +1863,9 @@ mod tests {
     fn test_enrich_year_no_rollback_when_same_year() {
         // 同一年内月份递增：03-15 → 04-01 → 05-20
         let mut entries = vec![
-            Itinerary { date_time: "03-15 10:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 30.0, incomplete_fields: vec![] },
-            Itinerary { date_time: "04-01 14:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
-            Itinerary { date_time: "05-20 09:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "03-15 10:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 30.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "04-01 14:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "05-20 09:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0, incomplete_fields: vec![] },
         ];
         enrich_itinerary_years(&mut entries, "行程时间：2026年3月-5月");
         assert_eq!(entries[0].date_time, "2026-03-15 10:00");
@@ -1909,7 +1939,7 @@ mod tests {
     #[test]
     fn test_complete_entry_is_valid() {
         let entries = vec![
-            Itinerary { date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
         ];
         assert!(!has_incomplete_entries(&entries));
     }
@@ -1923,7 +1953,7 @@ mod tests {
     #[test]
     fn test_missing_minutes_is_incomplete() {
         let entries = vec![
-            Itinerary { date_time: "2026-06-23 09:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23 09:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
         ];
         assert!(has_incomplete_entries(&entries));
     }
@@ -1931,7 +1961,7 @@ mod tests {
     #[test]
     fn test_trailing_colon_is_incomplete() {
         let entries = vec![
-            Itinerary { date_time: "2026-04-30 08:".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 100.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-04-30 08:".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 100.0, incomplete_fields: vec![] },
         ];
         assert!(has_incomplete_entries(&entries));
     }
@@ -1939,7 +1969,7 @@ mod tests {
     #[test]
     fn test_date_only_no_time_is_incomplete() {
         let entries = vec![
-            Itinerary { date_time: "2026-06-23".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
         ];
         assert!(has_incomplete_entries(&entries));
     }
@@ -1947,7 +1977,7 @@ mod tests {
     #[test]
     fn test_zero_amount_is_incomplete() {
         let entries = vec![
-            Itinerary { date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 0.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 0.0, incomplete_fields: vec![] },
         ];
         assert!(has_incomplete_entries(&entries));
     }
@@ -1955,7 +1985,7 @@ mod tests {
     #[test]
     fn test_empty_time_is_incomplete() {
         let entries = vec![
-            Itinerary { date_time: String::new(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 10.0, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: String::new(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 10.0, incomplete_fields: vec![] },
         ];
         assert!(has_incomplete_entries(&entries));
     }
@@ -1963,8 +1993,8 @@ mod tests {
     #[test]
     fn test_mixed_complete_and_incomplete() {
         let entries = vec![
-            Itinerary { date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-            Itinerary { date_time: "2026-07-03 17:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 114.10, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-07-03 17:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 114.10, incomplete_fields: vec![] },
         ];
         assert!(has_incomplete_entries(&entries));
     }
@@ -1972,7 +2002,7 @@ mod tests {
     #[test]
     fn test_compute_incomplete_fields_flags_missing_time() {
         let mut entries = vec![
-            Itinerary { date_time: "2026-06-23 09:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23 09:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
         ];
         compute_incomplete_fields(&mut entries);
         assert!(entries[0].incomplete_fields.contains(&"date_time".to_string()));
@@ -1982,7 +2012,7 @@ mod tests {
     #[test]
     fn test_compute_incomplete_fields_ok_when_complete() {
         let mut entries = vec![
-            Itinerary { date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
+            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
         ];
         compute_incomplete_fields(&mut entries);
         assert!(entries[0].incomplete_fields.is_empty());

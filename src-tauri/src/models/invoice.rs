@@ -53,6 +53,9 @@ pub struct Itinerary {
     pub pickup: String,        // 上车点
     pub dropoff: String,       // 下车点
     pub amount: f64,           // 行程金额
+    /// 打车所在城市（行程单"城市"列；缺失时为空串）
+    #[serde(default)]
+    pub city: String,
     /// 缺失/未提取到的字段名列表，如 ["date_time"] 表示分钟数缺失
     #[serde(default)]
     pub incomplete_fields: Vec<String>,
@@ -204,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_invoice_with_itineraries() {
-        let itin = Itinerary {
+        let itin = Itinerary { city: String::new(),
             date_time: "2025-06-15 10:30".to_string(),
             provider: "滴滴".to_string(),
             pickup: "北京站".to_string(),
