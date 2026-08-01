@@ -45,13 +45,22 @@ const props = defineProps<{
 const loading = ref(false)
 const loadingMessage = ref('')
 
+// 默认文件名：区分出差地与出差时间，如 报销单_上海_20260520-20260522.html
+function defaultFileName(prefix: string, ext: string): string {
+  const dest = props.formInfo.destination || '未设置'
+  const start = (props.formInfo.travelStart || '').replace(/-/g, '')
+  const end = (props.formInfo.travelEnd || '').replace(/-/g, '')
+  const time = start && end ? `${start}-${end}` : new Date().toISOString().slice(0, 10)
+  return `${prefix}_${dest}_${time}.${ext}`
+}
+
 async function exportFormHtml() {
   loading.value = true
   loadingMessage.value = '正在生成报销单...'
   try {
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({
-      defaultPath: `报销单_${new Date().toISOString().slice(0, 10)}.html`,
+      defaultPath: defaultFileName('报销单', 'html'),
       filters: [{ name: 'HTML', extensions: ['html'] }]
     })
     if (!outputPath) return
@@ -91,7 +100,7 @@ async function exportComparisonImagePdf() {
 
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({
-      defaultPath: `对照表含图片_${new Date().toISOString().slice(0, 10)}.pdf`,
+      defaultPath: defaultFileName('对照表含图片', 'pdf'),
       filters: [{ name: 'PDF', extensions: ['pdf'] }]
     })
     if (!outputPath) return
@@ -117,7 +126,7 @@ async function exportFormXlsx() {
   try {
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({
-      defaultPath: `报销单_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      defaultPath: defaultFileName('报销单', 'xlsx'),
       filters: [{ name: 'Excel', extensions: ['xlsx'] }]
     })
     if (!outputPath) return
@@ -148,7 +157,7 @@ async function exportComparisonXlsx() {
   try {
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({
-      defaultPath: `信息对照单_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      defaultPath: defaultFileName('信息对照单', 'xlsx'),
       filters: [{ name: 'Excel', extensions: ['xlsx'] }]
     })
     if (!outputPath) return
