@@ -270,7 +270,7 @@ fn build_invoice_from_cells(
     eprintln!("  [cell] invoice built: seller={seller}, amount={amount}, item={item_name}, no={invoice_number}, date={date}, cat={category:?}");
 
     Ok(Invoice {
-        id: String::new(),
+        id: uuid::Uuid::new_v4().to_string(),
         invoice_number,
         seller_name: seller,
         amount,
@@ -796,6 +796,26 @@ pub fn pair_invoices_with_itineraries(
 #[cfg(all(test, feature = "pdfplumber"))]
 mod tests {
     use super::*;
+    use crate::parser::cell_extractor::CellInvoiceFields;
+
+    // 回归：build_invoice_from_cells（cell 主路径）必须生成唯一非空 id，
+    // 否则前端 matches.find(invoice_id) 全部命中同一 match，分趟/匹配失效
+    #[test]
+    fn test_build_invoice_from_cells_assigns_unique_id() {
+        let fields = CellInvoiceFields {
+            seller_name: Some("某公司".to_string()),
+            amount: Some(100.0),
+            ..Default::default()
+        };
+        let inv = build_invoice_from_cells(
+            fields,
+            &None,
+            "发票号码 123456789012345678 2025年06月15日",
+            InvoiceSource::Pdf("test.pdf".to_string()),
+        )
+        .expect("build_invoice_from_cells 应成功");
+        assert!(!inv.id.is_empty(), "cell 路径发票 id 不应为空");
+    }
 
     // 回归：item_name="保险服务" + item_detail="境内机票航意航延组合险"（含"机票"但"保险"被剥离）
     // 真实样本：15_电子发票_20260522_102238_电子发票.pdf（众安在线财产保险）
