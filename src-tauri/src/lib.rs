@@ -440,7 +440,7 @@ async fn generate_comparison_html(
     .map_err(|e| e.to_string())
 }
 
-// 生成对照表 PDF 命令（含发票图片直出 PDF，非 HTML 转 PDF）
+// 生成对照表 PDF 命令（原始发票页矢量嵌入 + 支付单号文字）
 #[tauri::command]
 async fn generate_comparison_image_pdf(
     state: tauri::State<'_, AppState>,
@@ -454,7 +454,6 @@ async fn generate_comparison_image_pdf(
         &match_results,
         &invoice_dir,
         &output_path,
-        400,
         destination.as_deref(),
     )
     .map_err(|e| e.to_string())

@@ -2,6 +2,7 @@ pub mod form_generator;
 pub mod comparison_generator;
 pub mod comparison_html_generator;
 pub mod comparison_image_pdf_generator;
+pub mod cjk_font;
 pub mod form_builder;
 pub mod form_html_generator;
 pub mod image_embedder;
