@@ -4,14 +4,14 @@
       <button
         @click="billType = 'wechat'"
         class="px-4 py-2 rounded border transition-colors"
-        :class="billType === 'wechat' ? 'bg-green-500 text-white border-green-500' : 'bg-white text-gray-600 border-gray-300 hover:border-green-300'"
+        :class="billType === 'wechat' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'"
       >
         微信账单
       </button>
       <button
         @click="billType = 'alipay'"
         class="px-4 py-2 rounded border transition-colors"
-        :class="billType === 'alipay' ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'"
+        :class="billType === 'alipay' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400'"
       >
         支付宝账单
       </button>
@@ -19,8 +19,8 @@
 
     <div
       class="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
-             hover:border-blue-400 hover:bg-blue-50 transition-colors"
-      :class="isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+             hover:border-primary-400 hover:bg-primary-50 transition-colors"
+      :class="isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300'"
       @dragover.prevent="isDragging = true"
       @dragleave="isDragging = false"
       @click="openFilePicker"
@@ -29,8 +29,12 @@
       <p class="text-sm text-gray-400 mt-1">.xlsx / .xls / .csv</p>
     </div>
 
-    <div v-if="loading" class="text-center text-blue-500">
-      <span class="animate-spin inline-block mr-2">⏳</span> 解析中...
+    <div v-if="loading" class="flex items-center justify-center gap-2 text-primary-600">
+      <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z" />
+      </svg>
+      解析中...
     </div>
   </div>
 </template>

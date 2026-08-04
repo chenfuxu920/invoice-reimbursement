@@ -1,14 +1,18 @@
 <template>
   <div
     class="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer
-           hover:border-blue-400 hover:bg-blue-50 transition-colors"
-    :class="isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'"
+           hover:border-primary-400 hover:bg-primary-50 transition-colors"
+    :class="isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300'"
     @dragover.prevent="isDragging = true"
     @dragleave="isDragging = false"
     @click="openFilePicker"
   >
-    <div v-if="loading" class="text-blue-500">
-      <span class="animate-spin inline-block mr-2">⏳</span> 识别中...
+    <div v-if="loading" class="flex items-center justify-center gap-2 text-primary-600">
+      <svg class="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z" />
+      </svg>
+      识别中...
     </div>
     <template v-else>
       <p class="text-gray-500">

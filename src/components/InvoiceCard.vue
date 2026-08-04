@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white rounded-lg border p-4 shadow-sm cursor-pointer" @click="expanded = !expanded">
+  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 cursor-pointer hover:shadow-md transition-shadow" @click="expanded = !expanded">
     <div class="flex justify-between items-start">
       <div class="flex-1 min-w-0">
         <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
@@ -18,7 +18,7 @@
         <span class="text-gray-400 transition-transform text-sm"
               :class="{ 'rotate-180': expanded }"
               :title="expanded ? '收起' : '展开'">▾</span>
-        <button @click.stop="$emit('remove', invoice.id)" class="text-gray-400 hover:text-red-500" title="删除">✕</button>
+        <button @click.stop="$emit('remove', invoice.id)" class="text-gray-400 hover:text-red-500" title="删除"><AppIcon name="x" :size="14" /></button>
       </div>
     </div>
     <div class="mt-2 text-xs text-gray-400 flex gap-4">
@@ -35,7 +35,7 @@
       <div v-if="invoice.itineraries?.length">
         <p class="text-xs text-gray-500 mb-1">行程明细 ({{ invoice.itineraries.length }})</p>
         <div v-for="(it, i) in invoice.itineraries" :key="i"
-             class="bg-blue-50 rounded px-2 py-1 text-xs text-gray-600 flex items-center gap-1">
+             class="bg-primary-50 rounded px-2 py-1 text-xs text-gray-600 flex items-center gap-1">
           <span v-if="it.incomplete_fields?.length"
                 class="text-orange-500 cursor-help"
                 :title="'缺失: ' + it.incomplete_fields.map(f => fieldLabel(f)).join(', ')">⚠</span>

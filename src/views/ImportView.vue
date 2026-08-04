@@ -4,24 +4,23 @@
     <div class="flex justify-between items-center mb-6">
       <h2 class="text-2xl font-bold">导入发票与账单</h2>
       <div class="flex gap-2">
-        <button v-if="invoiceStore.invoices.length || paymentStore.payments.length" @click="handleClearAll"
-                class="px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600 transition-colors text-sm font-medium">
+        <AppButton v-if="invoiceStore.invoices.length || paymentStore.payments.length" variant="danger" size="sm" @click="handleClearAll">
           清空全部
-        </button>
-        <button @click="handleGlobalImport" :disabled="globalLoading"
-                class="px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 transition-colors text-sm font-medium">
-          📂 全局导入
-        </button>
+        </AppButton>
+        <AppButton variant="primary" size="sm" :disabled="globalLoading" @click="handleGlobalImport">
+          <AppIcon name="upload" :size="14" />
+          全局导入
+        </AppButton>
       </div>
     </div>
 
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
         <h3 class="text-lg font-medium">发票上传</h3>
-        <button @click="blankVisible = true"
-                class="px-3 py-1.5 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors text-sm font-medium">
-          ＋ 手动添加空发票
-        </button>
+        <AppButton variant="primary" size="sm" @click="blankVisible = true">
+          <AppIcon name="plus" :size="14" />
+          手动添加空发票
+        </AppButton>
       </div>
       <InvoiceDropZone :loading="invoiceStore.loading" @files-selected="handleInvoiceFiles" />
       <div v-if="invoiceStore.invoices.length" class="mt-4 grid gap-3">
@@ -30,7 +29,7 @@
       </div>
 
       <!-- 解析失败错误区 -->
-      <div v-if="invoiceStore.parseErrors.length" class="mt-4 border border-red-200 rounded-lg bg-red-50 p-4">
+      <div v-if="invoiceStore.parseErrors.length" class="mt-4 border border-red-200 rounded-[10px] bg-red-50 p-4">
         <h4 class="text-sm font-medium text-red-700 mb-2">解析失败（{{ invoiceStore.parseErrors.length }}）</h4>
         <div class="space-y-2">
           <div v-for="err in invoiceStore.parseErrors" :key="err.id"
@@ -40,12 +39,13 @@
               <p class="text-xs text-red-500 truncate">{{ err.message }}</p>
             </div>
             <div class="flex gap-2 shrink-0 ml-2">
-              <button @click="openManualEntry(err)" class="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600">手动填写</button>
-              <button @click="retryParseError(err)" :disabled="retryingIds.includes(err.id)"
-                      class="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+              <AppButton variant="primary" size="sm" @click="openManualEntry(err)">手动填写</AppButton>
+              <AppButton size="sm" @click="retryParseError(err)" :disabled="retryingIds.includes(err.id)">
                 {{ retryingIds.includes(err.id) ? '重试中...' : '重试' }}
-              </button>
-              <button @click="invoiceStore.removeParseError(err.id)" class="text-xs px-2 py-1 rounded text-gray-400 hover:text-red-500">✕</button>
+              </AppButton>
+              <AppButton variant="ghost" size="sm" class="text-gray-400" @click="invoiceStore.removeParseError(err.id)" title="删除">
+                <AppIcon name="x" :size="12" />
+              </AppButton>
             </div>
           </div>
         </div>
@@ -93,6 +93,9 @@ import InvoiceCard from '../components/InvoiceCard.vue'
 import BillImporter from '../components/BillImporter.vue'
 import PaymentTable from '../components/PaymentTable.vue'
 import LoadingOverlay from '../components/LoadingOverlay.vue'
+import AppButton from '../components/ui/AppButton.vue'
+import AppIcon from '../components/ui/AppIcon.vue'
+import { toast } from '../composables/toast'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import ManualInvoiceEntryModal from '../components/ManualInvoiceEntryModal.vue'
 import BlankInvoiceEntryModal from '../components/BlankInvoiceEntryModal.vue'
@@ -235,13 +238,13 @@ async function handleGlobalImport() {
     if (errCount > 0) {
       const details = allErrors.slice(0, 5).map(([n, e]) => `${n}: ${e}`).join('\n')
       const more = errCount > 5 ? `\n...及其他 ${errCount - 5} 个文件` : ''
-      alert(`全局导入完成。\n成功：发票 ${totalInvoices} 张，账单 ${totalPayments} 条\n失败：${errCount} 个文件\n${details}${more}${dupLine}`)
+      toast(`全局导入完成。\n成功：发票 ${totalInvoices} 张，账单 ${totalPayments} 条\n失败：${errCount} 个文件\n${details}${more}${dupLine}`, 'error')
     } else {
-      alert(`全局导入完成！\n共导入发票 ${totalInvoices} 张，账单 ${totalPayments} 条${dupLine}`)
+      toast(`全局导入完成！\n共导入发票 ${totalInvoices} 张，账单 ${totalPayments} 条${dupLine}`, 'success')
     }
   } catch (e) {
     console.error('全局导入失败:', e)
-    alert('全局导入失败: ' + e)
+    toast('全局导入失败: ' + e, 'error')
   } finally {
     globalLoading.value = false
   }
@@ -250,7 +253,7 @@ async function handleGlobalImport() {
 /// 去重提示：统计 + 明细（最多展示 5 个，超出折叠）
 function notifyDuplicates(skipped: string[]) {
   if (skipped.length === 0) return
-  alert(`已跳过 ${skipped.length} 张重复发票：\n${formatDupDetail(skipped)}`)
+  toast(`已跳过 ${skipped.length} 张重复发票：\n${formatDupDetail(skipped)}`, 'info')
 }
 
 function formatDupDetail(skipped: string[]): string {
@@ -302,7 +305,7 @@ async function retryParseError(err: ParseError) {
       if (added) {
         invoiceStore.removeParseError(err.id)
       } else {
-        alert('该发票已存在，无需重复导入')
+        toast('该发票已存在，无需重复导入', 'info')
         invoiceStore.removeParseError(err.id)
       }
     } else {
@@ -317,7 +320,7 @@ async function retryParseError(err: ParseError) {
     }
   } catch (e) {
     console.error('重试解析失败:', e)
-    alert('重试失败: ' + e)
+    toast('重试失败: ' + e, 'error')
   } finally {
     retryingIds.value = retryingIds.value.filter(id => id !== err.id)
   }

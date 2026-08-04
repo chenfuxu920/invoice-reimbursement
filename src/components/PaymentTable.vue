@@ -2,23 +2,23 @@
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead>
-        <tr class="bg-gray-50 border-b">
-          <th class="px-3 py-2 text-left font-medium text-gray-600 w-6"></th>
-          <th class="px-3 py-2 text-left font-medium text-gray-600">时间</th>
-          <th class="px-3 py-2 text-left font-medium text-gray-600">商户</th>
-          <th class="px-3 py-2 text-right font-medium text-gray-600">金额</th>
-          <th class="px-3 py-2 text-left font-medium text-gray-600">支付方式</th>
-          <th class="px-3 py-2 text-left font-medium text-gray-600">来源</th>
-          <th class="px-3 py-2 text-center font-medium text-gray-600">操作</th>
+        <tr class="bg-gray-50 border-b border-gray-200">
+          <th class="px-3 py-2 text-left font-medium text-gray-500 w-6"></th>
+          <th class="px-3 py-2 text-left font-medium text-gray-500">时间</th>
+          <th class="px-3 py-2 text-left font-medium text-gray-500">商户</th>
+          <th class="px-3 py-2 text-right font-medium text-gray-500">金额</th>
+          <th class="px-3 py-2 text-left font-medium text-gray-500">支付方式</th>
+          <th class="px-3 py-2 text-left font-medium text-gray-500">来源</th>
+          <th class="px-3 py-2 text-center font-medium text-gray-500">操作</th>
         </tr>
       </thead>
       <tbody>
         <template v-for="p in payments" :key="p.id">
-          <tr class="border-b hover:bg-gray-50 cursor-pointer" @click="toggle(p.id)">
+          <tr class="border-b border-gray-200 hover:bg-gray-50 cursor-pointer" @click="toggle(p.id)">
             <td class="px-3 py-2 text-gray-400 transition-transform" :class="{ 'rotate-180': expandedId === p.id }">▾</td>
             <td class="px-3 py-2">{{ p.transaction_time || '-' }}</td>
             <td class="px-3 py-2">{{ p.merchant_name || '-' }}</td>
-            <td class="px-3 py-2 text-right font-medium">
+            <td class="px-3 py-2 text-right font-medium tabular-nums">
               ¥{{ p.amount.toFixed(2) }}
               <span v-if="p.refund_amount > 0 || p.discount > 0" class="text-xs text-gray-400 font-normal">
                 <br v-if="p.refund_amount > 0 && p.discount > 0" />
@@ -34,7 +34,7 @@
               </span>
             </td>
             <td class="px-3 py-2 text-center">
-              <button @click.stop="$emit('remove', p.id)" class="text-gray-400 hover:text-red-500">✕</button>
+              <button @click.stop="$emit('remove', p.id)" class="text-gray-400 hover:text-red-500" title="删除"><AppIcon name="x" :size="14" /></button>
             </td>
           </tr>
           <tr v-if="expandedId === p.id">
@@ -65,6 +65,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { PaymentRecord } from '../types'
+import AppIcon from './ui/AppIcon.vue'
 
 defineProps<{ payments: PaymentRecord[] }>()
 defineEmits<{ (e: 'remove', id: string): void }>()
