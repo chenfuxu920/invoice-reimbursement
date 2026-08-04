@@ -2,9 +2,10 @@
   <div class="bg-white rounded-lg border p-4 shadow-sm cursor-pointer" @click="expanded = !expanded">
     <div class="flex justify-between items-start">
       <div class="flex-1 min-w-0">
-        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium"
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
               :class="getCategoryBadgeClass(invoice.category)">
-          {{ getCategoryIcon(invoice.category) }} {{ getCategoryStyle(invoice.category).label }}
+          <AppIcon :name="getCategoryIcon(invoice.category)" :size="12" />
+          {{ getCategoryLabel(invoice.category) }}
         </span>
         <!-- 标题/金额区：可点击打开详情弹窗（stop 防止触发整卡展开） -->
         <div class="mt-2 cursor-pointer"
@@ -49,7 +50,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { Invoice } from '../types'
-import { getCategoryStyle, getCategoryBadgeClass, getCategoryIcon } from '../utils/category'
+import AppIcon from './ui/AppIcon.vue'
+import { getCategoryLabel, getCategoryBadgeClass, getCategoryIcon } from '../utils/category'
 
 const props = defineProps<{ invoice: Invoice }>()
 defineEmits<{
