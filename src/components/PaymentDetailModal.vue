@@ -80,13 +80,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import type { PaymentRecord } from '../types'
 import AppButton from './ui/AppButton.vue'
 import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ visible: boolean; payments: PaymentRecord[] }>()
-defineEmits<{ (e: 'close'): void }>()
+const emit = defineEmits<{ (e: 'close'): void }>()
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.visible) emit('close')
+}
+
+watch(() => props.visible, (v) => {
+  if (v) window.addEventListener('keydown', onKeydown)
+  else window.removeEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 const activeIndex = ref(0)
 const activePayment = computed(() =>

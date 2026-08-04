@@ -17,8 +17,8 @@
 
       <div v-if="pages.length" class="flex items-center gap-3 ml-auto">
         <label class="flex items-center gap-1 text-sm">
-          <input type="checkbox" v-model="showPdfplumber" class="accent-blue-500">
-          <span class="text-blue-600">pdfplumber</span>
+          <input type="checkbox" v-model="showPdfplumber" class="accent-primary-500">
+          <span class="text-primary-600">pdfplumber</span>
         </label>
         <label class="flex items-center gap-1 text-sm">
           <input type="checkbox" v-model="showOcr" class="accent-red-500">
@@ -113,7 +113,7 @@
     <div v-if="logs.pdfplumber.length || logs.ocr.length" class="mt-4">
       <button @click="showLogs = !showLogs"
         class="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
-        <span>{{ showLogs ? '▼' : '▶' }}</span>
+        <AppIcon name="chevron-down" :size="12" :class="{ 'rotate-90': !showLogs }" />
         <span>诊断日志</span>
       </button>
       <div v-if="showLogs" class="bg-gray-900 rounded-lg border mt-2">
@@ -145,6 +145,7 @@ import { ref, computed, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import AppButton from '../components/ui/AppButton.vue'
+import AppIcon from '../components/ui/AppIcon.vue'
 
 interface DebugTextItem {
   text: string

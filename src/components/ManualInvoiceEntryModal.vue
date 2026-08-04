@@ -103,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Invoice, InvoiceCategory, InvoiceSource, Itinerary } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
@@ -171,6 +171,17 @@ function handleSave() {
   }
   emit('save', invoice, props.errorId)
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.visible) emit('close')
+}
+
+watch(() => props.visible, (v) => {
+  if (v) window.addEventListener('keydown', onKeydown)
+  else window.removeEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 watch(() => props.visible, async (v) => {
   if (!v || !props.filePath) return

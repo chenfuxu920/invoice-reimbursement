@@ -187,7 +187,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import type { Invoice, PaymentRecord, ItineraryPaymentPair } from '../types'
 import AppButton from './ui/AppButton.vue'
 import AppIcon from './ui/AppIcon.vue'
@@ -449,6 +449,17 @@ function parseTimeToMs(t: string): number | null {
   }
   return null
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.visible) emit('close')
+}
+
+watch(() => props.visible, (v) => {
+  if (v) window.addEventListener('keydown', onKeydown)
+  else window.removeEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 watch(() => props.visible, (v) => {
   if (v) {

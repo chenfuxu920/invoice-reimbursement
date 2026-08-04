@@ -11,7 +11,7 @@
         <div class="mt-2 cursor-pointer"
              @click.stop="$emit('view-detail', invoice)">
           <p class="text-lg font-bold">¥{{ invoice.amount.toFixed(2) }}</p>
-          <p class="text-sm text-gray-500 hover:text-blue-600">{{ invoice.seller_name || '未知销售方' }}</p>
+          <p class="text-sm text-gray-500 hover:text-primary-600">{{ invoice.seller_name || '未知销售方' }}</p>
         </div>
       </div>
       <div class="flex items-center gap-2 shrink-0">

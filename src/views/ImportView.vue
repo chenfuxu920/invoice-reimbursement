@@ -68,7 +68,7 @@
             <span>微信支付 → 我的账单 → 账单明细 → 右上角 ··· → 下载账单 → 用于个人对账</span>
           </div>
           <div class="flex items-center gap-2 text-xs text-gray-500">
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium leading-tight bg-blue-100 text-blue-700">支付宝</span>
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium leading-tight bg-primary-100 text-primary-700">支付宝</span>
             <span>我的 → 账单 → 右上角 ··· → 开具交易流水证明 → 用于个人对账</span>
           </div>
         </div>

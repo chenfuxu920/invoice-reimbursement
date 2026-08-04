@@ -134,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, reactive } from 'vue'
+import { ref, computed, watch, reactive, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Invoice, Itinerary } from '../types'
 import { getCategoryStyle, getCategoryBadgeClass } from '../utils/category'
@@ -237,6 +237,17 @@ const canOpenFile = computed(() => {
   if (!props.invoice) return false
   return props.invoice.source.type === 'Photo' || props.invoice.source.type === 'Pdf'
 })
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.visible) emit('close')
+}
+
+watch(() => props.visible, (v) => {
+  if (v) window.addEventListener('keydown', onKeydown)
+  else window.removeEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 watch(() => props.visible, async (v) => {
   if (!v || !props.invoice) return

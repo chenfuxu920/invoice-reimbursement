@@ -53,7 +53,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, onUnmounted } from 'vue'
 import type { Invoice, InvoiceCategory } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import AppButton from './ui/AppButton.vue'
@@ -103,6 +103,17 @@ function handleSave() {
   }
   emit('save', invoice)
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.visible) emit('close')
+}
+
+watch(() => props.visible, (v) => {
+  if (v) window.addEventListener('keydown', onKeydown)
+  else window.removeEventListener('keydown', onKeydown)
+})
+
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 watch(() => props.visible, (v) => {
   if (!v) return

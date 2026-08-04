@@ -29,7 +29,7 @@
             </td>
             <td class="px-3 py-2 text-gray-500">{{ p.payment_method || '-' }}</td>
             <td class="px-3 py-2">
-              <span :class="p.source === 'Wechat' ? 'text-green-600' : 'text-blue-600'">
+              <span :class="p.source === 'Wechat' ? 'text-green-600' : 'text-primary-600'">
                 {{ p.source === 'Wechat' ? '微信' : '支付宝' }}
               </span>
             </td>
