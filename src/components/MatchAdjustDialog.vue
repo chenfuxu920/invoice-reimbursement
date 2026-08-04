@@ -457,7 +457,7 @@ function onKeydown(e: KeyboardEvent) {
 watch(() => props.visible, (v) => {
   if (v) window.addEventListener('keydown', onKeydown)
   else window.removeEventListener('keydown', onKeydown)
-})
+}, { immediate: true })
 
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
