@@ -80,6 +80,9 @@
     <ManualInvoiceEntryModal :visible="manualVisible" :file-path="manualEntryFile" :error-id="manualEntryErrorId"
                              @close="manualVisible = false" @save="handleManualSave" />
     <BlankInvoiceEntryModal :visible="blankVisible" @close="blankVisible = false" @save="handleBlankSave" />
+    <ConfirmDialog :visible="clearConfirmVisible" title="清空全部数据"
+                   message="确定清空全部发票、账单与匹配数据？此操作不可撤销。"
+                   confirm-text="清空" @confirm="doClearAll" @cancel="clearConfirmVisible = false" />
   </div>
 </template>
 
@@ -99,6 +102,7 @@ import { toast } from '../composables/toast'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import ManualInvoiceEntryModal from '../components/ManualInvoiceEntryModal.vue'
 import BlankInvoiceEntryModal from '../components/BlankInvoiceEntryModal.vue'
+import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import type { Invoice, ParseError } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 
@@ -113,6 +117,7 @@ const manualVisible = ref(false)
 const manualEntryFile = ref('')
 const manualEntryErrorId = ref('')
 const blankVisible = ref(false)
+const clearConfirmVisible = ref(false)
 const retryingIds = ref<string[]>([])
 
 const globalLoading = ref(false)
@@ -261,7 +266,11 @@ function formatDupDetail(skipped: string[]): string {
 }
 
 function handleClearAll() {
-  if (!confirm('确定清空全部发票、账单与匹配数据？此操作不可撤销。')) return
+  clearConfirmVisible.value = true
+}
+
+function doClearAll() {
+  clearConfirmVisible.value = false
   invoiceStore.clearInvoices()
   paymentStore.clearPayments()
   matchStore.clearMatches()

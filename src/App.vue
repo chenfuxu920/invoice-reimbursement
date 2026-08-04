@@ -33,7 +33,7 @@
     <div class="flex-1 flex flex-col min-w-0">
       <header class="flex items-center justify-between h-14 px-6 bg-white/70 backdrop-blur border-b border-gray-200 shrink-0">
         <div class="flex items-center gap-3 min-w-0">
-          <button @click="collapsed = !collapsed" class="text-gray-400 hover:text-gray-600" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" :title="collapsed ? '展开侧栏' : '收起侧栏'">
+          <button @click="toggleCollapse" class="text-gray-400 hover:text-gray-600" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" :title="collapsed ? '展开侧栏' : '收起侧栏'">
             <AppIcon name="swap" :size="18" />
           </button>
           <h1 class="text-sm font-semibold text-gray-800 truncate">{{ pageTitle }}</h1>
@@ -58,7 +58,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AppIcon from './components/ui/AppIcon.vue'
 import AppStepper from './components/ui/AppStepper.vue'
@@ -69,6 +69,8 @@ import pkg from '../package.json'
 const version = pkg.version
 const route = useRoute()
 const collapsed = ref(false)
+const isNarrow = ref(false)
+let manualCollapse: boolean | null = null
 const { ocrOnline } = useOcrStatus()
 
 const pageTitle = computed(() => {
@@ -92,8 +94,21 @@ function navLinkClass(to: string) {
     : 'text-gray-600 hover:bg-gray-100'
 }
 
+function handleResize() {
+  isNarrow.value = window.innerWidth < 1024
+  if (manualCollapse === null) collapsed.value = isNarrow.value
+}
+
+function toggleCollapse() {
+  collapsed.value = !collapsed.value
+  manualCollapse = collapsed.value
+}
+
 onMounted(() => {
-  collapsed.value = window.innerWidth < 1024
+  handleResize()
+  window.addEventListener('resize', handleResize)
   initOcrStatus()
 })
+
+onUnmounted(() => window.removeEventListener('resize', handleResize))
 </script>

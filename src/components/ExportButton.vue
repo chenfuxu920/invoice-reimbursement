@@ -1,28 +1,28 @@
 <template>
   <div class="flex items-center gap-1.5">
     <LoadingOverlay :visible="loading" :message="loadingMessage" />
-    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportFormHtml">
+    <AppButton v-if="showLabels" variant="secondary" size="sm" :disabled="disabled || loading" @click="exportFormHtml">
       <AppIcon name="doc" :size="14" />
       报销单 HTML
     </AppButton>
     <AppButton v-else size="icon" title="生成报销单 HTML" aria-label="生成报销单 HTML" :disabled="disabled || loading" @click="exportFormHtml">
       <AppIcon name="doc" :size="16" />
     </AppButton>
-    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportComparisonImagePdf">
+    <AppButton v-if="showLabels" variant="secondary" size="sm" :disabled="disabled || loading" @click="exportComparisonImagePdf">
       <AppIcon name="image" :size="14" />
       对照 PDF
     </AppButton>
     <AppButton v-else size="icon" title="生成对照 PDF（含发票图片）" aria-label="生成对照 PDF（含发票图片）" :disabled="disabled || loading" @click="exportComparisonImagePdf">
       <AppIcon name="image" :size="16" />
     </AppButton>
-    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportFormXlsx">
+    <AppButton v-if="showLabels" variant="secondary" size="sm" :disabled="disabled || loading" @click="exportFormXlsx">
       <AppIcon name="table" :size="14" />
       报销单 Excel
     </AppButton>
     <AppButton v-else size="icon" title="生成报销单 Excel" aria-label="生成报销单 Excel" :disabled="disabled || loading" @click="exportFormXlsx">
       <AppIcon name="table" :size="16" />
     </AppButton>
-    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportComparisonXlsx">
+    <AppButton v-if="showLabels" variant="secondary" size="sm" :disabled="disabled || loading" @click="exportComparisonXlsx">
       <AppIcon name="clipboard" :size="14" />
       信息对照单
     </AppButton>
