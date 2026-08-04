@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <div class="fixed top-4 right-4 z-[60] space-y-2 w-80">
+    <div class="fixed top-4 right-4 z-[60] space-y-2 w-80" role="status" aria-live="polite">
       <TransitionGroup name="toast">
         <div v-for="t in toasts" :key="t.id"
              class="flex items-start gap-2.5 rounded-lg border bg-white p-3 shadow-lg"
