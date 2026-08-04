@@ -10,11 +10,13 @@
     <main class="flex-1 overflow-auto p-6">
       <router-view />
     </main>
+    <AppToast />
   </div>
 </template>
 
 <script setup lang="ts">
 import pkg from "../package.json";
+import AppToast from "./components/ui/AppToast.vue";
 const version = pkg.version;
 </script>
 
