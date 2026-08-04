@@ -1,23 +1,23 @@
 <template>
-  <div class="bg-white rounded-lg border p-5 shadow-sm space-y-4">
+  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 space-y-4">
     <h3 class="font-medium text-lg">报销信息</h3>
 
     <div class="grid grid-cols-2 gap-4">
       <div>
         <label class="block text-sm text-gray-600 mb-1">到达城市</label>
-        <input v-model="form.destination" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" placeholder="请输入到达城市" />
+        <input v-model="form.destination" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="请输入到达城市" />
       </div>
       <div>
         <label class="block text-sm text-gray-600 mb-1">出差开始日期</label>
-        <input v-model="form.travelStart" type="date" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        <input v-model="form.travelStart" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
       </div>
       <div>
         <label class="block text-sm text-gray-600 mb-1">出差结束日期</label>
-        <input v-model="form.travelEnd" type="date" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+        <input v-model="form.travelEnd" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
       </div>
       <div>
         <label class="block text-sm text-gray-600 mb-1">住宿级别</label>
-        <select v-model="form.hotelLevel" class="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+        <select v-model="form.hotelLevel" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
           <option value="其他人员">其他人员</option>
           <option value="师级">师级</option>
           <option value="军级">军级</option>

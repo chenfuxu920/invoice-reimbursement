@@ -1,37 +1,37 @@
 <template>
   <div class="flex items-center gap-1.5">
     <LoadingOverlay :visible="loading" :message="loadingMessage" />
-    <button v-if="showLabels" @click="exportFormHtml" :disabled="disabled || loading"
-            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportFormHtml">
+      <AppIcon name="doc" :size="14" />
       报销单 HTML
+    </AppButton>
+    <button v-else @click="exportFormHtml" :disabled="disabled || loading" title="生成报销单 HTML" aria-label="生成报销单 HTML"
+            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+      <AppIcon name="doc" :size="16" />
     </button>
-    <button v-else @click="exportFormHtml" :disabled="disabled || loading" title="生成报销单 HTML"
-            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-      📄
-    </button>
-    <button v-if="showLabels" @click="exportComparisonImagePdf" :disabled="disabled || loading"
-            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportComparisonImagePdf">
+      <AppIcon name="image" :size="14" />
       对照 PDF
+    </AppButton>
+    <button v-else @click="exportComparisonImagePdf" :disabled="disabled || loading" title="生成对照 PDF（含发票图片）" aria-label="生成对照 PDF（含发票图片）"
+            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+      <AppIcon name="image" :size="16" />
     </button>
-    <button v-else @click="exportComparisonImagePdf" :disabled="disabled || loading" title="生成对照 PDF（含发票图片）"
-            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-      🖼️
-    </button>
-    <button v-if="showLabels" @click="exportFormXlsx" :disabled="disabled || loading"
-            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportFormXlsx">
+      <AppIcon name="table" :size="14" />
       报销单 Excel
+    </AppButton>
+    <button v-else @click="exportFormXlsx" :disabled="disabled || loading" title="生成报销单 Excel" aria-label="生成报销单 Excel"
+            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+      <AppIcon name="table" :size="16" />
     </button>
-    <button v-else @click="exportFormXlsx" :disabled="disabled || loading" title="生成报销单 Excel"
-            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-      📊
-    </button>
-    <button v-if="showLabels" @click="exportComparisonXlsx" :disabled="disabled || loading"
-            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportComparisonXlsx">
+      <AppIcon name="clipboard" :size="14" />
       信息对照单
-    </button>
-    <button v-else @click="exportComparisonXlsx" :disabled="disabled || loading" title="生成完整信息对照单"
-            class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
-      📋
+    </AppButton>
+    <button v-else @click="exportComparisonXlsx" :disabled="disabled || loading" title="生成完整信息对照单" aria-label="生成完整信息对照单"
+            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+      <AppIcon name="clipboard" :size="16" />
     </button>
   </div>
 </template>
@@ -39,7 +39,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 import LoadingOverlay from './LoadingOverlay.vue'
+import { toast } from '../composables/toast'
 import type { MatchResult, Trip } from '../types'
 
 const props = defineProps<{
@@ -105,10 +108,10 @@ async function exportEachTrip(
     for (const trip of props.trips) {
       await fn(trip, dir)
     }
-    alert(`已导出 ${props.trips.length} 个文件到：${dir}`)
+    toast(`已导出 ${props.trips.length} 个文件到：${dir}`, 'success')
   } catch (e) {
     console.error('生成失败:', e)
-    alert('生成失败: ' + e)
+    toast('生成失败: ' + e, 'error')
   } finally {
     loading.value = false
   }
@@ -158,10 +161,10 @@ async function exportFormHtml() {
       hotelLevel: props.formInfo.hotelLevel,
       outputPath
     })
-    alert('报销单 HTML 已生成！')
+    toast('报销单 HTML 已生成！', 'success')
   } catch (e) {
     console.error('生成失败:', e)
-    alert('生成失败: ' + e)
+    toast('生成失败: ' + e, 'error')
   } finally {
     loading.value = false
   }
@@ -196,10 +199,10 @@ async function exportComparisonImagePdf() {
       outputPath,
       destination: props.formInfo.destination || null,
     })
-    alert('对照 PDF（含发票图片）已生成！')
+    toast('对照 PDF（含发票图片）已生成！', 'success')
   } catch (e) {
     console.error('生成失败:', e)
-    alert('生成失败: ' + e)
+    toast('生成失败: ' + e, 'error')
   } finally {
     loading.value = false
   }
@@ -236,10 +239,10 @@ async function exportFormXlsx() {
       hotelLevel: props.formInfo.hotelLevel,
       outputPath
     })
-    alert('报销单 Excel 已生成！')
+    toast('报销单 Excel 已生成！', 'success')
   } catch (e) {
     console.error('生成失败:', e)
-    alert('生成失败: ' + e)
+    toast('生成失败: ' + e, 'error')
   } finally {
     loading.value = false
   }
@@ -269,10 +272,10 @@ async function exportComparisonXlsx() {
       matchResults: props.matchResults,
       outputPath
     })
-    alert('完整信息对照单已生成！')
+    toast('完整信息对照单已生成！', 'success')
   } catch (e) {
     console.error('生成失败:', e)
-    alert('生成失败: ' + e)
+    toast('生成失败: ' + e, 'error')
   } finally {
     loading.value = false
   }

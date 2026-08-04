@@ -1,8 +1,8 @@
 <template>
-  <div class="bg-white rounded-lg border p-5 shadow-sm space-y-4">
+  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 space-y-4">
     <div class="flex items-center justify-between flex-wrap gap-2">
       <div class="flex items-center gap-3 flex-wrap">
-        <span class="px-2 py-1 rounded bg-blue-100 text-blue-700 text-xs font-medium">出差 {{ index }}</span>
+        <AppBadge tone="info">出差 {{ index }}</AppBadge>
         <span class="font-medium">目的地：{{ trip.destination || '未设置' }}</span>
         <span class="text-sm text-gray-600">{{ trip.travelStart }} 至 {{ trip.travelEnd }}</span>
       </div>
@@ -14,7 +14,7 @@
 
     <ReimbursementForm :model-value="formModel" @update="handleFormUpdate" />
 
-    <div class="border rounded">
+    <div class="border border-gray-200 rounded-lg">
       <button @click="showInvoices = !showInvoices"
               class="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
         <span>发票明细（{{ trip.matches.length }}）</span>
@@ -49,8 +49,9 @@
 
     <div class="flex items-center gap-1.5">
       <button @click="togglePreview" :title="previewing ? '收起预览' : '预览本趟报销单'"
-              class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm">
-        {{ previewing ? '🙈' : '👁' }}
+              :aria-label="previewing ? '收起预览' : '预览本趟报销单'"
+              class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center">
+        <AppIcon name="eye" :size="16" />
       </button>
       <ExportButton
         :match-results="trip.matches"
@@ -59,7 +60,7 @@
         :form-info="formInfo"
       />
     </div>
-    <div v-if="previewing && previewHtml" class="border rounded overflow-hidden">
+    <div v-if="previewing && previewHtml" class="border border-gray-200 rounded-lg overflow-hidden">
       <iframe :srcdoc="previewHtml" class="w-full" style="min-height: 500px; border: none;" title="报销单预览" />
     </div>
   </div>
@@ -67,11 +68,14 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import AppBadge from './ui/AppBadge.vue'
+import AppIcon from './ui/AppIcon.vue'
 import ReimbursementForm from './ReimbursementForm.vue'
 import ExportButton from './ExportButton.vue'
 import InvoiceDetailModal from './InvoiceDetailModal.vue'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
+import { toast } from '../composables/toast'
 import type { Invoice, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
@@ -147,7 +151,7 @@ async function togglePreview() {
     previewing.value = true
   } catch (e) {
     console.error('预览失败:', e)
-    alert('预览失败: ' + e)
+    toast('预览失败: ' + e, 'error')
   }
 }
 </script>

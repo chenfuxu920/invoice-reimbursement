@@ -1,12 +1,7 @@
 <template>
   <div class="max-w-6xl mx-auto">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="text-2xl font-bold">文字提取调试</h2>
-      <router-link to="/" class="text-sm text-blue-500 hover:underline">← 返回首页</router-link>
-    </div>
-
     <!-- 工具栏 -->
-    <div class="bg-white rounded-lg border p-4 shadow-sm mb-4 flex flex-wrap items-center gap-4">
+    <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 mb-4 flex flex-wrap items-center gap-4">
       <button @click="pickPdf"
         class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm">
         选择 PDF
