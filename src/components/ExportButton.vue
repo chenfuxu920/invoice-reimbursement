@@ -5,34 +5,30 @@
       <AppIcon name="doc" :size="14" />
       报销单 HTML
     </AppButton>
-    <button v-else @click="exportFormHtml" :disabled="disabled || loading" title="生成报销单 HTML" aria-label="生成报销单 HTML"
-            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-else size="icon" title="生成报销单 HTML" aria-label="生成报销单 HTML" :disabled="disabled || loading" @click="exportFormHtml">
       <AppIcon name="doc" :size="16" />
-    </button>
+    </AppButton>
     <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportComparisonImagePdf">
       <AppIcon name="image" :size="14" />
       对照 PDF
     </AppButton>
-    <button v-else @click="exportComparisonImagePdf" :disabled="disabled || loading" title="生成对照 PDF（含发票图片）" aria-label="生成对照 PDF（含发票图片）"
-            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-else size="icon" title="生成对照 PDF（含发票图片）" aria-label="生成对照 PDF（含发票图片）" :disabled="disabled || loading" @click="exportComparisonImagePdf">
       <AppIcon name="image" :size="16" />
-    </button>
+    </AppButton>
     <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportFormXlsx">
       <AppIcon name="table" :size="14" />
       报销单 Excel
     </AppButton>
-    <button v-else @click="exportFormXlsx" :disabled="disabled || loading" title="生成报销单 Excel" aria-label="生成报销单 Excel"
-            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-else size="icon" title="生成报销单 Excel" aria-label="生成报销单 Excel" :disabled="disabled || loading" @click="exportFormXlsx">
       <AppIcon name="table" :size="16" />
-    </button>
+    </AppButton>
     <AppButton v-if="showLabels" secondary size="sm" :disabled="disabled || loading" @click="exportComparisonXlsx">
       <AppIcon name="clipboard" :size="14" />
       信息对照单
     </AppButton>
-    <button v-else @click="exportComparisonXlsx" :disabled="disabled || loading" title="生成完整信息对照单" aria-label="生成完整信息对照单"
-            class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+    <AppButton v-else size="icon" title="生成完整信息对照单" aria-label="生成完整信息对照单" :disabled="disabled || loading" @click="exportComparisonXlsx">
       <AppIcon name="clipboard" :size="16" />
-    </button>
+    </AppButton>
   </div>
 </template>
 

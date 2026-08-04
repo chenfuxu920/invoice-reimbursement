@@ -14,16 +14,17 @@ import { computed } from 'vue'
 
 const props = withDefaults(defineProps<{
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
-  size?: 'sm' | 'md'
+  size?: 'sm' | 'md' | 'icon'
   disabled?: boolean
   loading?: boolean
   title?: string
   ariaLabel?: string
 }>(), { variant: 'secondary', size: 'md' })
 
-const sizeClass = computed(() =>
-  props.size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-1.5'
-)
+const sizeClass = computed(() => {
+  if (props.size === 'icon') return 'w-8 h-8 p-0 justify-center'
+  return props.size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-1.5'
+})
 const variantClass = computed(() => ({
   primary: 'bg-primary-600 text-white hover:bg-primary-700',
   secondary: 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50',

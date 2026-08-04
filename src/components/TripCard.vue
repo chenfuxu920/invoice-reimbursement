@@ -15,7 +15,7 @@
     <ReimbursementForm :model-value="formModel" @update="handleFormUpdate" />
 
     <div class="border border-gray-200 rounded-lg">
-      <button @click="showInvoices = !showInvoices"
+      <button @click="showInvoices = !showInvoices" :aria-expanded="showInvoices"
               class="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
         <span>发票明细（{{ trip.matches.length }}）</span>
         <span>{{ showInvoices ? '▾' : '▸' }}</span>
@@ -30,7 +30,7 @@
           <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
           <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
           <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
-          <span class="text-blue-400 text-xs shrink-0">详情</span>
+          <span class="text-primary-600 text-xs shrink-0">详情</span>
           <select :value="trip.id" @click.stop @change="handleMoveInvoice(m.invoice_id, ($event.target as HTMLSelectElement).value)"
                   class="text-xs border rounded px-1 py-0.5 shrink-0">
             <option v-for="t in otherTrips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
@@ -58,6 +58,7 @@
         :unmatched-invoice-ids="[]"
         :unmatched-payment-ids="[]"
         :form-info="formInfo"
+        show-labels
       />
     </div>
     <div v-if="previewing && previewHtml" class="border border-gray-200 rounded-lg overflow-hidden">

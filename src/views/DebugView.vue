@@ -2,10 +2,9 @@
   <div class="max-w-6xl mx-auto">
     <!-- 工具栏 -->
     <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 mb-4 flex flex-wrap items-center gap-4">
-      <button @click="pickPdf"
-        class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors text-sm">
+      <AppButton variant="primary" @click="pickPdf">
         选择 PDF
-      </button>
+      </AppButton>
       <span v-if="fileName" class="text-sm text-gray-600 truncate max-w-xs">{{ fileName }}</span>
 
       <div v-if="pages.length" class="flex items-center gap-2">
@@ -145,6 +144,7 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
+import AppButton from '../components/ui/AppButton.vue'
 
 interface DebugTextItem {
   text: string

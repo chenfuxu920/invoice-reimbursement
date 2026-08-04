@@ -84,11 +84,10 @@
             <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
             <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
             <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
-            <span class="text-blue-400 text-xs shrink-0">详情</span>
-            <button v-if="isTicket(m.invoice)" @click.stop="handleCreateTrip(m)"
-                    class="text-xs px-2 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors shrink-0">
+            <span class="text-primary-600 text-xs shrink-0">详情</span>
+            <AppButton v-if="isTicket(m.invoice)" variant="primary" size="sm" @click.stop="handleCreateTrip(m)">
               <AppIcon name="plus" :size="12" class="inline-block mr-0.5 -mt-0.5" />新建出差
-            </button>
+            </AppButton>
             <select @click.stop @change="handleMove(m.invoice_id, ($event.target as HTMLSelectElement).value)"
                     class="text-xs border rounded px-1 py-0.5 shrink-0">
               <option value="" disabled selected>移到出差...</option>
