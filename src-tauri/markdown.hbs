@@ -1,0 +1,26 @@
+# Rust Dependencies - Third Party Licenses
+
+This file was generated with `cargo-about` for the Rust (src-tauri) dependencies of
+invoice-reimbursement. Each section lists a license and the crates that use it,
+followed by the full license text.
+
+## Overview of licenses
+
+{{#each licenses}}
+- {{name}} ({{count}})
+{{/each}}
+
+## All license text
+
+{{#each licenses}}
+### {{name}}
+
+Used by:
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+
+```text
+{{text}}
+```
+{{/each}}
