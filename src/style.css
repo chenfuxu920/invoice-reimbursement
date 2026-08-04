@@ -1,1 +1,25 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --radius-card: 10px;
+  --radius-btn: 8px;
+}
+
+html, body, #app {
+  height: 100%;
+}
+
+body {
+  @apply bg-gray-50 text-gray-800 antialiased;
+  background-image: linear-gradient(to bottom, #f9fafb, #f3f4f6);
+}
+
+/* 金额数字等宽对齐 */
+.tabular-nums { font-variant-numeric: tabular-nums; }
