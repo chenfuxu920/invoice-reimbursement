@@ -1,14 +1,16 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="$emit('close')">
-    <div class="bg-white rounded-lg shadow-xl w-[900px] max-h-[85vh] flex flex-col">
-      <div class="flex items-center justify-between p-4 border-b shrink-0">
-        <h3 class="font-medium">手动填写发票信息</h3>
-        <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    <div class="bg-white rounded-[10px] shadow-2xl w-[900px] max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+        <h2 class="text-base font-semibold text-gray-800">手动填写发票信息</h2>
+        <button class="text-gray-400 hover:text-gray-600" aria-label="关闭" @click="$emit('close')">
+          <AppIcon name="x" :size="16" />
+        </button>
       </div>
 
       <div class="flex flex-1 overflow-hidden">
         <!-- 左侧缩略图 -->
-        <div class="w-[380px] border-r overflow-y-auto bg-gray-50 p-3">
+        <div class="w-[380px] border-r overflow-y-auto bg-gray-50 p-4">
           <p class="text-xs text-gray-500 mb-2">{{ fileName }}</p>
           <div v-if="previewImages.length > 0" class="space-y-3">
             <div v-for="(img, i) in previewImages" :key="i" class="border rounded overflow-hidden bg-white">
@@ -19,7 +21,7 @@
             </div>
           </div>
           <div v-else-if="loadingPreview" class="text-center py-8 text-gray-400">
-            <div class="inline-block w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+            <div class="inline-block w-5 h-5 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin"></div>
             <p class="mt-2 text-sm">正在渲染预览...</p>
           </div>
           <div v-else-if="loadError" class="text-center py-8 text-red-400 text-sm">
@@ -29,37 +31,37 @@
         </div>
 
         <!-- 右侧表单 -->
-        <div class="flex-1 overflow-y-auto p-4">
+        <div class="flex-1 overflow-y-auto px-5 py-4">
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="block text-xs text-gray-500 mb-1">发票号</label>
-              <input v-model="form.invoice_number" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="发票号码" />
+              <input v-model="form.invoice_number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="发票号码" />
             </div>
             <div>
               <label class="block text-xs text-gray-500 mb-1">金额 *</label>
-              <input v-model.number="form.amount" type="number" step="0.01" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="0.00" />
+              <input v-model.number="form.amount" type="number" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="0.00" />
             </div>
             <div>
               <label class="block text-xs text-gray-500 mb-1">销售方</label>
-              <input v-model="form.seller_name" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="销售方名称" />
+              <input v-model="form.seller_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="销售方名称" />
             </div>
             <div>
               <label class="block text-xs text-gray-500 mb-1">商品/服务</label>
-              <input v-model="form.item_name" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="商品或服务名称" />
+              <input v-model="form.item_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="商品或服务名称" />
             </div>
             <div>
               <label class="block text-xs text-gray-500 mb-1">开票日期</label>
-              <input v-model="form.date" type="date" class="w-full border rounded px-2 py-1.5 text-sm" />
+              <input v-model="form.date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
             </div>
             <div>
               <label class="block text-xs text-gray-500 mb-1">类别</label>
-              <select v-model="form.category" class="w-full border rounded px-2 py-1.5 text-sm">
+              <select v-model="form.category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
                 <option v-for="cat in categoryOptions" :key="cat.value" :value="cat.value">{{ cat.label }}</option>
               </select>
             </div>
             <div>
               <label class="block text-xs text-gray-500 mb-1">来源类型</label>
-              <select v-model="form.source.type" class="w-full border rounded px-2 py-1.5 text-sm">
+              <select v-model="form.source.type" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
                 <option value="Photo">拍照/图片</option>
                 <option value="Pdf">PDF 文件</option>
                 <option value="Link">外部链接</option>
@@ -71,28 +73,30 @@
           <div class="mt-4 border-t pt-3">
             <button @click="showItinerary = !showItinerary"
                     class="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-800">
-              <span class="transition-transform" :class="{ 'rotate-90': showItinerary }">▸</span>
+              <AppIcon name="chevron-down" :size="14" class="transition-transform" :class="showItinerary ? 'rotate-0' : '-rotate-90'" />
               行程明细 ({{ form.itineraries.length }})
             </button>
             <div v-if="showItinerary" class="mt-2 space-y-2">
               <div v-for="(it, i) in form.itineraries" :key="i" class="flex gap-2 items-start bg-gray-50 rounded p-2">
-                <input v-model="it.date_time" class="flex-1 border rounded px-2 py-1 text-xs" placeholder="时间" />
-                <input v-model="it.provider" class="flex-1 border rounded px-2 py-1 text-xs" placeholder="平台" />
-                <input v-model="it.pickup" class="flex-1 border rounded px-2 py-1 text-xs" placeholder="起点" />
-                <input v-model="it.dropoff" class="flex-1 border rounded px-2 py-1 text-xs" placeholder="终点" />
-                <input v-model.number="it.amount" type="number" step="0.01" class="w-20 border rounded px-2 py-1 text-xs" placeholder="金额" />
-                <button @click="form.itineraries.splice(i, 1)" class="text-gray-400 hover:text-red-500 text-sm">✕</button>
+                <input v-model="it.date_time" class="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-100" placeholder="时间" />
+                <input v-model="it.provider" class="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-100" placeholder="平台" />
+                <input v-model="it.pickup" class="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-100" placeholder="起点" />
+                <input v-model="it.dropoff" class="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-100" placeholder="终点" />
+                <input v-model.number="it.amount" type="number" step="0.01" class="w-20 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-100" placeholder="金额" />
+                <button @click="form.itineraries.splice(i, 1)" class="text-gray-400 hover:text-red-500 mt-1" aria-label="删除行程">
+                  <AppIcon name="x" :size="14" />
+                </button>
               </div>
-              <button @click="addItinerary" class="text-xs text-blue-600 hover:text-blue-800">+ 添加行程</button>
+              <button @click="addItinerary" class="text-xs text-primary-600 hover:text-primary-700">+ 添加行程</button>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="p-4 border-t flex justify-end gap-2 shrink-0">
+      <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 items-center shrink-0">
         <p v-if="saveError" class="flex-1 text-sm text-red-500 self-center">{{ saveError }}</p>
-        <button @click="$emit('close')" class="px-4 py-2 rounded border hover:bg-gray-50 text-sm">取消</button>
-        <button @click="handleSave" :disabled="!isFormValid" class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 text-sm">保存</button>
+        <AppButton @click="$emit('close')">取消</AppButton>
+        <AppButton variant="primary" :disabled="!isFormValid" @click="handleSave">保存</AppButton>
       </div>
     </div>
   </div>
@@ -103,6 +107,8 @@ import { ref, reactive, watch, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Invoice, InvoiceCategory, InvoiceSource, Itinerary } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ visible: boolean; filePath: string; errorId: string }>()
 const emit = defineEmits<{

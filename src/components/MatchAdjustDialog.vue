@@ -1,16 +1,19 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="$emit('close')">
-    <div class="bg-white rounded-lg shadow-xl w-[560px] max-h-[85vh] flex flex-col">
+    <div class="bg-white rounded-[10px] shadow-2xl w-[560px] max-h-[85vh] flex flex-col">
       <!-- 标题 -->
-      <div class="p-4 border-b shrink-0">
-        <h3 class="font-medium">{{ hasItineraries ? '行程级配对' : '调整匹配' }}</h3>
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+        <h2 class="text-base font-semibold text-gray-800">{{ hasItineraries ? '行程级配对' : '调整匹配' }}</h2>
+        <button class="text-gray-400 hover:text-gray-600" aria-label="关闭" @click="$emit('close')">
+          <AppIcon name="x" :size="16" />
+        </button>
       </div>
       <!-- 内容区（可滚动） -->
-      <div class="p-4 overflow-auto flex-1">
+      <div class="flex-1 overflow-auto px-5 py-4">
         <p class="text-sm text-gray-500 mb-3">
           {{ hasItineraries ? '为每条行程选择对应的支付记录：' : '为发票选择对应的支付记录：' }}
         </p>
-        <div class="bg-blue-50 rounded p-3 mb-3">
+        <div class="bg-primary-50 rounded p-3 mb-3">
           <p class="font-medium">{{ invoice?.invoice_number || '无编号' }}</p>
           <p class="text-sm">¥{{ invoice?.amount.toFixed(2) }} - {{ invoice?.seller_name }}</p>
         </div>
@@ -18,15 +21,15 @@
         <!-- 搜索 + 来源 + 排序 -->
         <div class="flex gap-2 mb-2">
           <input v-model="searchText" type="text" placeholder="搜索商户名、交易号..."
-                 class="flex-1 px-3 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                 class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
           <select v-model="sourceFilter"
-                  class="px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
             <option value="all">全部来源</option>
             <option value="Wechat">微信</option>
             <option value="Alipay">支付宝</option>
           </select>
           <select v-model="sortKey"
-                  class="px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
             <option value="diff-asc">金额差异最小</option>
             <option value="time-diff-asc">时间差异最小</option>
             <option value="time-desc">时间↓</option>
@@ -40,12 +43,12 @@
         <div class="flex items-center gap-2 mb-2 text-sm">
           <span class="text-gray-500 shrink-0 w-10">时间</span>
           <input v-model="timeStart" type="date"
-                 class="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                 class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
           <span class="text-gray-400">~</span>
           <input v-model="timeEnd" type="date"
-                 class="flex-1 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                 class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
           <label class="flex items-center gap-1 shrink-0 text-xs text-gray-600 cursor-pointer select-none"
-                 :class="{ 'text-blue-600 font-medium': onlyCloseTime }">
+                 :class="{ 'text-primary-600 font-medium': onlyCloseTime }">
             <input type="checkbox" v-model="onlyCloseTime" class="cursor-pointer" />
             时间接近
           </label>
@@ -55,12 +58,12 @@
         <div class="flex items-center gap-2 mb-2 text-sm">
           <span class="text-gray-500 shrink-0 w-10">金额</span>
           <input v-model="amountMin" type="number" min="0" placeholder="最小"
-                 class="flex-1 w-0 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                 class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
           <span class="text-gray-400">~</span>
           <input v-model="amountMax" type="number" min="0" placeholder="最大"
-                 class="flex-1 w-0 px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                 class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
           <label class="flex items-center gap-1 shrink-0 text-xs text-gray-600 cursor-pointer select-none"
-                 :class="{ 'text-blue-600 font-medium': onlyCloseAmount }">
+                 :class="{ 'text-primary-600 font-medium': onlyCloseAmount }">
             <input type="checkbox" v-model="onlyCloseAmount" class="cursor-pointer" />
             金额接近
           </label>
@@ -69,17 +72,17 @@
         <!-- 交易类型 + 支付方式 + 退款/优惠 -->
         <div class="flex gap-2 mb-2">
           <select v-model="categoryFilter"
-                  class="flex-1 px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
             <option value="all">全部类型</option>
             <option v-for="c in availableCategories" :key="c" :value="c">{{ c }}</option>
           </select>
           <select v-model="paymentMethodFilter"
-                  class="flex-1 px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
             <option value="all">全部方式</option>
             <option v-for="m in availablePaymentMethods" :key="m" :value="m">{{ m }}</option>
           </select>
           <select v-model="refundFilter"
-                  class="flex-1 px-2 py-1.5 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  class="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
             <option value="all">退款/优惠</option>
             <option value="refund">有退款</option>
             <option value="discount">有优惠</option>
@@ -89,7 +92,7 @@
 
         <!-- 清除所有过滤 + 计数 -->
         <div class="mb-2 flex items-center justify-between">
-          <button v-if="hasActiveFilter" @click="clearFilters" class="text-xs text-blue-500 hover:text-blue-700">清除所有过滤</button>
+          <button v-if="hasActiveFilter" @click="clearFilters" class="text-xs text-primary-500 hover:text-primary-700">清除所有过滤</button>
           <span v-else></span>
           <span class="text-xs text-gray-400">
             {{ hasItineraries
@@ -102,7 +105,7 @@
         <div v-if="hasItineraries" class="space-y-2">
           <div v-for="(itin, idx) in invoice?.itineraries" :key="idx"
                class="p-2 rounded border"
-               :class="itineraryPairs[idx] ? 'border-blue-300 bg-blue-50/40' : 'border-gray-200'">
+               :class="itineraryPairs[idx] ? 'border-primary-300 bg-primary-50/40' : 'border-gray-200'">
             <div class="flex items-center justify-between gap-2">
               <div class="flex-1 min-w-0 text-sm">
                 <p class="font-medium truncate">
@@ -115,7 +118,7 @@
               </div>
               <select :value="itineraryPairs[idx] || ''"
                       @change="setItineraryPair(idx, ($event.target as HTMLSelectElement).value)"
-                      class="shrink-0 max-w-[200px] px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      class="shrink-0 max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
                 <option value="">未选择</option>
                 <option v-for="p in candidatesForItinerary(idx)" :key="p.id" :value="p.id">
                   ¥{{ p.amount.toFixed(2) }} · {{ p.merchant_name }} · {{ formatTime(p.transaction_time) }}
@@ -142,13 +145,13 @@
         <div v-else class="space-y-2">
           <label v-for="p in filteredPayments" :key="p.id"
                  class="flex items-center gap-2 p-2 rounded border cursor-pointer hover:bg-gray-50"
-                 :class="selectedIds.has(p.id) ? 'border-blue-500 bg-blue-50' : 'border-gray-200'">
+                 :class="selectedIds.has(p.id) ? 'border-primary-500 bg-primary-50' : 'border-gray-200'">
             <input type="checkbox" :checked="selectedIds.has(p.id)" @change="togglePayment(p.id)" />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <p class="text-sm font-medium truncate">{{ p.merchant_name }}</p>
                 <span class="shrink-0 text-xs px-1.5 py-0.5 rounded"
-                      :class="p.source === 'Wechat' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
+                      :class="p.source === 'Wechat' ? 'bg-green-100 text-green-700' : 'bg-primary-100 text-primary-700'">
                   {{ p.source === 'Wechat' ? '微信' : '支付宝' }}
                 </span>
                 <span v-if="p.category" class="shrink-0 text-xs text-gray-400">{{ p.category }}</span>
@@ -169,18 +172,15 @@
                 </span>
               </div>
             </div>
-            <span v-if="currentPaymentIds.has(p.id)" class="shrink-0 text-xs text-blue-500">当前匹配</span>
+            <span v-if="currentPaymentIds.has(p.id)" class="shrink-0 text-xs text-primary-500">当前匹配</span>
           </label>
           <div v-if="filteredPayments.length === 0" class="text-center py-4 text-sm text-gray-400">无匹配结果</div>
         </div>
       </div>
       <!-- 按钮区（固定底部，始终可见） -->
-      <div class="p-4 border-t flex justify-end gap-2 shrink-0">
-        <button @click="$emit('close')" class="px-4 py-2 rounded border hover:bg-gray-50">取消</button>
-        <button @click="confirmMatch" :disabled="!canConfirm"
-                class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50">
-          确认匹配
-        </button>
+      <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 shrink-0">
+        <AppButton @click="$emit('close')">取消</AppButton>
+        <AppButton variant="primary" :disabled="!canConfirm" @click="confirmMatch">确认匹配</AppButton>
       </div>
     </div>
   </div>
@@ -189,6 +189,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { Invoice, PaymentRecord, ItineraryPaymentPair } from '../types'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 type SortKey = 'time-desc' | 'time-asc' | 'amount-desc' | 'amount-asc' | 'diff-asc' | 'time-diff-asc'
 type RefundFilter = 'all' | 'refund' | 'discount' | 'none'

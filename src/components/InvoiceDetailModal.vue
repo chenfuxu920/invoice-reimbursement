@@ -1,16 +1,21 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="$emit('close')">
-    <div class="bg-white rounded-lg shadow-xl w-[700px] max-h-[85vh] flex flex-col">
-      <div class="flex items-center justify-between p-4 border-b shrink-0">
+    <div class="bg-white rounded-[10px] shadow-2xl w-[700px] max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
         <div class="flex items-center gap-2">
-          <h3 class="font-medium">发票详情</h3>
+          <h2 class="text-base font-semibold text-gray-800">发票详情</h2>
           <span class="px-2 py-0.5 rounded text-xs font-medium" :class="categoryBadgeClass">{{ categoryLabel }}</span>
-          <span v-if="hasIncompleteItineraries" class="text-orange-500 text-xs" title="有行程字段未完整识别">⚠ 部分字段需确认</span>
+          <span v-if="hasIncompleteItineraries" class="inline-flex items-center gap-1 text-orange-500 text-xs" title="有行程字段未完整识别">
+            <AppIcon name="alert" :size="13" />
+            部分字段需确认
+          </span>
         </div>
-        <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        <button class="text-gray-400 hover:text-gray-600" aria-label="关闭" @click="$emit('close')">
+          <AppIcon name="x" :size="16" />
+        </button>
       </div>
 
-      <div class="p-4 overflow-y-auto flex-1">
+      <div class="flex-1 overflow-auto px-5 py-4">
         <div class="grid grid-cols-2 gap-3 mb-4">
           <div class="bg-gray-50 rounded p-3">
             <p class="text-xs text-gray-500">发票编号</p>
@@ -44,47 +49,51 @@
           <div class="space-y-2">
             <div v-for="(it, i) in editedItineraries" :key="i"
                  class="rounded p-3 text-sm"
-                 :class="it.incomplete_fields?.length ? 'bg-orange-50 border border-orange-200' : 'bg-blue-50'">
+                 :class="it.incomplete_fields?.length ? 'bg-orange-50 border border-orange-200' : 'bg-primary-50'">
               <div class="flex items-center gap-1 mb-2">
                 <span class="text-xs font-medium text-gray-500">#{{ i + 1 }}</span>
                 <span v-if="it.incomplete_fields?.length"
-                      class="text-xs text-orange-600"
-                      title="缺失字段">⚠ {{ it.incomplete_fields.map(f => fieldLabel(f)).join(', ') }}</span>
+                      class="inline-flex items-center gap-1 text-xs text-orange-600"
+                      title="缺失字段"><AppIcon name="alert" :size="13" />{{ it.incomplete_fields.map(f => fieldLabel(f)).join(', ') }}</span>
               </div>
               <div class="grid grid-cols-2 gap-2">
                 <div>
                   <label class="text-xs text-gray-400">时间</label>
                   <input v-model="it.date_time"
-                         class="w-full border rounded px-2 py-1 text-sm"
-                         :class="isFieldIncomplete(it, 'date_time') ? 'border-orange-400 bg-orange-50' : ''" />
+                         class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-100"
+                         :class="isFieldIncomplete(it, 'date_time')
+                           ? 'border-orange-400 bg-orange-50 focus:border-orange-400'
+                           : 'border-gray-300 focus:border-primary-500'" />
                 </div>
                 <div>
                   <label class="text-xs text-gray-400">金额</label>
                   <input v-model.number="it.amount"
                          type="number" step="0.01"
-                         class="w-full border rounded px-2 py-1 text-sm"
-                         :class="isFieldIncomplete(it, 'amount') ? 'border-orange-400 bg-orange-50' : ''" />
+                         class="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-100"
+                         :class="isFieldIncomplete(it, 'amount')
+                           ? 'border-orange-400 bg-orange-50 focus:border-orange-400'
+                           : 'border-gray-300 focus:border-primary-500'" />
                 </div>
                 <div>
                   <label class="text-xs text-gray-400">服务商</label>
                   <input v-model="it.provider"
-                         class="w-full border rounded px-2 py-1 text-sm" />
+                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
                 </div>
                 <div>
                   <label class="text-xs text-gray-400">城市</label>
                   <input v-model="it.city"
-                         class="w-full border rounded px-2 py-1 text-sm bg-gray-50"
+                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-gray-50 focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
                          placeholder="未提取" />
                 </div>
                 <div>
                   <label class="text-xs text-gray-400">起点</label>
                   <input v-model="it.pickup"
-                         class="w-full border rounded px-2 py-1 text-sm" />
+                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
                 </div>
                 <div>
                   <label class="text-xs text-gray-400">终点</label>
                   <input v-model="it.dropoff"
-                         class="w-full border rounded px-2 py-1 text-sm" />
+                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
                 </div>
               </div>
             </div>
@@ -104,27 +113,20 @@
         </div>
         <div v-else-if="loadingPreview" class="text-center py-8 text-gray-400">
           <p class="mb-1">正在渲染预览...</p>
-          <div class="inline-block w-5 h-5 border-2 border-gray-300 border-t-blue-500 rounded-full animate-spin"></div>
+          <div class="inline-block w-5 h-5 border-2 border-gray-300 border-t-primary-500 rounded-full animate-spin"></div>
         </div>
         <div v-else-if="loadError" class="text-center py-8 text-red-400">
           <p>预览加载失败</p>
         </div>
       </div>
 
-      <div class="p-4 border-t flex justify-between gap-2 shrink-0">
+      <div class="px-5 py-3 border-t border-gray-100 flex justify-between items-center gap-2 shrink-0">
         <div class="flex gap-2">
-          <button v-if="canOpenFile" @click="handleOpenFile" class="px-4 py-2 rounded border hover:bg-gray-50 text-sm">
-            用系统打开
-          </button>
+          <AppButton v-if="canOpenFile" @click="handleOpenFile">用系统打开</AppButton>
         </div>
         <div class="flex gap-2">
-          <button v-if="hasEdits" @click="handleSaveAndRematch"
-                  class="px-4 py-2 rounded bg-orange-500 text-white hover:bg-orange-600 text-sm font-medium">
-            保存并重新匹配
-          </button>
-          <button @click="$emit('close')" class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 text-sm">
-            关闭
-          </button>
+          <AppButton v-if="hasEdits" variant="primary" @click="handleSaveAndRematch">保存并重新匹配</AppButton>
+          <AppButton @click="$emit('close')">关闭</AppButton>
         </div>
       </div>
     </div>
@@ -136,6 +138,8 @@ import { ref, computed, watch, reactive } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { Invoice, Itinerary } from '../types'
 import { getCategoryStyle, getCategoryBadgeClass } from '../utils/category'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ visible: boolean; invoice: Invoice | null }>()
 const emit = defineEmits<{

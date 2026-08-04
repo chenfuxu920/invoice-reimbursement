@@ -1,28 +1,30 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="$emit('close')">
-    <div class="bg-white rounded-lg shadow-xl w-[520px] max-h-[85vh] flex flex-col">
-      <div class="flex items-center justify-between p-4 border-b shrink-0">
+    <div class="bg-white rounded-[10px] shadow-2xl w-[520px] max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
         <div class="flex items-center gap-2">
-          <h3 class="font-medium">支付详情</h3>
+          <h2 class="text-base font-semibold text-gray-800">支付详情</h2>
           <span v-if="payments.length === 1" class="px-2 py-0.5 rounded text-xs font-medium" :class="sourceBadgeClass">{{ sourceLabel }}</span>
         </div>
-        <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        <button class="text-gray-400 hover:text-gray-600" aria-label="关闭" @click="$emit('close')">
+          <AppIcon name="x" :size="16" />
+        </button>
       </div>
 
       <!-- Tabs for multiple payments -->
-      <div v-if="payments.length > 1" class="flex gap-1 px-4 pt-3 pb-1 border-b shrink-0 overflow-x-auto">
+      <div v-if="payments.length > 1" class="flex gap-1 px-5 pt-3 pb-1 border-b border-gray-100 shrink-0 overflow-x-auto">
         <button
           v-for="(p, i) in payments"
           :key="p.id"
           @click="activeIndex = i"
           class="px-3 py-1.5 text-xs rounded-t whitespace-nowrap"
-          :class="i === activeIndex ? 'bg-blue-50 text-blue-700 font-medium border border-b-white border-blue-200' : 'text-gray-500 hover:bg-gray-50'"
+          :class="i === activeIndex ? 'bg-primary-50 text-primary-700 font-medium border border-b-white border-primary-200' : 'text-gray-500 hover:bg-gray-50'"
         >
           {{ p.merchant_name.slice(0, 8) }}
         </button>
       </div>
 
-      <div class="p-4 overflow-y-auto flex-1">
+      <div class="flex-1 overflow-auto px-5 py-4">
         <div class="grid grid-cols-2 gap-3 mb-4">
           <div class="bg-gray-50 rounded p-3 col-span-2">
             <p class="text-xs text-gray-500">商户名称</p>
@@ -70,10 +72,8 @@
         </div>
       </div>
 
-      <div class="p-4 border-t flex justify-end shrink-0">
-        <button @click="$emit('close')" class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 text-sm">
-          关闭
-        </button>
+      <div class="px-5 py-3 border-t border-gray-100 flex justify-end shrink-0">
+        <AppButton @click="$emit('close')">关闭</AppButton>
       </div>
     </div>
   </div>
@@ -82,6 +82,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { PaymentRecord } from '../types'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ visible: boolean; payments: PaymentRecord[] }>()
 defineEmits<{ (e: 'close'): void }>()
@@ -99,7 +101,7 @@ const sourceBadgeClass = computed(() => {
   if (!activePayment.value) return ''
   return activePayment.value.source === 'Wechat'
     ? 'bg-green-100 text-green-700'
-    : 'bg-blue-100 text-blue-700'
+    : 'bg-primary-100 text-primary-700'
 })
 const refundClass = computed(() => {
   if (!activePayment.value) return ''

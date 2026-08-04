@@ -1,12 +1,14 @@
 <template>
   <div v-if="visible" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50" @click.self="$emit('close')">
-    <div class="bg-white rounded-lg shadow-xl w-[480px] flex flex-col">
-      <div class="flex items-center justify-between p-4 border-b shrink-0">
-        <h3 class="font-medium">手动添加空发票</h3>
-        <button @click="$emit('close')" class="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+    <div class="bg-white rounded-[10px] shadow-2xl w-[480px] max-h-[85vh] flex flex-col">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
+        <h2 class="text-base font-semibold text-gray-800">手动添加空发票</h2>
+        <button class="text-gray-400 hover:text-gray-600" aria-label="关闭" @click="$emit('close')">
+          <AppIcon name="x" :size="16" />
+        </button>
       </div>
 
-      <div class="p-4 overflow-y-auto">
+      <div class="flex-1 overflow-auto px-5 py-4">
         <p class="text-xs text-gray-500 mb-3">
           无需上传电子票据，仅填写类别、时间与金额。匹配支付记录后，对照单该页将留白用于粘贴纸质票据。
         </p>
@@ -14,37 +16,37 @@
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs text-gray-500 mb-1">类别 *</label>
-            <select v-model="form.category" class="w-full border rounded px-2 py-1.5 text-sm">
+            <select v-model="form.category" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
               <option v-for="cat in categoryOptions" :key="cat.value" :value="cat.value">{{ cat.label }}</option>
             </select>
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">日期 *</label>
-            <input v-model="form.date" type="date" class="w-full border rounded px-2 py-1.5 text-sm" />
+            <input v-model="form.date" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
           </div>
           <div class="col-span-2">
             <label class="block text-xs text-gray-500 mb-1">金额 *</label>
-            <input v-model.number="form.amount" type="number" step="0.01" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="0.00" />
+            <input v-model.number="form.amount" type="number" step="0.01" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="0.00" />
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">销售方</label>
-            <input v-model="form.seller_name" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="选填" />
+            <input v-model="form.seller_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="选填" />
           </div>
           <div>
             <label class="block text-xs text-gray-500 mb-1">商品/服务</label>
-            <input v-model="form.item_name" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="选填" />
+            <input v-model="form.item_name" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="选填" />
           </div>
           <div class="col-span-2">
             <label class="block text-xs text-gray-500 mb-1">发票号</label>
-            <input v-model="form.invoice_number" class="w-full border rounded px-2 py-1.5 text-sm" placeholder="选填" />
+            <input v-model="form.invoice_number" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="选填" />
           </div>
         </div>
       </div>
 
-      <div class="p-4 border-t flex justify-end gap-2 shrink-0">
+      <div class="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 items-center shrink-0">
         <p v-if="saveError" class="flex-1 text-sm text-red-500 self-center">{{ saveError }}</p>
-        <button @click="$emit('close')" class="px-4 py-2 rounded border hover:bg-gray-50 text-sm">取消</button>
-        <button @click="handleSave" :disabled="!isFormValid" class="px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 text-sm">保存</button>
+        <AppButton @click="$emit('close')">取消</AppButton>
+        <AppButton variant="primary" :disabled="!isFormValid" @click="handleSave">保存</AppButton>
       </div>
     </div>
   </div>
@@ -54,6 +56,8 @@
 import { ref, reactive, watch, computed } from 'vue'
 import type { Invoice, InvoiceCategory } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
+import AppButton from './ui/AppButton.vue'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{
