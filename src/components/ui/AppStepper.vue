@@ -1,7 +1,7 @@
 <template>
   <nav class="flex items-center gap-2 overflow-x-auto py-1">
     <template v-for="(step, i) in steps" :key="step.to">
-      <button :disabled="!step.enabled" @click="router.push(step.to)"
+      <button :disabled="!step.enabled" :aria-current="isCurrent(i) ? 'step' : undefined" @click="router.push(step.to)"
               class="flex items-center gap-2 rounded-full px-3 py-1.5 text-sm whitespace-nowrap transition-colors disabled:cursor-not-allowed"
               :class="stepBtnClass(i)">
         <span class="w-5 h-5 rounded-full flex items-center justify-center text-xs font-semibold"
@@ -35,6 +35,10 @@ const steps = computed(() => [
   },
   { to: '/export', label: '导出', enabled: matchStore.matches.length > 0 },
 ])
+
+function isCurrent(i: number) {
+  return currentIndex.value === i
+}
 
 function stepBtnClass(i: number) {
   const active = currentIndex.value === i
