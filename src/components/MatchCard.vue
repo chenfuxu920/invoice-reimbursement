@@ -195,18 +195,18 @@ const matchTypeLabel = computed(() => {
 
 const matchTypeClass = computed(() => {
   const map: Record<string, string> = {
-    OneToOne: 'bg-green-100 text-green-700',
-    OneToMany: 'bg-yellow-100 text-yellow-700',
-    Unmatched: 'bg-gray-100 text-gray-700',
-    ManualConfirmed: 'bg-blue-100 text-blue-700'
+    OneToOne: 'bg-emerald-50 text-emerald-700',
+    OneToMany: 'bg-amber-50 text-amber-700',
+    Unmatched: 'bg-gray-100 text-gray-600',
+    ManualConfirmed: 'bg-primary-50 text-primary-700'
   }
-  return map[props.match.match_type] || 'bg-gray-100 text-gray-700'
+  return map[props.match.match_type] || 'bg-gray-100 text-gray-600'
 })
 
 const confidenceClass = computed(() => {
-  if (props.match.confidence >= 0.9) return 'bg-green-100 text-green-700'
-  if (props.match.confidence >= 0.7) return 'bg-yellow-100 text-yellow-700'
-  return 'bg-red-100 text-red-700'
+  if (props.match.confidence >= 0.9) return 'bg-emerald-50 text-emerald-700'
+  if (props.match.confidence >= 0.7) return 'bg-amber-50 text-amber-700'
+  return 'bg-red-50 text-red-700'
 })
 
 function formatTime(t: string) {

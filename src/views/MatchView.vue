@@ -9,17 +9,17 @@
       </AppButton>
     </div>
 
-    <div class="grid grid-cols-3 gap-3 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
       <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 text-center">
         <p class="text-2xl font-bold text-primary-600 tabular-nums">{{ matchStore.matches.length }}</p>
         <p class="text-sm text-gray-500 mt-1">已匹配</p>
       </div>
       <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 text-center">
-        <p class="text-2xl font-bold text-amber-500 tabular-nums">{{ matchStore.unmatchedInvoices.length }}</p>
+        <p class="text-2xl font-bold text-amber-600 tabular-nums">{{ matchStore.unmatchedInvoices.length }}</p>
         <p class="text-sm text-gray-500 mt-1">未匹配发票</p>
       </div>
       <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 text-center">
-        <p class="text-2xl font-bold text-gray-400 tabular-nums">{{ matchStore.unmatchedPayments.length }}</p>
+        <p class="text-2xl font-bold text-gray-600 tabular-nums">{{ matchStore.unmatchedPayments.length }}</p>
         <p class="text-sm text-gray-500 mt-1">未匹配支付</p>
       </div>
     </div>
@@ -58,8 +58,8 @@
             </select>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-xs text-blue-400">查看详情</span>
-            <button @click.stop="startManualMatch(inv)" class="text-sm text-blue-500 hover:text-blue-700">手动匹配</button>
+            <span class="text-xs text-primary-600">查看详情</span>
+            <button @click.stop="startManualMatch(inv)" class="text-sm text-primary-600 hover:text-primary-700">手动匹配</button>
           </div>
         </div>
       </div>
@@ -67,13 +67,13 @@
 
     <!-- 未匹配支付（默认折叠） -->
     <div v-if="matchStore.unmatchedPayments.length" class="mb-8">
-      <div @click="showUnmatchedPayments = !showUnmatchedPayments" class="cursor-pointer select-none">
+      <button @click="showUnmatchedPayments = !showUnmatchedPayments" class="cursor-pointer select-none text-left w-full"
+              :aria-expanded="showUnmatchedPayments">
         <h3 class="text-lg font-medium mb-1 text-gray-500">
-          <AppIcon name="chevron-down" :size="14" class="inline-block transition-transform duration-200"
-                   :class="{ 'rotate-180': showUnmatchedPayments }" />
+          <span class="inline-block transition-transform duration-200" :class="{ 'rotate-180': showUnmatchedPayments }"><AppIcon name="chevron-down" :size="16" /></span>
           未匹配支付 ({{ matchStore.unmatchedPayments.length }})
         </h3>
-      </div>
+      </button>
       <div v-show="showUnmatchedPayments" class="ml-4 space-y-1">
         <div v-for="p in matchStore.unmatchedPayments" :key="p.id"
              class="py-2 px-3 rounded cursor-pointer hover:bg-gray-100 transition-colors"
@@ -88,7 +88,7 @@
     </div>
 
     <!-- 空状态 -->
-    <AppEmpty v-if="!matchStore.matches.length && !matchStore.unmatchedInvoices.length"
+    <AppEmpty v-if="!matchStore.matches.length && !matchStore.unmatchedInvoices.length && !matchStore.unmatchedPayments.length"
               icon="link" message="请先在导入页面添加发票和账单，然后点击自动匹配" />
 
     <!-- 手动匹配对话框 -->
