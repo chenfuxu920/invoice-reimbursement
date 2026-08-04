@@ -185,10 +185,17 @@ fn build_html(blocks: &[OutputBlock]) -> String {
 
                 if !rows.is_empty() {
                     let max_rows_per_page: usize = 17;
-                    for chunk in rows.chunks(max_rows_per_page) {
+                    let total: f64 = rows.iter().map(|(_, amt, _)| amt).sum();
+                    let chunks: Vec<_> = rows.chunks(max_rows_per_page).collect();
+                    let chunk_count = chunks.len();
+                    for (i, chunk) in chunks.into_iter().enumerate() {
+                        let is_last = i == chunk_count - 1;
                         html.push_str("<div class=\"page table-page\">\n  <h3>行程支付明细</h3>\n  <table class=\"pay-table\">\n    <thead>\n      <tr><th class=\"col-seq\">行程序号</th><th class=\"col-amt\">行程金额</th><th class=\"col-pay\">支付单号</th></tr>\n    </thead>\n    <tbody>\n");
                         for (seq, amt, pay_id) in chunk {
                             html.push_str(&format!("      <tr><td>{}</td><td>{:.2}</td><td>{}</td></tr>\n", seq, amt, pay_id));
+                        }
+                        if is_last {
+                            html.push_str(&format!("      <tr style=\"font-weight: bold;\"><td>合计</td><td>{:.2}</td><td></td></tr>\n", total));
                         }
                         html.push_str("    </tbody>\n  </table>\n</div>\n");
                     }

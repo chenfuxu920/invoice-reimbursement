@@ -1,19 +1,35 @@
 <template>
   <div class="flex items-center gap-1.5">
     <LoadingOverlay :visible="loading" :message="loadingMessage" />
-    <button @click="exportFormHtml" :disabled="disabled || loading" title="生成报销单 HTML"
+    <button v-if="showLabels" @click="exportFormHtml" :disabled="disabled || loading"
+            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      报销单 HTML
+    </button>
+    <button v-else @click="exportFormHtml" :disabled="disabled || loading" title="生成报销单 HTML"
             class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
       📄
     </button>
-    <button @click="exportComparisonImagePdf" :disabled="disabled || loading" title="生成对照 PDF（含发票图片）"
+    <button v-if="showLabels" @click="exportComparisonImagePdf" :disabled="disabled || loading"
+            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      对照 PDF
+    </button>
+    <button v-else @click="exportComparisonImagePdf" :disabled="disabled || loading" title="生成对照 PDF（含发票图片）"
             class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
       🖼️
     </button>
-    <button @click="exportFormXlsx" :disabled="disabled || loading" title="生成报销单 Excel"
+    <button v-if="showLabels" @click="exportFormXlsx" :disabled="disabled || loading"
+            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      报销单 Excel
+    </button>
+    <button v-else @click="exportFormXlsx" :disabled="disabled || loading" title="生成报销单 Excel"
             class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
       📊
     </button>
-    <button @click="exportComparisonXlsx" :disabled="disabled || loading" title="生成完整信息对照单"
+    <button v-if="showLabels" @click="exportComparisonXlsx" :disabled="disabled || loading"
+            class="px-3 py-1.5 rounded border hover:bg-gray-100 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+      信息对照单
+    </button>
+    <button v-else @click="exportComparisonXlsx" :disabled="disabled || loading" title="生成完整信息对照单"
             class="w-8 h-8 rounded border hover:bg-gray-100 flex items-center justify-center text-sm disabled:opacity-50 disabled:cursor-not-allowed">
       📋
     </button>
@@ -24,7 +40,7 @@
 import { ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import LoadingOverlay from './LoadingOverlay.vue'
-import type { MatchResult } from '../types'
+import type { MatchResult, Trip } from '../types'
 
 const props = defineProps<{
   matchResults: MatchResult[]
@@ -39,7 +55,10 @@ const props = defineProps<{
     companions: number
     hotelLevel: string
   }
+  /// 批量导出模式：提供 trips 时，每个文件按趟分别导出到所选目录
+  trips?: Trip[]
   disabled?: boolean
+  showLabels?: boolean
 }>()
 
 const loading = ref(false)
@@ -54,7 +73,70 @@ function defaultFileName(prefix: string, ext: string): string {
   return `${prefix}_${dest}_${time}.${ext}`
 }
 
+function tripFileName(prefix: string, ext: string, trip: Trip): string {
+  const dest = trip.destination || '未设置'
+  const start = (trip.travelStart || '').replace(/-/g, '')
+  const end = (trip.travelEnd || '').replace(/-/g, '')
+  const time = start && end ? `${start}-${end}` : new Date().toISOString().slice(0, 10)
+  return `${prefix}_${dest}_${time}.${ext}`
+}
+
+function invoiceDirFrom(matches: MatchResult[]): string {
+  for (const r of matches) {
+    if (r.invoice.source.type === 'Pdf' && r.invoice.source.path) {
+      return r.invoice.source.path.split(/[\\/]/).slice(0, -1).join('/')
+    }
+  }
+  return ''
+}
+
+/// 批量模式：选一个目录，把每个 trip 导出为单独文件。
+async function exportEachTrip(
+  fn: (trip: Trip, dir: string) => Promise<void>,
+  message: string,
+) {
+  if (!props.trips || props.trips.length === 0) return
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const dir = await open({ directory: true })
+  if (typeof dir !== 'string') return
+  loading.value = true
+  loadingMessage.value = message
+  try {
+    for (const trip of props.trips) {
+      await fn(trip, dir)
+    }
+    alert(`已导出 ${props.trips.length} 个文件到：${dir}`)
+  } catch (e) {
+    console.error('生成失败:', e)
+    alert('生成失败: ' + e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function formArgs(trip: Trip) {
+  return {
+    matchResults: trip.matches,
+    name: '',
+    department: '',
+    destination: trip.destination,
+    travelStart: trip.travelStart,
+    travelEnd: trip.travelEnd,
+    companions: 0,
+    hotelLevel: trip.hotelLevel,
+  }
+}
+
 async function exportFormHtml() {
+  if (props.trips?.length) {
+    await exportEachTrip(async (trip, dir) => {
+      await invoke('generate_reimbursement_html', {
+        ...formArgs(trip),
+        outputPath: `${dir}/${tripFileName('报销单', 'html', trip)}`,
+      })
+    }, '正在生成报销单...')
+    return
+  }
   loading.value = true
   loadingMessage.value = '正在生成报销单...'
   try {
@@ -86,18 +168,21 @@ async function exportFormHtml() {
 }
 
 async function exportComparisonImagePdf() {
+  if (props.trips?.length) {
+    await exportEachTrip(async (trip, dir) => {
+      await invoke('generate_comparison_image_pdf', {
+        matchResults: trip.matches,
+        invoiceDir: invoiceDirFrom(trip.matches),
+        outputPath: `${dir}/${tripFileName('对照表含图片', 'pdf', trip)}`,
+        destination: trip.destination || null,
+      })
+    }, '正在生成对照单...')
+    return
+  }
   loading.value = true
   loadingMessage.value = '正在生成对照单...'
   try {
-    let invoiceDir = ''
-    for (const r of props.matchResults) {
-      if (r.invoice.source.type === 'Pdf' && r.invoice.source.path) {
-        invoiceDir = r.invoice.source.path
-          .split(/[\\/]/).slice(0, -1).join('/')
-        if (invoiceDir) break
-      }
-    }
-
+    const invoiceDir = invoiceDirFrom(props.matchResults)
     const { save } = await import('@tauri-apps/plugin-dialog')
     const outputPath = await save({
       defaultPath: defaultFileName('对照表含图片', 'pdf'),
@@ -121,6 +206,15 @@ async function exportComparisonImagePdf() {
 }
 
 async function exportFormXlsx() {
+  if (props.trips?.length) {
+    await exportEachTrip(async (trip, dir) => {
+      await invoke('generate_reimbursement_xlsx', {
+        ...formArgs(trip),
+        outputPath: `${dir}/${tripFileName('报销单', 'xlsx', trip)}`,
+      })
+    }, '正在生成 Excel 报销单...')
+    return
+  }
   loading.value = true
   loadingMessage.value = '正在生成 Excel 报销单...'
   try {
@@ -152,6 +246,15 @@ async function exportFormXlsx() {
 }
 
 async function exportComparisonXlsx() {
+  if (props.trips?.length) {
+    await exportEachTrip(async (trip, dir) => {
+      await invoke('generate_comparison_xlsx', {
+        matchResults: trip.matches,
+        outputPath: `${dir}/${tripFileName('信息对照单', 'xlsx', trip)}`,
+      })
+    }, '正在生成完整信息对照单...')
+    return
+  }
   loading.value = true
   loadingMessage.value = '正在生成完整信息对照单...'
   try {

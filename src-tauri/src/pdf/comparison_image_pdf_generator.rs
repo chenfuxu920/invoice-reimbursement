@@ -30,6 +30,7 @@ enum PageSpec {
     /// 市内交通行程表格
     Table {
         rows: Vec<(usize, f64, String)>,
+        total: Option<f64>,
     },
 }
 
@@ -258,38 +259,104 @@ fn place_page(
     let avail_w = PAGE_W - margin * 2.0;
     let avail_h = PAGE_H - margin * 2.0 - bottom_text_h;
 
-    let matrix = if rotate {
+    // 矩阵参数 (a,b,c,d,e,f)：cm 变换为 x' = a*x + c*y + e, y' = b*x + d*y + f
+    let (a, b, c, d, e, f) = if rotate {
         // 行程单竖版 → 横版，旋转 270°（等价原实现的 img.rotate270，即 90° 逆时针）
         // x' = -s*y + e, y' = s*x + f；有效区域左上 (bx0,by1) 转后应居中
         let s = (avail_w / bh).min(avail_h / bw);
         let e = PAGE_W / 2.0 + s * (by1 + by0) / 2.0;
         let f = PAGE_H / 2.0 - s * (bx1 + bx0) / 2.0;
-        format!("0 {} {} 0 {} {}", s, -s, e, f)
+        (0.0, s, -s, 0.0, e, f)
     } else {
         let s = (avail_w / bw).min(avail_h / bh);
         let target_x = (PAGE_W - s * bw) / 2.0;
         let target_y = (PAGE_H - s * bh) / 2.0 + 5.0 * MM;
         let e = target_x - s * bx0;
         let f = target_y - s * by0;
-        format!("{} 0 0 {} {} {}", s, s, e, f)
+        (s, 0.0, 0.0, s, e, f)
     };
+    let matrix = format!("{a} {b} {c} {d} {e} {f}");
 
-    let page = doc.get_object_mut(page_id)?.as_dict_mut()?;
-    page.set(
-        b"MediaBox",
-        Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(PAGE_W as i64),
-            Object::Integer(PAGE_H as i64),
-        ]),
-    );
-    // 源页 CropBox 等裁剪框按其原始坐标系定义，缩放后会造成错裁（文字丢失），移除让其使用 MediaBox
-    page.remove(b"CropBox");
-    page.remove(b"BleedBox");
-    page.remove(b"TrimBox");
-    page.remove(b"ArtBox");
+    {
+        let page = doc.get_object_mut(page_id)?.as_dict_mut()?;
+        page.set(
+            b"MediaBox",
+            Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(PAGE_W as i64),
+                Object::Integer(PAGE_H as i64),
+            ]),
+        );
+        // 源页 CropBox 等裁剪框按其原始坐标系定义，缩放后会造成错裁（文字丢失），移除让其使用 MediaBox
+        page.remove(b"CropBox");
+        page.remove(b"BleedBox");
+        page.remove(b"TrimBox");
+        page.remove(b"ArtBox");
+    }
 
+    // 注解（如发票外框 Square annotation 的外观流）不经过 /Contents 的 CTM，按原始 Rect 绘制。
+    // 若不随矩阵变换，外框会错位在导出页角落（内容缩放居中、边框留在原坐标）。
+    // 这里把页面每个注解的 /Rect 映射到新坐标系。
+    let annot_ids: Vec<ObjectId> = {
+        let page = doc.get_object_mut(page_id)?.as_dict_mut()?;
+        match page.get(b"Annots") {
+            Ok(Object::Array(ids)) => ids
+                .iter()
+                .filter_map(|o| match o {
+                    Object::Reference(id) => Some(*id),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    for aid in annot_ids {
+        let aid = resolve_ref(doc, aid)?;
+        let (nx0, ny0, nx1, ny1) = {
+            let ad = doc.get_object_mut(aid)?.as_dict_mut()?;
+            let corners = match ad.get_mut(b"Rect") {
+                Ok(Object::Array(c)) => c.clone(),
+                _ => continue,
+            };
+            if corners.len() != 4 {
+                continue;
+            }
+            let x0 = corners[0].as_float().unwrap_or(0.0);
+            let y0 = corners[1].as_float().unwrap_or(0.0);
+            let x1 = corners[2].as_float().unwrap_or(0.0);
+            let y1 = corners[3].as_float().unwrap_or(0.0);
+            // 四角全部变换后取包围盒
+            let xs = [
+                a * x0 + c * y0 + e,
+                a * x0 + c * y1 + e,
+                a * x1 + c * y0 + e,
+                a * x1 + c * y1 + e,
+            ];
+            let ys = [
+                b * x0 + d * y0 + f,
+                b * x0 + d * y1 + f,
+                b * x1 + d * y0 + f,
+                b * x1 + d * y1 + f,
+            ];
+            (
+                xs.iter().cloned().fold(f32::INFINITY, f32::min),
+                ys.iter().cloned().fold(f32::INFINITY, f32::min),
+                xs.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+                ys.iter().cloned().fold(f32::NEG_INFINITY, f32::max),
+            )
+        };
+        let ad = doc.get_object_mut(aid)?.as_dict_mut()?;
+        ad.set(
+            b"Rect",
+            Object::Array(vec![
+                Object::Real(nx0),
+                Object::Real(ny0),
+                Object::Real(nx1),
+                Object::Real(ny1),
+            ]),
+        );
+    }
     // 读取页面内容（单引用或数组），解压拼接后先平衡 q/Q，再包一层矩阵
     let contents_ids = page_contents_ids(doc, page_id)?;
     let mut body = Vec::new();
@@ -556,6 +623,7 @@ fn draw_table(
     page_id: ObjectId,
     font: &cjk_font::CjkFont,
     rows: &[(usize, f64, String)],
+    total: Option<f64>,
 ) -> Result<(), Box<dyn Error>> {
     let col_w = [45.0 * MM, 65.0 * MM, 110.0 * MM];
     let total_w = col_w[0] + col_w[1] + col_w[2];
@@ -587,6 +655,17 @@ fn draw_table(
         draw_text(doc, page_id, font, &format!("{:.2}", amt), 11.0, v1_x + h_margin, text_y(row_bot), false)?;
         draw_text(doc, page_id, font, pay_id, 11.0, v2_x + h_margin, text_y(row_bot), false)?;
     }
+    if let Some(total) = total {
+        let i = rows.len() as f32;
+        let row_top = header_bot - row_h * i;
+        let row_bot = row_top - row_h;
+        stroke_rect(doc, page_id, table_left, row_bot, table_left + total_w, row_top)?;
+        for vx in [v1_x, v2_x] {
+            stroke_line(doc, page_id, vx, row_bot, vx, row_top)?;
+        }
+        draw_text(doc, page_id, font, "合计", 11.0, table_left + h_margin, text_y(row_bot), false)?;
+        draw_text(doc, page_id, font, &format!("{:.2}", total), 11.0, v1_x + h_margin, text_y(row_bot), false)?;
+    }
     Ok(())
 }
 
@@ -599,7 +678,7 @@ pub fn generate_comparison_image_pdf(
     let mut specs: Vec<PageSpec> = Vec::new();
     let mut chars: BTreeSet<char> = BTreeSet::new();
     chars.extend(
-        "微信支付宝单号：，。发票金额实报（此处粘贴纸质票据）行程序号支付、".chars(),
+        "微信支付宝单号：，。发票金额实报（此处粘贴纸质票据）行程序号支付、合计".chars(),
     );
     chars.extend('0'..='9');
 
@@ -667,9 +746,12 @@ pub fn generate_comparison_image_pdf(
                 rows.push((i + 1, itin.amount, pay_id));
             }
             if !rows.is_empty() {
-                for chunk in rows.chunks(17) {
+                let total: f64 = rows.iter().map(|(_, amt, _)| amt).sum();
+                let chunks: Vec<_> = rows.chunks(17).collect();
+                for (i, chunk) in chunks.iter().enumerate() {
                     specs.push(PageSpec::Table {
                         rows: chunk.to_vec(),
+                        total: if i == chunks.len() - 1 { Some(total) } else { None },
                     });
                 }
             }
@@ -723,10 +805,10 @@ pub fn generate_comparison_image_pdf(
                 register_font(&mut doc, page_id, &font)?;
                 draw_blank(&mut doc, page_id, &font, payment)?;
             }
-            PageSpec::Table { rows } => {
+            PageSpec::Table { rows, total } => {
                 let page_id = create_blank_page(&mut doc, PAGE_W, PAGE_H)?;
                 register_font(&mut doc, page_id, &font)?;
-                draw_table(&mut doc, page_id, &font, rows)?;
+                draw_table(&mut doc, page_id, &font, rows, *total)?;
             }
         }
     }

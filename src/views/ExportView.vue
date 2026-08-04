@@ -46,6 +46,23 @@
         </span>
       </div>
 
+      <!-- 一键导出所有出差 -->
+      <div v-if="matchStore.trips.length"
+           class="bg-white rounded-lg border p-4 shadow-sm mb-6 flex items-center justify-between gap-3">
+        <div>
+          <p class="text-sm font-medium text-gray-700">一键导出所有出差</p>
+          <p class="text-xs text-gray-400 mt-0.5">选择目录后，每一趟出差将导出为单独的文件（共 {{ matchStore.trips.length }} 趟）</p>
+        </div>
+        <ExportButton
+          :match-results="[]"
+          :unmatched-invoice-ids="[]"
+          :unmatched-payment-ids="[]"
+          :form-info="batchFormInfo"
+          :trips="matchStore.trips"
+          show-labels
+        />
+      </div>
+
       <!-- 分趟列表 -->
       <div class="space-y-6 mb-6">
         <TripCard
@@ -104,6 +121,7 @@ import { ref, computed } from 'vue'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
 import TripCard from '../components/TripCard.vue'
+import ExportButton from '../components/ExportButton.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import type { Invoice, MatchResult, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
@@ -130,6 +148,21 @@ function handleDetailSave(updated: Invoice) {
 function isTicket(invoice: Invoice) {
   return invoice.category === 'Train' || invoice.category === 'Flight'
 }
+
+const batchFormInfo = computed(() => {
+  const trips = matchStore.trips
+  const starts = trips.map(t => t.travelStart).filter(Boolean).sort()
+  const ends = trips.map(t => t.travelEnd).filter(Boolean).sort()
+  return {
+    name: '',
+    department: '',
+    destination: trips.map(t => t.destination).filter(Boolean).join('、') || '未设置',
+    travelStart: starts[0] || '',
+    travelEnd: ends[ends.length - 1] || '',
+    companions: 0,
+    hotelLevel: '',
+  }
+})
 
 const hasUnassignedTickets = computed(() =>
   matchStore.unassigned.some(m => isTicket(m.invoice))

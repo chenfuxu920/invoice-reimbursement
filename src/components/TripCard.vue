@@ -7,7 +7,7 @@
         <span class="text-sm text-gray-600">{{ trip.travelStart }} 至 {{ trip.travelEnd }}</span>
       </div>
       <div class="text-sm text-gray-500">
-        票据 {{ trip.ticketIds.length }} · 发票 {{ trip.matches.length }} · 合计
+        城市间交通 {{ trip.ticketIds.length }} · 发票 {{ trip.matches.length }} · 合计
         <span class="font-medium text-gray-800">¥{{ tripTotal.toFixed(2) }}</span>
       </div>
     </div>
