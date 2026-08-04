@@ -1,23 +1,26 @@
 <template>
-  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 space-y-4">
-    <h3 class="font-medium text-lg">报销信息</h3>
+  <div class="rounded-2xl border border-slate-200/70 bg-gradient-to-b from-white to-slate-50/60 shadow-card p-5 space-y-4">
+    <h3 class="font-display text-base font-bold text-slate-800 flex items-center gap-2">
+      <ClipboardList :size="16" class="text-primary-600" />
+      报销信息
+    </h3>
 
     <div class="grid grid-cols-2 gap-4">
       <div>
-        <label class="block text-sm text-gray-600 mb-1">到达城市</label>
-        <input v-model="form.destination" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" placeholder="请输入到达城市" />
+        <label class="block text-sm font-medium text-slate-600 mb-1.5">到达城市</label>
+        <input v-model="form.destination" class="input" placeholder="请输入到达城市" />
       </div>
       <div>
-        <label class="block text-sm text-gray-600 mb-1">出差开始日期</label>
-        <input v-model="form.travelStart" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
+        <label class="block text-sm font-medium text-slate-600 mb-1.5">出差开始日期</label>
+        <input v-model="form.travelStart" type="date" class="input" />
       </div>
       <div>
-        <label class="block text-sm text-gray-600 mb-1">出差结束日期</label>
-        <input v-model="form.travelEnd" type="date" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
+        <label class="block text-sm font-medium text-slate-600 mb-1.5">出差结束日期</label>
+        <input v-model="form.travelEnd" type="date" class="input" />
       </div>
       <div>
-        <label class="block text-sm text-gray-600 mb-1">住宿级别</label>
-        <select v-model="form.hotelLevel" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
+        <label class="block text-sm font-medium text-slate-600 mb-1.5">住宿级别</label>
+        <select v-model="form.hotelLevel" class="input">
           <option value="其他人员">其他人员</option>
           <option value="师级">师级</option>
           <option value="军级">军级</option>
@@ -30,6 +33,7 @@
 
 <script setup lang="ts">
 import { reactive, watch, nextTick } from 'vue'
+import { ClipboardList } from 'lucide-vue-next'
 
 interface FormState {
   destination: string
@@ -54,7 +58,6 @@ const form = reactive<FormState>({
 })
 
 // 父→子同步（如「从票据提取」按钮批量更新）；flag 防止与下方 form watch 形成回环
-// immediate: 挂载即同步初始值（否则预填的 destination/起止日期不显示）
 let syncing = false
 watch(() => props.modelValue, (val) => {
   if (!val || syncing) return

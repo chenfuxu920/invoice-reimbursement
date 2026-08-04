@@ -1,81 +1,122 @@
 <template>
-  <div class="max-w-4xl mx-auto">
+  <div class="max-w-4xl mx-auto px-5 py-6 pb-8">
     <LoadingOverlay :visible="isLoading" :message="loadingMessage" />
-    <div class="flex justify-between items-center mb-6">
-      <h2 class="text-2xl font-bold">导入发票与账单</h2>
-      <div class="flex gap-2">
-        <AppButton v-if="invoiceStore.invoices.length || paymentStore.payments.length" variant="danger" size="sm" @click="handleClearAll">
-          清空全部
-        </AppButton>
-        <AppButton variant="primary" size="sm" :disabled="globalLoading" @click="handleGlobalImport">
-          <AppIcon name="upload" :size="14" />
-          全局导入
-        </AppButton>
-      </div>
-    </div>
 
-    <div class="mb-8">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-lg font-medium">发票上传</h3>
-        <AppButton variant="primary" size="sm" @click="blankVisible = true">
-          <AppIcon name="plus" :size="14" />
+    <!-- 页头 -->
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6 animate-fade-in-up">
+      <div>
+        <h2 class="font-display text-2xl font-extrabold text-slate-900">收集票据</h2>
+        <p class="text-sm text-slate-500 mt-1">拖入发票与账单，其余交给自动识别</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <AppButton variant="soft" size="sm" @click="blankVisible = true">
+          <Plus :size="14" />
           手动添加空发票
         </AppButton>
+        <AppButton variant="secondary" size="sm" :disabled="globalLoading" @click="handleGlobalImport">
+          <FolderOpen :size="14" />
+          全局导入
+        </AppButton>
+        <AppButton v-if="invoiceStore.invoices.length || paymentStore.payments.length" variant="ghost" size="sm"
+                   class="text-rose-500 hover:bg-rose-50 hover:text-rose-600" @click="handleClearAll">
+          <Trash2 :size="14" />
+          清空全部
+        </AppButton>
       </div>
-      <InvoiceDropZone :loading="invoiceStore.loading" @files-selected="handleInvoiceFiles" />
-      <div v-if="invoiceStore.invoices.length" class="mt-4 grid gap-3">
-        <InvoiceCard v-for="inv in invoiceStore.invoices" :key="inv.id" :invoice="inv"
+    </div>
+
+    <!-- 统一大拖拽区 -->
+    <div class="animate-fade-in-up" style="animation-delay: 60ms">
+      <InvoiceDropZone :loading="invoiceStore.loading" @files-selected="handleInvoiceFiles" @bills-import="handleBillImport" />
+    </div>
+
+    <!-- 发票卡片流 -->
+    <div v-if="invoiceStore.invoices.length" class="mt-8 animate-fade-in-up" style="animation-delay: 120ms">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-display text-base font-bold text-slate-800 flex items-center gap-2">
+          <Receipt :size="17" class="text-primary-600" />
+          已识别发票（{{ invoiceStore.invoices.length }}）
+        </h3>
+        <span class="text-xs text-slate-400">点击卡片可展开行程明细</span>
+      </div>
+      <TransitionGroup name="card-flow" tag="div" class="grid gap-3">
+        <InvoiceCard v-for="(inv, i) in invoiceStore.invoices" :key="inv.id" :invoice="inv"
+                     :style="{ transitionDelay: `${Math.min(i * 40, 320)}ms` }"
                      @remove="invoiceStore.removeInvoice" @view-detail="openInvoiceDetail" />
-      </div>
+      </TransitionGroup>
+    </div>
 
-      <!-- 解析失败错误区 -->
-      <div v-if="invoiceStore.parseErrors.length" class="mt-4 border border-red-200 rounded-[10px] bg-red-50 p-4">
-        <h4 class="text-sm font-medium text-red-700 mb-2">解析失败（{{ invoiceStore.parseErrors.length }}）</h4>
-        <div class="space-y-2">
-          <div v-for="err in invoiceStore.parseErrors" :key="err.id"
-               class="flex items-center justify-between bg-white rounded px-3 py-2 border border-red-100">
-            <div class="flex-1 min-w-0">
-              <p class="text-sm text-gray-700 truncate">{{ err.fileName }}</p>
-              <p class="text-xs text-red-500 truncate">{{ err.message }}</p>
-            </div>
-            <div class="flex gap-2 shrink-0 ml-2">
-              <AppButton variant="primary" size="sm" @click="openManualEntry(err)">手动填写</AppButton>
-              <AppButton size="sm" @click="retryParseError(err)" :disabled="retryingIds.includes(err.id)">
-                {{ retryingIds.includes(err.id) ? '重试中...' : '重试' }}
-              </AppButton>
-              <AppButton variant="ghost" size="sm" class="text-gray-400" @click="invoiceStore.removeParseError(err.id)" title="删除" aria-label="删除">
-                <AppIcon name="x" :size="12" />
-              </AppButton>
-            </div>
+    <!-- 解析失败错误区（醒目橙色错误条） -->
+    <div v-if="invoiceStore.parseErrors.length" class="mt-8 animate-fade-in-up" style="animation-delay: 180ms">
+      <div class="flex items-center gap-2 mb-3">
+        <AlertTriangle :size="16" class="text-amber-500" />
+        <h3 class="font-display text-base font-bold text-amber-700">有 {{ invoiceStore.parseErrors.length }} 张票据未能识别</h3>
+        <p class="text-xs text-amber-500/80">可重试或手动补录</p>
+      </div>
+      <div class="space-y-2">
+        <div v-for="err in invoiceStore.parseErrors" :key="err.id"
+             class="group flex items-center justify-between gap-3 bg-gradient-to-r from-amber-50 to-orange-50/60 border border-amber-200/80 rounded-2xl px-4 py-3 shadow-card animate-scale-in">
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-medium text-amber-800 truncate">{{ err.fileName }}</p>
+            <p class="text-xs text-amber-600/90 truncate mt-0.5">{{ err.message }}</p>
+          </div>
+          <div class="flex gap-2 shrink-0 ml-2">
+            <AppButton variant="primary" size="sm" @click="openManualEntry(err)">手动填写</AppButton>
+            <AppButton variant="secondary" size="sm" @click="retryParseError(err)" :disabled="retryingIds.includes(err.id)" :loading="retryingIds.includes(err.id)">
+              {{ retryingIds.includes(err.id) ? '' : '重试' }}
+            </AppButton>
+            <button @click="invoiceStore.removeParseError(err.id)" class="w-7 h-7 rounded-lg flex items-center justify-center text-amber-400 hover:text-rose-500 hover:bg-rose-50 transition-colors" title="删除" aria-label="删除">
+              <X :size="14" />
+            </button>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="border-t pt-8">
-      <h3 class="text-lg font-medium mb-3">账单导入</h3>
+    <!-- 账单导入 -->
+    <div class="mt-10 border-t border-slate-200/70 pt-8 animate-fade-in-up" style="animation-delay: 240ms">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-display text-base font-bold text-slate-800 flex items-center gap-2">
+          <Wallet :size="17" class="text-emerald-600" />
+          支付账单（{{ paymentStore.payments.length }} 条）
+        </h3>
+        <details class="group">
+          <summary class="text-xs text-slate-400 cursor-pointer hover:text-primary-600 transition-colors select-none list-none flex items-center gap-1.5">
+            <ChevronRight :size="13" class="transition-transform duration-200 group-open:rotate-90" />
+            账单下载指引
+          </summary>
+          <div class="mt-2 space-y-1.5 pl-1">
+            <div class="flex items-center gap-2 text-xs text-slate-500">
+              <span class="chip bg-emerald-50 text-emerald-700 border border-emerald-200/70">微信</span>
+              <span>支付 → 账单 → 账单明细 → ··· → 下载账单 → 用于个人对账</span>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-500">
+              <span class="chip bg-primary-50 text-primary-700 border border-primary-200/70">支付宝</span>
+              <span>我的 → 账单 → ··· → 开具交易流水证明 → 用于个人对账</span>
+            </div>
+          </div>
+        </details>
+      </div>
       <BillImporter @import="handleBillImport" />
-      <details class="group mt-3" :open="!paymentStore.payments.length">
-        <summary class="text-xs text-gray-400 cursor-pointer hover:text-gray-600 transition-colors select-none list-none flex items-center gap-1.5">
-          <svg class="w-3 h-3 transition-transform group-open:rotate-90" viewBox="0 0 12 12" fill="none">
-            <path d="M4 2l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span>账单下载指引</span>
-        </summary>
-        <div class="mt-2 space-y-1.5 pl-4">
-          <div class="flex items-center gap-2 text-xs text-gray-500">
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium leading-tight bg-green-100 text-green-700">微信</span>
-            <span>微信支付 → 我的账单 → 账单明细 → 右上角 ··· → 下载账单 → 用于个人对账</span>
-          </div>
-          <div class="flex items-center gap-2 text-xs text-gray-500">
-            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium leading-tight bg-primary-100 text-primary-700">支付宝</span>
-            <span>我的 → 账单 → 右上角 ··· → 开具交易流水证明 → 用于个人对账</span>
-          </div>
-        </div>
-      </details>
-      <PaymentTable v-if="paymentStore.payments.length" :payments="paymentStore.payments" @remove="paymentStore.removePayment" class="mt-4" />
+      <PaymentTable v-if="paymentStore.payments.length" :payments="paymentStore.payments" @remove="paymentStore.removePayment" class="mt-4 card overflow-hidden" />
     </div>
 
+    <!-- 底部 sticky：去核对匹配 -->
+    <div class="sticky bottom-4 mt-10 z-30">
+      <div class="glass rounded-2xl shadow-card-lg border border-primary-200/50 px-5 py-4 flex items-center justify-between gap-4">
+        <div class="hidden sm:flex items-center gap-5 text-sm">
+          <span class="text-slate-600"><b class="text-lg text-primary-700 tabular-nums">{{ invoiceStore.invoices.length }}</b> 张发票</span>
+          <span class="text-slate-600"><b class="text-lg text-emerald-600 tabular-nums">{{ paymentStore.payments.length }}</b> 条账单</span>
+          <span v-if="invoiceStore.parseErrors.length" class="text-amber-600"><b class="text-lg tabular-nums">{{ invoiceStore.parseErrors.length }}</b> 个待处理</span>
+        </div>
+        <button class="btn-primary-glow px-6 py-2.5 text-sm shrink-0" :disabled="!canGoMatch" @click="$router.push('/match')">
+          去核对匹配
+          <ArrowRight :size="16" />
+        </button>
+      </div>
+    </div>
+
+    <!-- 弹窗 -->
     <InvoiceDetailModal :visible="detailVisible" :invoice="selectedInvoice" @close="detailVisible = false" @save="handleDetailSave" />
     <ManualInvoiceEntryModal :visible="manualVisible" :file-path="manualEntryFile" :error-id="manualEntryErrorId"
                              @close="manualVisible = false" @save="handleManualSave" />
@@ -88,6 +129,9 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import {
+  Plus, FolderOpen, Trash2, Receipt, Wallet, AlertTriangle, X, ArrowRight, ChevronRight,
+} from 'lucide-vue-next'
 import { useInvoiceStore } from '../stores/invoice'
 import { usePaymentStore } from '../stores/payment'
 import { useMatchStore } from '../stores/match'
@@ -97,7 +141,6 @@ import BillImporter from '../components/BillImporter.vue'
 import PaymentTable from '../components/PaymentTable.vue'
 import LoadingOverlay from '../components/LoadingOverlay.vue'
 import AppButton from '../components/ui/AppButton.vue'
-import AppIcon from '../components/ui/AppIcon.vue'
 import { toast } from '../composables/toast'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import ManualInvoiceEntryModal from '../components/ManualInvoiceEntryModal.vue'
@@ -132,34 +175,37 @@ const loadingMessage = computed(() => {
   return '处理中...'
 })
 
+const canGoMatch = computed(() => invoiceStore.invoices.length > 0 && paymentStore.payments.length > 0)
+
 async function handleInvoiceFiles(paths: string[]) {
-  // 先通过 Rust 展开所有路径（目录递归收集、文件直接保留，过滤支持的类型）
-  const resolved: string[] = await invoke('collect_files', { paths, extensions: ['pdf', 'jpg', 'jpeg', 'png'] })
+  // 通过 Rust 展开所有路径（目录递归收集、文件直接保留），同时收集发票与账单文件
+  const resolved: string[] = await invoke('collect_files', {
+    paths,
+    extensions: ['pdf', 'jpg', 'jpeg', 'png', 'xlsx', 'xls', 'csv'],
+  })
   if (resolved.length === 0) return
 
-  const pdfs = resolved.filter(p => p.toLowerCase().endsWith('.pdf'))
-  const images = resolved.filter(p => !p.toLowerCase().endsWith('.pdf'))
+  const bills = resolved.filter(p => /\.(xlsx|xls|csv)$/i.test(p))
+  const invoiceFiles = resolved.filter(p => !/\.(xlsx|xls|csv)$/i.test(p))
+  if (bills.length > 0) await handleBillImport(bills)
+
+  const pdfs = invoiceFiles.filter(p => p.toLowerCase().endsWith('.pdf'))
+  const images = invoiceFiles.filter(p => !p.toLowerCase().endsWith('.pdf'))
 
   invoiceStore.loading = true
   const skipped: string[] = []
   try {
-    // 批量处理图片（addInvoice 内部已做跨批次去重）
     for (const path of images) {
       try {
         const added = await invoiceStore.addInvoice(path, 'image')
-        if (!added) {
-          // 重复跳过，发票号未知此处无法精确记录，仅计数
-          skipped.push('(图片发票)')
-        }
+        if (!added) skipped.push('(图片发票)')
       }
       catch (e) { console.error('添加发票失败:', e) }
     }
-    // 批量处理 PDF
     if (pdfs.length > 0) {
       const result: { invoices: any[], errors: [string, string][], duplicates: string[] } = await invoke('batch_recognize', { filePaths: pdfs })
       const crossSkipped = invoiceStore.addInvoicesSkipDuplicates(result.invoices)
       skipped.push(...result.duplicates, ...crossSkipped)
-      // 将解析失败项写入 store 错误区
       const errs: ParseError[] = result.errors.map(([name, msg], i) => ({
         id: `pdf-${Date.now()}-${i}`,
         filePath: name,
@@ -176,19 +222,14 @@ async function handleInvoiceFiles(paths: string[]) {
   notifyDuplicates(skipped)
 }
 
-async function handleBillImport(paths: string[], type: 'wechat' | 'alipay') {
-  // 先展开目录，过滤账单文件类型
+async function handleBillImport(paths: string[]) {
   const resolved: string[] = await invoke('collect_files', { paths, extensions: ['xlsx', 'xls', 'csv'] })
   if (resolved.length === 0) return
 
   billLoading.value = true
   try {
     for (const filePath of resolved) {
-      if (type === 'wechat') {
-        await paymentStore.importWechatBill(filePath)
-      } else {
-        await paymentStore.importAlipayBill(filePath)
-      }
+      await paymentStore.importBill(filePath)
     }
   } catch (e) {
     console.error('导入账单失败:', e)
@@ -253,7 +294,6 @@ async function handleGlobalImport() {
   }
 }
 
-/// 去重提示：统计 + 明细（最多展示 5 个，超出折叠）
 function notifyDuplicates(skipped: string[]) {
   if (skipped.length === 0) return
   toast(`已跳过 ${skipped.length} 张重复发票：\n${formatDupDetail(skipped)}`, 'info')
@@ -335,3 +375,25 @@ async function retryParseError(err: ParseError) {
   }
 }
 </script>
+
+<style scoped>
+.card-flow-enter-active {
+  transition: all 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.card-flow-leave-active {
+  transition: all 0.2s ease;
+  position: absolute;
+  width: calc(100% - 2.5rem);
+}
+.card-flow-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.97);
+}
+.card-flow-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+.card-flow-move {
+  transition: transform 0.35s ease;
+}
+</style>

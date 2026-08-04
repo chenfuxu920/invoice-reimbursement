@@ -1,42 +1,85 @@
 <template>
-  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 space-y-4">
-    <div class="flex items-center justify-between flex-wrap gap-2">
-      <div class="flex items-center gap-3 flex-wrap">
-        <AppBadge tone="info">出差 {{ index }}</AppBadge>
-        <span class="font-medium">目的地：{{ trip.destination || '未设置' }}</span>
-        <span class="text-sm text-gray-600">{{ trip.travelStart }} 至 {{ trip.travelEnd }}</span>
+  <div class="card overflow-hidden animate-fade-in-up">
+    <!-- 封面区 -->
+    <div class="relative overflow-hidden bg-gradient-to-br from-slate-900 via-primary-900 to-accent-700 px-6 py-6">
+      <div class="absolute -top-14 -right-10 w-48 h-48 rounded-full bg-accent-500/20 pointer-events-none" />
+      <div class="absolute -bottom-16 left-1/3 w-44 h-44 rounded-full bg-primary-500/20 pointer-events-none" />
+      <div class="absolute top-5 right-6 opacity-10 text-white rotate-6 pointer-events-none">
+        <MapPin :size="72" />
       </div>
-      <div class="text-sm text-gray-500">
-        城市间交通 {{ trip.ticketIds.length }} · 发票 {{ trip.matches.length }} · 合计
-        <span class="font-medium text-gray-800">¥{{ tripTotal.toFixed(2) }}</span>
+
+      <div class="relative flex flex-wrap items-end justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="chip bg-white/15 text-white border border-white/20">出差 {{ index }}</span>
+            <span class="chip bg-white/10 text-white/80 border border-white/10">
+              <CalendarDays :size="12" /> {{ trip.travelStart || '—' }} 至 {{ trip.travelEnd || '—' }}
+            </span>
+          </div>
+          <h3 class="font-display text-2xl md:text-3xl font-extrabold text-white truncate">{{ trip.destination || '未设置目的地' }}</h3>
+          <p class="text-sm text-white/70 mt-1.5">
+            城市间交通 {{ trip.ticketIds.length }} · 发票 {{ trip.matches.length }}
+          </p>
+        </div>
+        <div class="text-right shrink-0">
+          <p class="text-xs text-white/60">合计金额</p>
+          <p class="font-display text-3xl md:text-4xl font-extrabold text-white tabular-nums">¥{{ tripTotal.toFixed(2) }}</p>
+        </div>
       </div>
     </div>
 
-    <ReimbursementForm :model-value="formModel" @update="handleFormUpdate" />
+    <!-- 报销表单 -->
+    <div class="p-5">
+      <ReimbursementForm :model-value="formModel" @update="handleFormUpdate" />
 
-    <div class="border border-gray-200 rounded-lg">
-      <button @click="showInvoices = !showInvoices" :aria-expanded="showInvoices"
-              class="w-full flex items-center justify-between px-3 py-2 text-sm text-gray-600 hover:bg-gray-50">
-        <span>发票明细（{{ trip.matches.length }}）</span>
-        <span>{{ showInvoices ? '▾' : '▸' }}</span>
-      </button>
-      <div v-if="showInvoices" class="divide-y divide-gray-100">
-        <div v-for="m in trip.matches" :key="m.invoice_id"
-             class="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
-             @click="openDetail(m.invoice)">
-          <span class="w-20 shrink-0 text-xs font-medium" :class="getCategoryBadgeClass(m.invoice.category)">
-            {{ CATEGORY_LABELS[m.invoice.category] }}
+      <!-- 发票明细 -->
+      <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+        <button @click="showInvoices = !showInvoices" :aria-expanded="showInvoices"
+                class="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors">
+          <span class="flex items-center gap-2">
+            <Receipt :size="15" class="text-primary-600" />
+            发票明细（{{ trip.matches.length }}）
           </span>
-          <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
-          <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
-          <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
-          <span class="text-primary-600 text-xs shrink-0">详情</span>
-          <select :value="trip.id" @click.stop @change="handleMoveInvoice(m.invoice_id, ($event.target as HTMLSelectElement).value)"
-                  class="text-xs border rounded px-1 py-0.5 shrink-0">
-            <option v-for="t in otherTrips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
-            <option value="">移到待调整</option>
-          </select>
-        </div>
+          <ChevronDown :size="15" class="text-slate-400 transition-transform duration-300" :class="{ 'rotate-180': showInvoices }" />
+        </button>
+        <Transition name="acc">
+          <div v-if="showInvoices" class="divide-y divide-slate-100 border-t border-slate-100">
+            <div v-for="m in trip.matches" :key="m.invoice_id"
+                 class="flex flex-wrap items-center gap-2 px-4 py-2.5 text-sm hover:bg-slate-50 cursor-pointer transition-colors"
+                 @click="openDetail(m.invoice)">
+              <span class="w-20 shrink-0 text-xs font-medium chip border !py-0.5" :class="getCategoryBadgeClass(m.invoice.category)">
+                {{ CATEGORY_LABELS[m.invoice.category] }}
+              </span>
+              <span class="text-slate-500 truncate flex-1 min-w-24">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
+              <span class="text-slate-400 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
+              <span class="font-semibold text-slate-800 shrink-0 tabular-nums">¥{{ m.invoice.amount.toFixed(2) }}</span>
+              <span class="text-primary-600 text-xs shrink-0">详情</span>
+              <select :value="trip.id" @click.stop @change="handleMoveInvoice(m.invoice_id, ($event.target as HTMLSelectElement).value)"
+                      class="input-sm !w-auto shrink-0 cursor-pointer">
+                <option v-for="t in otherTrips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
+                <option value="">移到待调整</option>
+              </select>
+            </div>
+          </div>
+        </Transition>
+      </div>
+
+      <!-- 操作区 -->
+      <div class="mt-4 flex flex-wrap items-center gap-2">
+        <AppButton variant="secondary" size="sm" @click="togglePreview" :title="previewing ? '收起预览' : '预览本趟报销单'">
+          <Eye :size="14" />
+          {{ previewing ? '收起预览' : '预览' }}
+        </AppButton>
+        <ExportButton
+          :match-results="trip.matches"
+          :unmatched-invoice-ids="[]"
+          :unmatched-payment-ids="[]"
+          :form-info="formInfo"
+          show-labels
+        />
+      </div>
+      <div v-if="previewing && previewHtml" class="mt-4 rounded-xl border border-slate-200 overflow-hidden animate-fade-in">
+        <iframe :srcdoc="previewHtml" class="w-full" style="min-height: 500px; border: none;" title="报销单预览" />
       </div>
     </div>
 
@@ -46,31 +89,13 @@
       @close="detailVisible = false"
       @save="handleDetailSave"
     />
-
-    <div class="flex items-center gap-1.5">
-      <button @click="togglePreview" :title="previewing ? '收起预览' : '预览本趟报销单'"
-              :aria-label="previewing ? '收起预览' : '预览本趟报销单'"
-              class="w-8 h-8 rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center justify-center">
-        <AppIcon name="eye" :size="16" />
-      </button>
-      <ExportButton
-        :match-results="trip.matches"
-        :unmatched-invoice-ids="[]"
-        :unmatched-payment-ids="[]"
-        :form-info="formInfo"
-        show-labels
-      />
-    </div>
-    <div v-if="previewing && previewHtml" class="border border-gray-200 rounded-lg overflow-hidden">
-      <iframe :srcdoc="previewHtml" class="w-full" style="min-height: 500px; border: none;" title="报销单预览" />
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import AppBadge from './ui/AppBadge.vue'
-import AppIcon from './ui/AppIcon.vue'
+import { MapPin, CalendarDays, Receipt, ChevronDown, Eye } from 'lucide-vue-next'
+import AppButton from './ui/AppButton.vue'
 import ReimbursementForm from './ReimbursementForm.vue'
 import ExportButton from './ExportButton.vue'
 import InvoiceDetailModal from './InvoiceDetailModal.vue'
@@ -156,3 +181,8 @@ async function togglePreview() {
   }
 }
 </script>
+
+<style scoped>
+.acc-enter-active, .acc-leave-active { transition: all 0.25s ease; }
+.acc-enter-from, .acc-leave-to { opacity: 0; transform: translateY(-4px); }
+</style>

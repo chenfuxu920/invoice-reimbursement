@@ -1,49 +1,51 @@
 <template>
-  <div class="max-w-4xl mx-auto">
-    <h2 class="text-2xl font-bold mb-6">导出报销表</h2>
+  <div class="max-w-4xl mx-auto px-5 py-6 pb-10">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-6 animate-fade-in-up">
+      <div>
+        <h2 class="font-display text-2xl font-extrabold text-slate-900">打包导出</h2>
+        <p class="text-sm text-slate-500 mt-1">按出差分趟归档，一键生成报销材料</p>
+      </div>
+    </div>
 
-    <AppEmpty v-if="matchStore.matches.length === 0" icon="download" message="请先在匹配页面完成发票与账单的匹配" />
+    <AppEmpty v-if="matchStore.matches.length === 0" icon="download" message="请先在核对匹配页完成发票与账单的匹配" class="animate-fade-in-up">
+      <AppButton variant="primary" @click="$router.push('/match')">去核对匹配</AppButton>
+    </AppEmpty>
 
     <template v-else>
-      <!-- 匹配摘要 -->
-      <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 mb-6">
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center">
-          <div>
-            <p class="text-2xl font-bold text-primary-600 tabular-nums">{{ matchStore.matches.length }}</p>
-            <p class="text-sm text-gray-500">已匹配</p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-amber-600 tabular-nums">{{ matchStore.unmatchedInvoices.length }}</p>
-            <p class="text-sm text-gray-500">未匹配发票</p>
-          </div>
-          <div>
-            <p class="text-2xl font-bold text-gray-600 tabular-nums">{{ matchStore.unmatchedPayments.length }}</p>
-            <p class="text-sm text-gray-500">未匹配支付</p>
-          </div>
-        </div>
+      <!-- 匹配摘要（小芯片行） -->
+      <div class="flex flex-wrap items-center gap-2 mb-6 animate-fade-in-up">
+        <span class="chip bg-white text-slate-600 border border-slate-200 shadow-card"><CheckCircle2 :size="13" class="text-emerald-500" /> 已匹配 {{ matchStore.matches.length }}</span>
+        <span v-if="matchStore.unmatchedInvoices.length" class="chip bg-amber-50 text-amber-700 border border-amber-200/70"><AlertTriangle :size="13" /> 未匹配发票 {{ matchStore.unmatchedInvoices.length }}</span>
+        <span v-if="matchStore.unmatchedPayments.length" class="chip bg-slate-50 text-slate-600 border border-slate-200/70">未匹配支付 {{ matchStore.unmatchedPayments.length }}</span>
+        <span class="chip bg-white text-slate-600 border border-slate-200 shadow-card"><Package :size="13" class="text-primary-600" /> 出差 {{ matchStore.trips.length }} 趟</span>
       </div>
 
       <!-- 分趟工具栏：存在待调整票据时提供出发城市重匹配 -->
       <div v-if="hasUnassignedTickets"
-           class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 mb-6 flex flex-wrap items-center gap-3">
+           class="card p-5 mb-6 flex flex-wrap items-center gap-3 animate-fade-in-up">
         <div class="flex items-center gap-2">
-          <label class="text-sm text-gray-600">出发城市</label>
-          <input v-model="originInput" class="w-32 border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
-                 placeholder="如：长沙" />
+          <label class="text-sm text-slate-600">出发城市</label>
+          <input v-model="originInput" class="input !w-36 !py-1.5" placeholder="如：长沙" />
         </div>
         <AppButton variant="primary" @click="handleResegment">重新匹配行程</AppButton>
         <AppButton @click="handleResetAuto">恢复自动分趟</AppButton>
-        <span v-if="matchStore.segmentOrigin" class="text-xs text-gray-400">
+        <span v-if="matchStore.segmentOrigin" class="text-xs text-slate-400">
           当前按出发城市「{{ matchStore.segmentOrigin }}」分组
         </span>
       </div>
 
       <!-- 一键导出所有出差 -->
       <div v-if="matchStore.trips.length"
-           class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4 mb-6 flex items-center justify-between gap-3">
-        <div>
-          <p class="text-sm font-medium text-gray-700">一键导出所有出差</p>
-          <p class="text-xs text-gray-400 mt-0.5">选择目录后，每一趟出差将导出为单独的文件（共 {{ matchStore.trips.length }} 趟）</p>
+           class="card card-hover p-5 mb-6 flex flex-wrap items-center justify-between gap-4 animate-fade-in-up"
+           style="animation-delay: 60ms">
+        <div class="flex items-center gap-3 min-w-0">
+          <span class="w-11 h-11 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-glow-sm flex items-center justify-center shrink-0">
+            <FileDown :size="20" />
+          </span>
+          <div class="min-w-0">
+            <p class="font-display text-sm font-bold text-slate-800">一键导出所有出差</p>
+            <p class="text-xs text-slate-400 mt-0.5">选择目录后，每一趟出差将导出为单独的文件（共 {{ matchStore.trips.length }} 趟）</p>
+          </div>
         </div>
         <ExportButton
           :match-results="[]"
@@ -55,7 +57,7 @@
         />
       </div>
 
-      <!-- 分趟列表 -->
+      <!-- 分趟封面档案卡列表 -->
       <div class="space-y-6 mb-6">
         <TripCard
           v-for="(trip, idx) in matchStore.trips"
@@ -63,33 +65,39 @@
           :trip="trip"
           :index="idx + 1"
           :other-trips="otherTrips(trip)"
+          :style="{ animationDelay: `${idx * 90}ms` }"
+          class="animate-fade-in-up"
           @move="handleMove"
           @form-update="handleTripFormUpdate"
         />
       </div>
 
       <!-- 待调整区 -->
-      <div v-if="matchStore.unassigned.length" class="bg-amber-50 border border-amber-200 rounded-[10px] p-4 mb-6">
-        <h3 class="text-sm font-medium text-amber-700 mb-1">待调整（{{ matchStore.unassigned.length }}）</h3>
-        <p class="text-xs text-amber-500 mb-3">
+      <div v-if="matchStore.unassigned.length"
+           class="card border-amber-200/80 bg-gradient-to-br from-amber-50/80 to-orange-50/40 p-5 mb-6 animate-fade-in-up">
+        <div class="flex items-center gap-2 mb-1">
+          <AlertTriangle :size="16" class="text-amber-500" />
+          <h3 class="font-display text-base font-bold text-amber-800">待调整（{{ matchStore.unassigned.length }}）</h3>
+        </div>
+        <p class="text-xs text-amber-600/90 mb-4 leading-relaxed">
           以下发票无法自动归入某趟出差（票据未配对成功或日期在行程之外），可移入某趟；票据可「新建出差」。
         </p>
         <div class="space-y-2">
           <div v-for="m in matchStore.unassigned" :key="m.invoice_id"
-               class="flex items-center gap-2 bg-white rounded px-3 py-2 border border-amber-100 text-sm flex-wrap cursor-pointer hover:bg-amber-50"
+               class="flex flex-wrap items-center gap-2 bg-white/80 rounded-xl px-4 py-2.5 border border-amber-100 text-sm cursor-pointer hover:bg-white hover:shadow-card transition-all"
                @click="openDetail(m.invoice)">
-            <span class="w-20 shrink-0 text-xs font-medium" :class="getCategoryBadgeClass(m.invoice.category)">
+            <span class="w-20 shrink-0 text-xs font-medium chip border" :class="getCategoryBadgeClass(m.invoice.category)">
               {{ CATEGORY_LABELS[m.invoice.category] }}
             </span>
-            <span class="text-gray-500 truncate flex-1">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
-            <span class="text-gray-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
-            <span class="text-gray-800 shrink-0">¥{{ m.invoice.amount.toFixed(2) }}</span>
+            <span class="text-slate-500 truncate flex-1 min-w-24">{{ m.invoice.seller_name || m.invoice.invoice_number || m.invoice.id }}</span>
+            <span class="text-slate-500 shrink-0">{{ m.invoice.travel_date || m.invoice.date }}</span>
+            <span class="font-semibold text-slate-800 shrink-0 tabular-nums">¥{{ m.invoice.amount.toFixed(2) }}</span>
             <span class="text-primary-600 text-xs shrink-0">详情</span>
             <AppButton v-if="isTicket(m.invoice)" variant="primary" size="sm" @click.stop="handleCreateTrip(m)">
-              <AppIcon name="plus" :size="12" class="inline-block mr-0.5 -mt-0.5" />新建出差
+              <Plus :size="12" class="inline-block -mt-0.5" />新建出差
             </AppButton>
             <select @click.stop @change="handleMove(m.invoice_id, ($event.target as HTMLSelectElement).value)"
-                    class="text-xs border rounded px-1 py-0.5 shrink-0">
+                    class="input-sm !w-auto shrink-0 cursor-pointer">
               <option value="" disabled selected>移到出差...</option>
               <option v-for="t in matchStore.trips" :key="t.id" :value="t.id">出差 {{ t.destination || '未设置' }} {{ t.travelStart }}~{{ t.travelEnd }}</option>
             </select>
@@ -109,13 +117,13 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { CheckCircle2, AlertTriangle, Package, FileDown, Plus } from 'lucide-vue-next'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
 import TripCard from '../components/TripCard.vue'
 import ExportButton from '../components/ExportButton.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import AppButton from '../components/ui/AppButton.vue'
-import AppIcon from '../components/ui/AppIcon.vue'
 import AppEmpty from '../components/ui/AppEmpty.vue'
 import { toast } from '../composables/toast'
 import type { Invoice, MatchResult, Trip } from '../types'

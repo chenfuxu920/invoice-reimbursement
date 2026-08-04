@@ -158,6 +158,12 @@ async fn import_alipay_bill(file_path: String) -> Result<Vec<PaymentRecord>, Str
     alipay_parser::parse_alipay_bill(&file_path)
 }
 
+// 账单自动识别导入命令（微信/支付宝按内容自动判断）
+#[tauri::command]
+async fn import_bill(file_path: String) -> Result<Vec<PaymentRecord>, String> {
+    parser::parse_bill_auto(&file_path)
+}
+
 // 自动批量匹配命令
 #[tauri::command]
 async fn auto_match(
@@ -630,6 +636,7 @@ pub fn run() {
             recognize_itinerary,
             import_wechat_bill,
             import_alipay_bill,
+            import_bill,
             auto_match,
             manual_match,
             generate_form_pdf,

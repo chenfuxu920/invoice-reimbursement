@@ -16,6 +16,12 @@ export const usePaymentStore = defineStore('payment', () => {
     payments.value.push(...records)
   }
 
+  /// 自动识别账单类型（微信/支付宝）导入
+  async function importBill(filePath: string) {
+    const records: PaymentRecord[] = await invoke('import_bill', { filePath })
+    payments.value.push(...records)
+  }
+
   function removePayment(id: string) {
     payments.value = payments.value.filter(p => p.id !== id)
   }
@@ -24,5 +30,5 @@ export const usePaymentStore = defineStore('payment', () => {
     payments.value = []
   }
 
-  return { payments, importWechatBill, importAlipayBill, removePayment, clearPayments }
+  return { payments, importWechatBill, importAlipayBill, importBill, removePayment, clearPayments }
 })

@@ -1,24 +1,30 @@
 <template>
   <Teleport to="body">
-    <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" @click.self="emit('cancel')">
-      <div class="bg-white rounded-[10px] shadow-2xl w-full max-w-sm">
-        <div class="px-5 py-4 border-b border-gray-100">
-          <h2 class="text-base font-semibold text-gray-800">{{ title }}</h2>
-        </div>
-        <div class="px-5 py-4">
-          <p class="text-sm text-gray-600 whitespace-pre-line">{{ message }}</p>
-        </div>
-        <div class="flex justify-end gap-2 px-5 py-3 border-t border-gray-100">
-          <AppButton @click="emit('cancel')">取消</AppButton>
-          <AppButton variant="danger" @click="emit('confirm')">{{ confirmText }}</AppButton>
+    <Transition name="modal">
+      <div v-if="visible" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40" @click.self="emit('cancel')">
+        <div class="bg-white/95 rounded-2xl shadow-card-lg w-full max-w-sm animate-scale-in overflow-hidden">
+          <div class="px-6 pt-5 pb-4 flex items-start gap-3">
+            <span class="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+              <AlertTriangle :size="20" />
+            </span>
+            <div class="min-w-0">
+              <h2 class="text-base font-bold text-slate-800">{{ title }}</h2>
+              <p class="text-sm text-slate-500 mt-1.5 whitespace-pre-line leading-relaxed">{{ message }}</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2.5 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
+            <AppButton @click="emit('cancel')">取消</AppButton>
+            <AppButton variant="danger" @click="emit('confirm')">{{ confirmText }}</AppButton>
+          </div>
         </div>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
 <script setup lang="ts">
 import { watch, onUnmounted } from 'vue'
+import { AlertTriangle } from 'lucide-vue-next'
 import AppButton from './AppButton.vue'
 
 const props = withDefaults(defineProps<{
@@ -44,3 +50,8 @@ watch(() => props.visible, (v) => {
 
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
+
+<style scoped>
+.modal-enter-active, .modal-leave-active { transition: opacity 0.25s ease; }
+.modal-enter-from, .modal-leave-to { opacity: 0; }
+</style>

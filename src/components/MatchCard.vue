@@ -1,117 +1,124 @@
 <template>
-  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4">
-    <div class="flex justify-between items-start mb-3">
+  <div class="card card-hover p-5">
+    <!-- 头部：匹配类型 + 置信度 + 调整 -->
+    <div class="flex items-center justify-between mb-4">
       <div class="flex items-center gap-2">
-        <span class="px-2 py-0.5 rounded text-xs font-medium"
-              :class="matchTypeClass">
+        <span class="chip border font-semibold" :class="matchTypeClass">
+          <component :is="matchTypeIcon" :size="12" />
           {{ matchTypeLabel }}
         </span>
-        <span class="px-2 py-0.5 rounded text-xs"
-              :class="confidenceClass">
-          {{ (match.confidence * 100).toFixed(0) }}%
+        <span class="chip border" :class="confidenceClass">
+          <Gauge :size="12" /> {{ (match.confidence * 100).toFixed(0) }}%
+        </span>
+        <span v-if="match.amount_diff > 0.01" class="chip bg-orange-50 text-orange-600 border-orange-200/70" :title="'发票与支付金额差异'">
+          差 ¥{{ match.amount_diff.toFixed(2) }}
         </span>
       </div>
-      <button @click="$emit('adjust', match)" class="text-sm text-primary-600 hover:text-primary-700">
-        调整
-      </button>
+      <AppButton variant="soft" size="sm" @click="$emit('adjust', match)">
+        <SlidersHorizontal :size="13" /> 调整
+      </AppButton>
     </div>
 
-    <div class="grid grid-cols-2 gap-3">
-      <div class="bg-gray-50 rounded p-2 cursor-pointer hover:bg-gray-100 transition-colors" @click="$emit('view-invoice', match.invoice)">
-        <div class="flex items-center justify-between">
-          <p class="text-xs text-gray-500">发票 <span class="text-primary-600">查看详情 →</span></p>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <!-- 发票侧 -->
+      <div class="rounded-xl bg-gradient-to-br from-slate-50 to-primary-50/60 border border-slate-200/70 p-3.5 cursor-pointer hover:border-primary-300 hover:shadow-card transition-all"
+           @click="$emit('view-invoice', match.invoice)">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <p class="text-xs text-slate-500 flex items-center gap-1">
+            <Receipt :size="12" class="text-primary-600" />
+            发票 <span class="text-primary-600">查看详情 →</span>
+          </p>
           <select :value="match.invoice.category" @change="$emit('update-category', match.invoice.id, ($event.target as HTMLSelectElement).value as InvoiceCategory)" @click.stop
-                  class="px-1 py-0.5 rounded text-xs border-0 cursor-pointer"
+                  class="input-sm !w-auto !py-1 text-xs cursor-pointer"
                   :class="getCategoryBadgeClass(match.invoice.category)">
             <option v-for="(label, key) in CATEGORY_LABELS" :key="key" :value="key">{{ label }}</option>
           </select>
         </div>
-        <p class="font-medium">{{ match.invoice.invoice_number || '无编号' }}</p>
-        <p class="text-sm text-gray-600">¥{{ match.invoice.amount.toFixed(2) }}</p>
+        <p class="font-display text-lg font-bold text-slate-800 truncate">{{ match.invoice.invoice_number || '无编号' }}</p>
+        <p class="text-xs text-slate-400 truncate mt-0.5">{{ match.invoice.seller_name || '未知销售方' }}</p>
+        <p class="font-display text-xl font-extrabold text-slate-900 tabular-nums mt-1">¥{{ match.invoice.amount.toFixed(2) }}</p>
       </div>
-      <div class="bg-gray-50 rounded p-2 space-y-1">
-        <p class="text-xs text-gray-500">支付</p>
+
+      <!-- 支付侧 -->
+      <div class="rounded-xl bg-slate-50/80 border border-slate-200/70 p-3.5">
+        <p class="text-xs text-slate-500 mb-1.5 flex items-center gap-1">
+          <Wallet :size="12" class="text-emerald-600" /> 支付
+        </p>
         <!-- 行程级配对展示 -->
         <template v-if="hasItineraries">
           <div v-for="row in itineraryRows" :key="row.idx"
-               class="flex items-center justify-between gap-1 py-0.5 group cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1"
+               class="flex items-center justify-between gap-1.5 py-1.5 group cursor-pointer hover:bg-white rounded-lg px-1.5 -mx-1.5 transition-colors"
                @click="$emit('view-payment', match)">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
-                <span class="shrink-0 text-xs text-gray-400">#{{ row.idx + 1 }}</span>
+                <span class="shrink-0 text-xs text-slate-400">#{{ row.idx + 1 }}</span>
                 <p class="text-sm font-medium truncate">{{ row.payment?.merchant_name || '未配对' }}</p>
-                <span v-if="row.payment" class="shrink-0 text-xs px-1 py-0.5 rounded"
-                      :class="row.payment.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700' : 'bg-primary-50 text-primary-700'">
+                <span v-if="row.payment" class="shrink-0 chip border !py-0 !px-1.5"
+                      :class="row.payment.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70' : 'bg-primary-50 text-primary-700 border-primary-200/70'">
                   {{ row.payment.source === 'Wechat' ? '微信' : '支付宝' }}
                 </span>
               </div>
-              <div class="flex items-center gap-2 text-xs">
-                <span class="text-gray-500">行程 ¥{{ row.itin.amount.toFixed(2) }}</span>
-                <span class="text-gray-300">→</span>
-                <span v-if="row.payment" class="text-gray-700 font-medium">¥{{ row.payment.amount.toFixed(2) }}</span>
+              <div class="flex items-center gap-1.5 text-xs mt-0.5 flex-wrap">
+                <span class="text-slate-500">行程 ¥{{ row.itin.amount.toFixed(2) }}</span>
+                <ArrowRight :size="10" class="text-slate-300" />
+                <span v-if="row.payment" class="text-slate-700 font-medium">¥{{ row.payment.amount.toFixed(2) }}</span>
                 <span v-if="row.payment" class="text-orange-400">差¥{{ Math.abs(row.payment.amount - row.itin.amount).toFixed(2) }}</span>
                 <template v-if="row.payment && row.timeDiffLabel">
-                  <span class="text-gray-300">|</span>
+                  <span class="text-slate-300">|</span>
                   <span class="text-orange-400">时差{{ row.timeDiffLabel }}</span>
                 </template>
               </div>
             </div>
             <button v-if="row.payment" @click.stop="$emit('remove-payment', match.invoice_id, row.payment.id)"
-                    class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    :aria-label="'移除此支付'"
-                    title="移除此支付">
-              <AppIcon name="x" :size="14" />
+                    class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    :aria-label="'移除此支付'" title="移除此支付">
+              <X :size="13" />
             </button>
           </div>
         </template>
         <!-- 普通支付列表 -->
         <template v-else>
           <div v-for="p in match.payments" :key="p.id"
-               class="flex items-center justify-between gap-1 py-0.5 group cursor-pointer hover:bg-gray-100 rounded px-1 -mx-1"
+               class="flex items-center justify-between gap-1.5 py-1.5 group cursor-pointer hover:bg-white rounded-lg px-1.5 -mx-1.5 transition-colors"
                @click="$emit('view-payment', match)">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <p class="text-sm font-medium truncate">{{ p.merchant_name || '未知' }}</p>
-                <span class="shrink-0 text-xs px-1 py-0.5 rounded"
-                      :class="p.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700' : 'bg-primary-50 text-primary-700'">
+                <span class="shrink-0 chip border !py-0 !px-1.5"
+                      :class="p.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70' : 'bg-primary-50 text-primary-700 border-primary-200/70'">
                   {{ p.source === 'Wechat' ? '微信' : '支付宝' }}
                 </span>
               </div>
-              <div class="flex items-center gap-2 text-xs">
-                <span class="text-gray-700 font-medium">¥{{ p.amount.toFixed(2) }}</span>
+              <div class="flex items-center gap-1.5 text-xs mt-0.5 flex-wrap">
+                <span class="text-slate-700 font-medium">¥{{ p.amount.toFixed(2) }}</span>
                 <template v-if="p.refund_amount > 0 || p.discount > 0">
-                  <span class="text-gray-300">|</span>
-                  <span v-if="p.refund_amount > 0" class="text-red-400">退款 ¥{{ p.refund_amount.toFixed(2) }}</span>
-                  <span v-if="p.refund_amount > 0 && p.discount > 0" class="text-gray-300"> </span>
-                  <span v-if="p.discount > 0" class="text-green-400">优惠 ¥{{ p.discount.toFixed(2) }}</span>
+                  <span class="text-slate-300">|</span>
+                  <span v-if="p.refund_amount > 0" class="text-rose-400">退款 ¥{{ p.refund_amount.toFixed(2) }}</span>
+                  <span v-if="p.discount > 0" class="text-emerald-400">优惠 ¥{{ p.discount.toFixed(2) }}</span>
                 </template>
-                <span class="text-gray-300">|</span>
-                <span class="text-gray-400">{{ formatTime(p.transaction_time) }}</span>
+                <span class="text-slate-300">|</span>
+                <span class="text-slate-400">{{ formatTime(p.transaction_time) }}</span>
               </div>
             </div>
             <button @click.stop="$emit('remove-payment', match.invoice_id, p.id)"
-                    class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                    :aria-label="'移除此支付'"
-                    title="移除此支付">
-              <AppIcon name="x" :size="14" />
+                    class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    :aria-label="'移除此支付'" title="移除此支付">
+              <X :size="13" />
             </button>
           </div>
         </template>
       </div>
-    </div>
-
-    <div v-if="match.amount_diff > 0.01" class="mt-2 text-xs text-orange-500">
-      金额差异: ¥{{ match.amount_diff.toFixed(2) }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Receipt, Wallet, ArrowRight, X, Gauge, SlidersHorizontal, Link2, Layers, HandCoins, UserCheck } from 'lucide-vue-next'
+import AppButton from './ui/AppButton.vue'
 import type { Invoice, MatchResult, InvoiceCategory } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
-import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ match: MatchResult }>()
 defineEmits<{
@@ -185,28 +192,32 @@ function formatDuration(ms: number): string {
 
 const matchTypeLabel = computed(() => {
   const map: Record<string, string> = {
-    OneToOne: '一对一',
-    OneToMany: '一对多',
-    Unmatched: '未匹配',
-    ManualConfirmed: '手动确认'
+    OneToOne: '一对一', OneToMany: '一对多', Unmatched: '未匹配', ManualConfirmed: '手动确认',
   }
   return map[props.match.match_type] || '其他'
 })
 
+const matchTypeIcon = computed(() => {
+  const map: Record<string, unknown> = {
+    OneToOne: Link2, OneToMany: Layers, Unmatched: HandCoins, ManualConfirmed: UserCheck,
+  }
+  return map[props.match.match_type] || Link2
+})
+
 const matchTypeClass = computed(() => {
   const map: Record<string, string> = {
-    OneToOne: 'bg-emerald-50 text-emerald-700',
-    OneToMany: 'bg-amber-50 text-amber-700',
-    Unmatched: 'bg-gray-100 text-gray-600',
-    ManualConfirmed: 'bg-primary-50 text-primary-700'
+    OneToOne: 'bg-emerald-50 text-emerald-700 border-emerald-200/70',
+    OneToMany: 'bg-amber-50 text-amber-700 border-amber-200/70',
+    Unmatched: 'bg-slate-100 text-slate-600 border-slate-200/70',
+    ManualConfirmed: 'bg-primary-50 text-primary-700 border-primary-200/70',
   }
-  return map[props.match.match_type] || 'bg-gray-100 text-gray-600'
+  return map[props.match.match_type] || 'bg-slate-100 text-slate-600 border-slate-200/70'
 })
 
 const confidenceClass = computed(() => {
-  if (props.match.confidence >= 0.9) return 'bg-emerald-50 text-emerald-700'
-  if (props.match.confidence >= 0.7) return 'bg-amber-50 text-amber-700'
-  return 'bg-red-50 text-red-700'
+  if (props.match.confidence >= 0.9) return 'bg-emerald-50 text-emerald-700 border-emerald-200/70'
+  if (props.match.confidence >= 0.7) return 'bg-amber-50 text-amber-700 border-amber-200/70'
+  return 'bg-rose-50 text-rose-700 border-rose-200/70'
 })
 
 function formatTime(t: string) {

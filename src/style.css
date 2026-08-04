@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-sans: "Inter", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+  --font-display: "Plus Jakarta Sans", "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+
+  /* 品牌色：indigo（保留）+ 紫罗兰/品红点缀 */
   --color-primary-50: #eef2ff;
   --color-primary-100: #e0e7ff;
   --color-primary-200: #c7d2fe;
@@ -10,13 +13,177 @@
   --color-primary-500: #6366f1;
   --color-primary-600: #4f46e5;
   --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-accent-400: #a78bfa;
+  --color-accent-500: #8b5cf6;
+  --color-accent-600: #7c3aed;
+  --color-flare-400: #f472b6;
+  --color-flare-500: #ec4899;
+
+  /* 层级阴影 */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 4px 12px -2px rgb(15 23 42 / 0.06);
+  --shadow-card-lg: 0 8px 24px -6px rgb(15 23 42 / 0.12), 0 4px 8px -4px rgb(15 23 42 / 0.06);
+  --shadow-glow: 0 8px 28px -6px rgb(79 70 229 / 0.45);
+  --shadow-glow-sm: 0 4px 14px -4px rgb(79 70 229 / 0.35);
+  --shadow-float: 0 20px 40px -12px rgb(79 70 229 / 0.25);
+
+  /* 动画 */
+  --animate-fade-in: fade-in 0.5s ease-out both;
+  --animate-fade-in-up: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-scale-in: scale-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-float-slow: float 11s ease-in-out infinite;
+  --animate-shimmer: shimmer 2.2s linear infinite;
+  --animate-scan: scan 1.6s ease-in-out infinite;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-spin-slow: spin 2.4s linear infinite;
+  --animate-drift: drift 16s ease-in-out infinite alternate;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes fade-in-up {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes scale-in {
+    from { opacity: 0; transform: scale(0.94); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0) translateX(0); }
+    50% { transform: translateY(-14px) translateX(6px); }
+  }
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to { background-position: 200% 0; }
+  }
+  @keyframes scan {
+    0%, 100% { transform: translateY(-100%); opacity: 0; }
+    35%, 65% { opacity: 1; }
+    100% { transform: translateY(280%); }
+  }
+  @keyframes pulse-soft {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  @keyframes drift {
+    from { transform: translate(0, 0) scale(1); }
+    to { transform: translate(40px, -30px) scale(1.12); }
+  }
 }
 
+/* ── 全局基调：白/浅灰层次 + 柔和光晕 ─────────────────────── */
 html, body, #app {
   height: 100%;
 }
 
 body {
-  @apply bg-gray-50 text-gray-800 antialiased;
-  background-image: linear-gradient(to bottom, #f9fafb, #f3f4f6);
+  @apply bg-slate-50 text-slate-800 antialiased;
+  background-image:
+    radial-gradient(1100px 480px at 88% -8%, rgb(99 102 241 / 0.08), transparent 60%),
+    radial-gradient(900px 420px at -6% 110%, rgb(139 92 246 / 0.07), transparent 55%),
+    linear-gradient(to bottom, #f8fafc, #f1f5f9);
+  /* ponytail: 不用 background-attachment:fixed——它在 Chromium 强制主线程滚动 + 每帧重绘背景，
+     是已知性能反模式（lib-1 调研确认），在滚动容器 + 大数据量下会显著卡顿 */
+}
+
+::selection {
+  background: rgb(99 102 241 / 0.2);
+}
+
+/* 细滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(148 163 184 / 0.5) transparent;
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgb(148 163 184 / 0.45); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* ── 组件级类（复用度高，统一视觉） ───────────────────────── */
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-slate-200/70 shadow-card;
+  }
+  .card-hover {
+    @apply transition-all duration-300 hover:-translate-y-0.5 hover:shadow-card-lg hover:border-primary-200;
+  }
+  .glass {
+    @apply bg-white/90 border border-white/60;
+  }
+  .input {
+    @apply w-full border border-slate-300 rounded-xl px-3 py-2 text-sm bg-white transition-all duration-200
+           focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 placeholder:text-slate-400;
+  }
+  .input-sm {
+    @apply w-full border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-white transition-all duration-200
+           focus:outline-none focus:border-primary-500 focus:ring-4 focus:ring-primary-500/10 placeholder:text-slate-400;
+  }
+  .btn-primary-glow {
+    @apply relative inline-flex items-center justify-center gap-1.5 rounded-xl font-semibold text-white
+           bg-gradient-to-r from-primary-600 via-primary-500 to-accent-500 bg-[length:150%_100%] bg-left
+           shadow-glow-sm transition-all duration-300 hover:bg-right hover:shadow-glow hover:-translate-y-px
+           active:translate-y-0 active:shadow-glow-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-glow-sm disabled:hover:translate-y-0;
+  }
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary-600 via-accent-500 to-flare-500 bg-clip-text text-transparent;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium;
+  }
+}
+
+/* ── 步骤打勾动画（圆环描边） ────────────────────────────── */
+@keyframes check-draw {
+  from { stroke-dashoffset: 26; }
+  to { stroke-dashoffset: 0; }
+}
+.check-draw {
+  stroke-dasharray: 26;
+  stroke-dashoffset: 26;
+  animation: check-draw 0.45s cubic-bezier(0.65, 0, 0.35, 1) 0.1s forwards;
+}
+@keyframes circle-pop {
+  from { transform: scale(0.5); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.circle-pop {
+  animation: circle-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── 路由过渡 ────────────────────────────────────────────── */
+.route-fade-enter-active {
+  transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.route-fade-leave-active {
+  transition: opacity 0.16s ease;
+}
+.route-fade-enter-from {
+  opacity: 0;
+  transform: translateY(14px);
+}
+.route-fade-leave-to {
+  opacity: 0;
+}
+
+/* ── 渐变扫描（自动匹配动画） ────────────────────────────── */
+.scan-sweep {
+  position: absolute;
+  inset-inline: 0;
+  height: 60%;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, rgb(255 255 255 / 0.5), transparent);
+  animation: scan 1.4s ease-in-out infinite;
+}
+
+/* ── 下拉选择箭头美化 ────────────────────────────────────── */
+select.input, select.input-sm {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  padding-right: 2rem;
 }

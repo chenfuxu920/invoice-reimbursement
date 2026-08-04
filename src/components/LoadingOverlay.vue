@@ -3,14 +3,14 @@
     <Transition name="fade">
       <div
         v-if="visible"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40"
       >
-        <div class="bg-white rounded-xl shadow-2xl px-10 py-8 flex flex-col items-center gap-5 min-w-[220px]">
-          <svg class="animate-spin h-10 w-10 text-primary-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p class="text-gray-600 text-sm animate-pulse">{{ message }}</p>
+        <div class="relative overflow-hidden rounded-3xl bg-white/95 shadow-card-lg px-10 py-9 flex flex-col items-center gap-5 min-w-[240px] animate-scale-in">
+          <div class="absolute -top-12 -right-10 w-36 h-36 rounded-full bg-primary-400/20 pointer-events-none" />
+          <span class="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 shadow-glow flex items-center justify-center">
+            <Loader2 class="animate-spin text-white" :size="26" />
+          </span>
+          <p class="relative text-slate-600 text-sm animate-pulse-soft">{{ message }}</p>
         </div>
       </div>
     </Transition>
@@ -18,6 +18,8 @@
 </template>
 
 <script setup lang="ts">
+import { Loader2 } from 'lucide-vue-next'
+
 withDefaults(defineProps<{
   visible: boolean
   message?: string

@@ -16,9 +16,12 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@tanstack/vue-virtual": "^3.13.35",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.0.0",
+    "@vueuse/core": "^14.4.0",
+    "lucide-vue-next": "^0.577.0",
     "pinia": "^2.1.7",
     "vue": "^3.4.0",
     "vue-router": "^4.3.0"

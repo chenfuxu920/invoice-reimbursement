@@ -1,11 +1,11 @@
 <template>
   <div class="max-w-6xl mx-auto">
     <!-- 工具栏 -->
-    <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-5 mb-4 flex flex-wrap items-center gap-4">
+    <div class="card p-5 mb-4 flex flex-wrap items-center gap-4">
       <AppButton variant="primary" @click="pickPdf">
         选择 PDF
       </AppButton>
-      <span v-if="fileName" class="text-sm text-gray-600 truncate max-w-xs">{{ fileName }}</span>
+      <span v-if="fileName" class="text-sm text-slate-600 truncate max-w-xs">{{ fileName }}</span>
 
       <div v-if="pages.length" class="flex items-center gap-2">
         <button @click="prevPage" :disabled="currentPage === 0"
@@ -41,13 +41,13 @@
     </div>
 
     <!-- 加载中 -->
-    <div v-if="loading" class="text-center py-12 text-gray-400">正在提取文字…</div>
+    <div v-if="loading" class="text-center py-12 text-slate-400">正在提取文字…</div>
 
     <!-- 主区域：PDF 底图 + 文字框叠加 -->
     <div v-if="currentPageData" ref="stageRef"
       @mousemove="updateHoverPos"
       @click="selectedShape = ''"
-      class="relative inline-block bg-gray-100 rounded-lg border shadow-sm select-none"
+      class="relative inline-block bg-slate-100 rounded-lg border shadow-sm select-none"
       :style="{ width: displayWidth + 'px' }">
       <img :src="currentPageData.image" :width="displayWidth"
         class="block rounded-lg" draggable="false" />
@@ -105,35 +105,35 @@
       </div>
     </div>
 
-    <p v-if="currentPageData && !visibleBoxes.length" class="text-sm text-gray-400 mt-4">
+    <p v-if="currentPageData && !visibleBoxes.length" class="text-sm text-slate-400 mt-4">
       当前页无可显示文字框（勾选上方引擎或检查提取结果）。
     </p>
 
     <!-- 日志面板 -->
     <div v-if="logs.pdfplumber.length || logs.ocr.length" class="mt-4">
       <button @click="showLogs = !showLogs"
-        class="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1">
+        class="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1">
         <AppIcon name="chevron-down" :size="12" :class="{ 'rotate-90': !showLogs }" />
         <span>诊断日志</span>
       </button>
-      <div v-if="showLogs" class="bg-gray-900 rounded-lg border mt-2">
+      <div v-if="showLogs" class="bg-slate-900 rounded-lg border mt-2">
         <!-- 引擎 tab -->
-        <div class="flex border-b border-gray-700">
+        <div class="flex border-b border-slate-700">
           <button v-for="eng in (['pdfplumber', 'ocr'] as const)" :key="eng"
             @click="activeLogTab = eng"
             class="px-3 py-1.5 text-xs font-mono transition-colors"
-            :class="activeLogTab === eng ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-gray-200'">
+            :class="activeLogTab === eng ? 'bg-gray-800 text-white' : 'text-slate-400 hover:text-gray-200'">
             <span :style="{ color: ENGINE_COLOR_HEX[eng] }">●</span>
             {{ eng }}
-            <span class="text-gray-500">({{ logs[eng].length }})</span>
+            <span class="text-slate-500">({{ logs[eng].length }})</span>
           </button>
         </div>
         <!-- 日志内容 -->
-        <div class="p-3 font-mono text-xs text-gray-300 max-h-64 overflow-y-auto">
+        <div class="p-3 font-mono text-xs text-slate-300 max-h-64 overflow-y-auto">
           <div v-for="(line, i) in logs[activeLogTab]" :key="i" class="whitespace-pre-wrap break-all">
             {{ line }}
           </div>
-          <div v-if="!logs[activeLogTab].length" class="text-gray-500">无日志</div>
+          <div v-if="!logs[activeLogTab].length" class="text-slate-500">无日志</div>
         </div>
       </div>
     </div>
