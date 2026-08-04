@@ -102,7 +102,7 @@ const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
 const matchStore = useMatchStore()
 
-const { ocrOnline } = useOcrStatus()
+const { ocrOnline, refresh } = useOcrStatus()
 
 const downloadingModels = ref(false)
 const showConfig = ref(false)
@@ -124,7 +124,7 @@ async function downloadModels() {
   downloadingModels.value = true
   try {
     await invoke('download_ocr_models')
-    try { ocrOnline.value = await invoke('ocr_health') } catch { /* ignore */ }
+    await refresh()
     downloadingModels.value = false
     toast(ocrOnline.value
       ? 'OCR 模型下载完成，识别服务已就绪，可直接使用，无需重启。'
