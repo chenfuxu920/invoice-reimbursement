@@ -6,7 +6,7 @@
              class="flex items-start gap-2.5 rounded-lg border bg-white p-3 shadow-lg"
              :class="borderClass(t.type)">
           <span class="w-2 h-2 rounded-full mt-1.5 shrink-0" :class="dotClass(t.type)" />
-          <p class="text-sm text-gray-700 flex-1 break-words">{{ t.message }}</p>
+          <p class="text-sm text-gray-700 flex-1 break-words whitespace-pre-line">{{ t.message }}</p>
           <button class="text-gray-400 hover:text-gray-600 shrink-0" :aria-label="'关闭提示'" @click="removeToast(t.id)">
             <AppIcon name="x" :size="14" />
           </button>

@@ -34,7 +34,7 @@
               </span>
             </td>
             <td class="px-3 py-2 text-center">
-              <button @click.stop="$emit('remove', p.id)" class="text-gray-400 hover:text-red-500" title="删除"><AppIcon name="x" :size="14" /></button>
+              <button @click.stop="$emit('remove', p.id)" class="text-gray-400 hover:text-red-500" :title="'删除'" :aria-label="'删除'"><AppIcon name="x" :size="14" /></button>
             </td>
           </tr>
           <tr v-if="expandedId === p.id">

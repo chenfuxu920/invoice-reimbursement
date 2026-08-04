@@ -18,7 +18,7 @@
         <span class="text-gray-400 transition-transform text-sm"
               :class="{ 'rotate-180': expanded }"
               :title="expanded ? '收起' : '展开'">▾</span>
-        <button @click.stop="$emit('remove', invoice.id)" class="text-gray-400 hover:text-red-500" title="删除"><AppIcon name="x" :size="14" /></button>
+        <button @click.stop="$emit('remove', invoice.id)" class="text-gray-400 hover:text-red-500" :title="'删除'" :aria-label="'删除'"><AppIcon name="x" :size="14" /></button>
       </div>
     </div>
     <div class="mt-2 text-xs text-gray-400 flex gap-4">
@@ -37,8 +37,8 @@
         <div v-for="(it, i) in invoice.itineraries" :key="i"
              class="bg-primary-50 rounded px-2 py-1 text-xs text-gray-600 flex items-center gap-1">
           <span v-if="it.incomplete_fields?.length"
-                class="text-orange-500 cursor-help"
-                :title="'缺失: ' + it.incomplete_fields.map(f => fieldLabel(f)).join(', ')">⚠</span>
+                class="text-orange-500 cursor-help flex items-center"
+                :title="'缺失: ' + it.incomplete_fields.map(f => fieldLabel(f)).join(', ')"><AppIcon name="alert" :size="14" /></span>
           <span class="flex-1">{{ it.date_time }} | {{ it.provider }} | {{ it.pickup }} → {{ it.dropoff }} | ¥{{ it.amount.toFixed(2) }}</span>
         </div>
       </div>

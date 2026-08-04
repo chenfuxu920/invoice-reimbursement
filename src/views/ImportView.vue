@@ -43,7 +43,7 @@
               <AppButton size="sm" @click="retryParseError(err)" :disabled="retryingIds.includes(err.id)">
                 {{ retryingIds.includes(err.id) ? '重试中...' : '重试' }}
               </AppButton>
-              <AppButton variant="ghost" size="sm" class="text-gray-400" @click="invoiceStore.removeParseError(err.id)" title="删除">
+              <AppButton variant="ghost" size="sm" class="text-gray-400" @click="invoiceStore.removeParseError(err.id)" title="删除" aria-label="删除">
                 <AppIcon name="x" :size="12" />
               </AppButton>
             </div>
@@ -236,9 +236,7 @@ async function handleGlobalImport() {
     const dupCount = allSkipped.length
     const dupLine = dupCount > 0 ? `\n跳过重复发票 ${dupCount} 张：${formatDupDetail(allSkipped)}` : ''
     if (errCount > 0) {
-      const details = allErrors.slice(0, 5).map(([n, e]) => `${n}: ${e}`).join('\n')
-      const more = errCount > 5 ? `\n...及其他 ${errCount - 5} 个文件` : ''
-      toast(`全局导入完成。\n成功：发票 ${totalInvoices} 张，账单 ${totalPayments} 条\n失败：${errCount} 个文件\n${details}${more}${dupLine}`, 'error')
+      toast(`全局导入完成。成功：发票 ${totalInvoices} 张，账单 ${totalPayments} 条；失败 ${errCount} 个文件，详见下方错误区。${dupLine}`, 'error')
     } else {
       toast(`全局导入完成！\n共导入发票 ${totalInvoices} 张，账单 ${totalPayments} 条${dupLine}`, 'success')
     }
@@ -263,9 +261,11 @@ function formatDupDetail(skipped: string[]): string {
 }
 
 function handleClearAll() {
+  if (!confirm('确定清空全部发票、账单与匹配数据？此操作不可撤销。')) return
   invoiceStore.clearInvoices()
   paymentStore.clearPayments()
   matchStore.clearMatches()
+  toast('已清空全部数据', 'info')
 }
 
 function openInvoiceDetail(invoice: Invoice) {

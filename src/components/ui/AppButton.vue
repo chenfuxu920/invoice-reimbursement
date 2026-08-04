@@ -1,6 +1,6 @@
 <template>
   <button :disabled="disabled || loading" class="inline-flex items-center justify-center gap-1.5 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          :class="[sizeClass, variantClass]" :title="title">
+          :class="[sizeClass, variantClass]" :title="title" :aria-label="ariaLabel">
     <svg v-if="loading" class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
       <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8V0C5.4 0 0 5.4 0 12h4z" />
@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   loading?: boolean
   title?: string
+  ariaLabel?: string
 }>(), { variant: 'secondary', size: 'md' })
 
 const sizeClass = computed(() =>

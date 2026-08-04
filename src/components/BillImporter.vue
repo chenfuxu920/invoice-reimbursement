@@ -4,14 +4,14 @@
       <button
         @click="billType = 'wechat'"
         class="px-4 py-2 rounded border transition-colors"
-        :class="billType === 'wechat' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-400'"
+        :class="billType === 'wechat' ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-300 hover:border-emerald-500'"
       >
         微信账单
       </button>
       <button
         @click="billType = 'alipay'"
         class="px-4 py-2 rounded border transition-colors"
-        :class="billType === 'alipay' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-400'"
+        :class="billType === 'alipay' ? 'bg-primary-600 text-white border-primary-600' : 'bg-white text-gray-600 border-gray-300 hover:border-primary-500'"
       >
         支付宝账单
       </button>
