@@ -149,6 +149,7 @@ const hasInvoices = computed(() => invoiceStore.invoices.length > 0)
 const hasMatches = computed(() => matchStore.matches.length > 0)
 const nextStepHint = computed(() => {
   if (!hasInvoices.value) return '先导入发票与微信/支付宝账单，再进行自动匹配。'
+  if (paymentStore.payments.length === 0) return '已导入发票，还需导入微信/支付宝账单。'
   if (!hasMatches.value) return '发票与账单已就绪，点击开始自动匹配。'
   if (matchStore.trips.length === 0) return '匹配完成，前往导出页确认分趟并生成报销表。'
   return '全部就绪，可随时前往导出页生成报销材料。'
