@@ -1,31 +1,92 @@
 <template>
-  <div class="h-screen flex flex-col bg-gray-50">
-    <nav class="flex items-center gap-4 px-6 py-3 bg-white border-b shadow-sm">
-      <h1 class="text-lg font-bold text-blue-600">发票报销助手 v{{ version }}</h1>
-      <router-link to="/" class="nav-link">首页</router-link>
-      <router-link to="/import" class="nav-link">导入</router-link>
-      <router-link to="/match" class="nav-link">匹配</router-link>
-      <router-link to="/export" class="nav-link">导出</router-link>
-    </nav>
-    <main class="flex-1 overflow-auto p-6">
-      <router-view />
-    </main>
+  <div class="h-screen flex bg-gray-50">
+    <!-- 侧栏 -->
+    <aside class="flex flex-col bg-white border-r border-gray-200 shrink-0 transition-all duration-200"
+           :class="collapsed ? 'w-14' : 'w-48'">
+      <div class="flex items-center gap-2 h-14 px-3 border-b border-gray-100">
+        <div class="w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center shrink-0">
+          <AppIcon name="clipboard" :size="18" />
+        </div>
+        <div v-if="!collapsed" class="min-w-0">
+          <p class="text-sm font-semibold text-gray-800 leading-tight truncate">发票报销助手</p>
+          <p class="text-[11px] text-gray-400 leading-tight">v{{ version }}</p>
+        </div>
+      </div>
+      <nav class="flex-1 py-2 space-y-0.5">
+        <router-link v-for="item in navItems" :key="item.to" :to="item.to"
+                     class="flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm transition-colors"
+                     :class="navLinkClass(item.to)">
+          <AppIcon :name="item.icon" :size="18" class="shrink-0" />
+          <span v-if="!collapsed" class="truncate">{{ item.label }}</span>
+        </router-link>
+      </nav>
+      <div class="p-2 border-t border-gray-100">
+        <router-link to="/debug" class="flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100"
+                     :class="navLinkClass('/debug')">
+          <AppIcon name="debug" :size="18" class="shrink-0" />
+          <span v-if="!collapsed">调试工具</span>
+        </router-link>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <div class="flex-1 flex flex-col min-w-0">
+      <header class="flex items-center justify-between h-14 px-6 bg-white/70 backdrop-blur border-b border-gray-200 shrink-0">
+        <button @click="collapsed = !collapsed" class="text-gray-400 hover:text-gray-600" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" :title="collapsed ? '展开侧栏' : '收起侧栏'">
+          <AppIcon name="swap" :size="18" />
+        </button>
+        <div class="flex items-center gap-4">
+          <span class="flex items-center gap-1.5 text-xs text-gray-500">
+            <span class="w-2 h-2 rounded-full" :class="ocrOnline ? 'bg-emerald-500' : 'bg-red-500'" />
+            OCR {{ ocrOnline ? '在线' : '离线' }}
+          </span>
+        </div>
+      </header>
+      <main class="flex-1 overflow-auto">
+        <div class="max-w-5xl mx-auto px-6 py-5">
+          <AppStepper class="mb-5" />
+          <router-view />
+        </div>
+      </main>
+    </div>
+
     <AppToast />
   </div>
 </template>
 
 <script setup lang="ts">
-import pkg from "../package.json";
-import AppToast from "./components/ui/AppToast.vue";
-const version = pkg.version;
+import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import AppIcon from './components/ui/AppIcon.vue'
+import AppStepper from './components/ui/AppStepper.vue'
+import AppToast from './components/ui/AppToast.vue'
+import { invoke } from '@tauri-apps/api/core'
+import pkg from '../package.json'
+
+const version = pkg.version
+const route = useRoute()
+const collapsed = ref(false)
+const ocrOnline = ref(false)
+
+const navItems = [
+  { to: '/', label: '首页', icon: 'home' as const },
+  { to: '/import', label: '导入', icon: 'upload' as const },
+  { to: '/match', label: '匹配', icon: 'link' as const },
+  { to: '/export', label: '导出', icon: 'download' as const },
+]
+
+function navLinkClass(to: string) {
+  const active = route.path === to || (to !== '/' && route.path.startsWith(to))
+  return active
+    ? 'bg-primary-50 text-primary-700 font-medium'
+    : 'text-gray-600 hover:bg-gray-100'
+}
+
+onMounted(async () => {
+  try { ocrOnline.value = await invoke('ocr_health') } catch { ocrOnline.value = false }
+})
 </script>
 
 <style scoped>
 @reference "tailwindcss";
-.nav-link {
-  @apply px-3 py-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition-colors;
-}
-.nav-link.router-link-active {
-  @apply text-blue-600 bg-blue-50 font-medium;
-}
 </style>
