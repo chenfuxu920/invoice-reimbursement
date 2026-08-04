@@ -13,7 +13,7 @@
         </div>
       </div>
       <nav class="flex-1 py-2 space-y-0.5">
-        <router-link v-for="item in navItems" :key="item.to" :to="item.to"
+        <router-link v-for="item in navItems" :key="item.to" :to="item.to" :title="item.label"
                      class="flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm transition-colors"
                      :class="navLinkClass(item.to)">
           <AppIcon :name="item.icon" :size="18" class="shrink-0" />
@@ -21,7 +21,7 @@
         </router-link>
       </nav>
       <div class="p-2 border-t border-gray-100">
-        <router-link to="/debug" class="flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100"
+        <router-link to="/debug" class="flex items-center gap-3 mx-2 px-3 py-2 rounded-lg text-sm hover:bg-gray-100"
                      :class="navLinkClass('/debug')">
           <AppIcon name="debug" :size="18" class="shrink-0" />
           <span v-if="!collapsed">调试工具</span>
@@ -32,9 +32,12 @@
     <!-- 主区 -->
     <div class="flex-1 flex flex-col min-w-0">
       <header class="flex items-center justify-between h-14 px-6 bg-white/70 backdrop-blur border-b border-gray-200 shrink-0">
-        <button @click="collapsed = !collapsed" class="text-gray-400 hover:text-gray-600" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" :title="collapsed ? '展开侧栏' : '收起侧栏'">
-          <AppIcon name="swap" :size="18" />
-        </button>
+        <div class="flex items-center gap-3 min-w-0">
+          <button @click="collapsed = !collapsed" class="text-gray-400 hover:text-gray-600" :aria-label="collapsed ? '展开侧栏' : '收起侧栏'" :title="collapsed ? '展开侧栏' : '收起侧栏'">
+            <AppIcon name="swap" :size="18" />
+          </button>
+          <h1 class="text-sm font-semibold text-gray-800 truncate">{{ pageTitle }}</h1>
+        </div>
         <div class="flex items-center gap-4">
           <span class="flex items-center gap-1.5 text-xs text-gray-500">
             <span class="w-2 h-2 rounded-full" :class="ocrOnline ? 'bg-emerald-500' : 'bg-red-500'" />
@@ -55,18 +58,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import AppIcon from './components/ui/AppIcon.vue'
 import AppStepper from './components/ui/AppStepper.vue'
 import AppToast from './components/ui/AppToast.vue'
-import { invoke } from '@tauri-apps/api/core'
+import { useOcrStatus, initOcrStatus } from './composables/ocr'
 import pkg from '../package.json'
 
 const version = pkg.version
 const route = useRoute()
 const collapsed = ref(false)
-const ocrOnline = ref(false)
+const { ocrOnline } = useOcrStatus()
+
+const pageTitle = computed(() => {
+  const map: Record<string, string> = {
+    '/': '首页', '/import': '导入', '/match': '匹配', '/export': '导出', '/debug': '调试工具',
+  }
+  return map[route.path] || '发票报销助手'
+})
 
 const navItems = [
   { to: '/', label: '首页', icon: 'home' as const },
@@ -82,11 +92,8 @@ function navLinkClass(to: string) {
     : 'text-gray-600 hover:bg-gray-100'
 }
 
-onMounted(async () => {
-  try { ocrOnline.value = await invoke('ocr_health') } catch { ocrOnline.value = false }
+onMounted(() => {
+  collapsed.value = window.innerWidth < 1024
+  initOcrStatus()
 })
 </script>
-
-<style scoped>
-@reference "tailwindcss";
-</style>
