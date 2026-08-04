@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white rounded-lg border p-4 shadow-sm">
+  <div class="bg-white rounded-[10px] border border-gray-200 shadow-sm p-4">
     <div class="flex justify-between items-start mb-3">
       <div class="flex items-center gap-2">
         <span class="px-2 py-0.5 rounded text-xs font-medium"
@@ -11,7 +11,7 @@
           {{ (match.confidence * 100).toFixed(0) }}%
         </span>
       </div>
-      <button @click="$emit('adjust', match)" class="text-sm text-blue-500 hover:text-blue-700">
+      <button @click="$emit('adjust', match)" class="text-sm text-primary-600 hover:text-primary-700">
         调整
       </button>
     </div>
@@ -19,7 +19,7 @@
     <div class="grid grid-cols-2 gap-3">
       <div class="bg-gray-50 rounded p-2 cursor-pointer hover:bg-gray-100 transition-colors" @click="$emit('view-invoice', match.invoice)">
         <div class="flex items-center justify-between">
-          <p class="text-xs text-gray-500">发票 <span class="text-blue-500">查看详情 →</span></p>
+          <p class="text-xs text-gray-500">发票 <span class="text-primary-600">查看详情 →</span></p>
           <select :value="match.invoice.category" @change="$emit('update-category', match.invoice.id, ($event.target as HTMLSelectElement).value as InvoiceCategory)" @click.stop
                   class="px-1 py-0.5 rounded text-xs border-0 cursor-pointer"
                   :class="getCategoryBadgeClass(match.invoice.category)">
@@ -41,7 +41,7 @@
                 <span class="shrink-0 text-xs text-gray-400">#{{ row.idx + 1 }}</span>
                 <p class="text-sm font-medium truncate">{{ row.payment?.merchant_name || '未配对' }}</p>
                 <span v-if="row.payment" class="shrink-0 text-xs px-1 py-0.5 rounded"
-                      :class="row.payment.source === 'Wechat' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
+                      :class="row.payment.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700' : 'bg-primary-50 text-primary-700'">
                   {{ row.payment.source === 'Wechat' ? '微信' : '支付宝' }}
                 </span>
               </div>
@@ -58,8 +58,9 @@
             </div>
             <button v-if="row.payment" @click.stop="$emit('remove-payment', match.invoice_id, row.payment.id)"
                     class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    :aria-label="'移除此支付'"
                     title="移除此支付">
-              ✕
+              <AppIcon name="x" :size="14" />
             </button>
           </div>
         </template>
@@ -72,7 +73,7 @@
               <div class="flex items-center gap-1.5">
                 <p class="text-sm font-medium truncate">{{ p.merchant_name || '未知' }}</p>
                 <span class="shrink-0 text-xs px-1 py-0.5 rounded"
-                      :class="p.source === 'Wechat' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'">
+                      :class="p.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700' : 'bg-primary-50 text-primary-700'">
                   {{ p.source === 'Wechat' ? '微信' : '支付宝' }}
                 </span>
               </div>
@@ -90,8 +91,9 @@
             </div>
             <button @click.stop="$emit('remove-payment', match.invoice_id, p.id)"
                     class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    :aria-label="'移除此支付'"
                     title="移除此支付">
-              ✕
+              <AppIcon name="x" :size="14" />
             </button>
           </div>
         </template>
@@ -109,6 +111,7 @@ import { computed } from 'vue'
 import type { Invoice, MatchResult, InvoiceCategory } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
+import AppIcon from './ui/AppIcon.vue'
 
 const props = defineProps<{ match: MatchResult }>()
 defineEmits<{
