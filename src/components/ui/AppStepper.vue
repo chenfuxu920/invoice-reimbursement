@@ -63,11 +63,11 @@ const steps = computed<Step[]>(() => {
   const hasInvoices = invoiceStore.invoices.length > 0
   const hasPayments = paymentStore.payments.length > 0
   const hasMatches = matchStore.matches.length > 0
-  const hasTrips = matchStore.trips.length > 0
   return [
     { to: '/import', label: '收集票据', enabled: true, done: hasInvoices && hasPayments },
     { to: '/match', label: '核对匹配', enabled: hasInvoices && hasPayments, done: hasMatches },
-    { to: '/export', label: '打包导出', enabled: hasMatches, done: hasTrips },
+    // 打包导出步仅当用户到达打包界面时才视为完成（到打包界面才算走完全流程）
+    { to: '/export', label: '打包导出', enabled: hasMatches, done: route.path.startsWith('/export') && hasMatches },
   ]
 })
 

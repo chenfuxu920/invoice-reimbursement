@@ -24,13 +24,15 @@
             <span v-if="!canMatch" class="text-xs text-white/70">（需先收集发票与账单）</span>
           </div>
         </div>
-        <button
-          class="inline-flex items-center gap-2.5 rounded-2xl bg-white text-primary-700 font-bold px-7 py-3.5 text-base shadow-card-lg transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_16px_40px_-10px_rgb(0_0_0_/_0.4)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-          :disabled="!canMatch || matchStore.loading" @click="runAutoMatch">
-          <Loader2 v-if="matchStore.loading" :size="20" class="animate-spin" />
-          <Sparkles v-else :size="20" />
-          {{ matchStore.loading ? '正在扫描匹配...' : (hasMatched ? '重新自动匹配' : '开始自动匹配') }}
-        </button>
+        <div class="flex flex-wrap items-center justify-end gap-3">
+          <button
+            class="inline-flex items-center gap-2.5 rounded-2xl bg-white text-primary-700 font-bold px-7 py-3.5 text-base shadow-card-lg transition-all duration-300 hover:scale-[1.03] hover:shadow-[0_16px_40px_-10px_rgb(0_0_0_/_0.4)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            :disabled="!canMatch || matchStore.loading" @click="runAutoMatch">
+            <Loader2 v-if="matchStore.loading" :size="20" class="animate-spin" />
+            <Sparkles v-else :size="20" />
+            {{ matchStore.loading ? '正在扫描匹配...' : (hasMatched ? '重新自动匹配' : '开始自动匹配') }}
+          </button>
+        </div>
       </div>
     </section>
 
