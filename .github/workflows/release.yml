@@ -1,0 +1,76 @@
+name: 'publish'
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'app-v*'
+
+jobs:
+  publish-tauri:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-latest' # Apple Silicon (M1+)
+            args: '--target aarch64-apple-darwin --bundles app,dmg'
+          - platform: 'macos-latest' # Intel Mac
+            args: '--target x86_64-apple-darwin --bundles app,dmg'
+          - platform: 'ubuntu-22.04' # Linux x64
+            args: '--bundles deb,appimage'
+          - platform: 'ubuntu-22.04-arm' # Linux ARM64 (public repos only)
+            args: '--bundles deb,appimage'
+          - platform: 'windows-latest' # Windows x64 (NSIS from tauri.conf.json)
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: install dependencies (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-22.04-arm' # must match the platform values above
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: 'npm'
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # macOS cross-compilation targets; empty on Windows/Linux
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          # matches tauri's default project layout
+          workspaces: './src-tauri -> target'
+
+      - name: install frontend dependencies
+        # frontend is built by beforeBuildCommand (scripts/smart-frontend-build.mjs)
+        run: npm install
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: '发票报销助手 v__VERSION__'
+          releaseBody: |
+            ## 发票报销助手 v__VERSION__
+
+            自动构建的多平台安装包（Windows NSIS / macOS dmg / Linux deb+AppImage）。
+
+            - **Windows**: 下载 `.exe` 安装程序（可选当前用户/所有用户安装，支持中/英文）
+            - **macOS**: 下载 `.dmg`（未签名，首次打开需在"系统设置 → 隐私与安全性"中允许）
+            - **Linux**: 下载 `.deb` 或 `.AppImage`
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
