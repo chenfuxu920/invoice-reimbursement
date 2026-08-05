@@ -62,8 +62,8 @@
         </div>
       </header>
 
-      <!-- 流程轨道（常驻） -->
-      <div class="px-5 pt-3 shrink-0">
+      <!-- 流程轨道（设置/调试页不显示） -->
+      <div v-if="!['/settings', '/debug'].includes(route.path)" class="px-5 pt-3 shrink-0">
         <AppStepper />
       </div>
 
