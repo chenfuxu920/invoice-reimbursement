@@ -18,15 +18,6 @@
         <label class="block text-sm font-medium text-slate-600 mb-1.5">出差结束日期</label>
         <input v-model="form.travelEnd" type="date" class="input" />
       </div>
-      <div>
-        <label class="block text-sm font-medium text-slate-600 mb-1.5">住宿级别</label>
-        <select v-model="form.hotelLevel" class="input">
-          <option value="其他人员">其他人员</option>
-          <option value="师级">师级</option>
-          <option value="军级">军级</option>
-          <option value="战区级以上">战区级以上</option>
-        </select>
-      </div>
     </div>
   </div>
 </template>
@@ -39,6 +30,7 @@ interface FormState {
   destination: string
   travelStart: string
   travelEnd: string
+  // 级别选择已移除，保留字段作为报表住宿行标签（固定「其他人员」，不影响金额）
   hotelLevel: string
 }
 
