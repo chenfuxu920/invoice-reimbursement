@@ -18,18 +18,21 @@
           <p class="text-sm">¥{{ invoice?.amount.toFixed(2) }} - {{ invoice?.seller_name }}</p>
         </div>
 
-        <!-- 搜索 + 来源 + 排序 -->
-        <div class="flex gap-2 mb-2">
+        <!-- 搜索（整行） -->
+        <div class="mb-2">
           <input v-model="searchText" type="text" placeholder="搜索商户名、交易号..."
-                 class="flex-1 input" />
+                 class="w-full input" />
+        </div>
+        <!-- 来源 + 排序 -->
+        <div class="flex gap-2 mb-2">
           <select v-model="sourceFilter"
-                  class="input">
+                  class="flex-1 min-w-0 input">
             <option value="all">全部来源</option>
             <option value="Wechat">微信</option>
             <option value="Alipay">支付宝</option>
           </select>
           <select v-model="sortKey"
-                  class="input">
+                  class="flex-1 min-w-0 input">
             <option value="diff-asc">金额差异最小</option>
             <option value="time-diff-asc">时间差异最小</option>
             <option value="time-desc">时间↓</option>
@@ -127,7 +130,7 @@
             </div>
             <!-- 选中后的差异展示 -->
             <div v-if="getSelectedPayment(idx)" class="text-xs mt-1 flex items-center gap-3 flex-wrap">
-              <span class="text-slate-500">{{ getSelectedPayment(idx)!.merchant_name }}</span>
+              <span class="text-slate-500 break-all">{{ getSelectedPayment(idx)!.merchant_name }}</span>
               <span class="text-gray-300">|</span>
               <span :class="itineraryAmountDiff(idx) <= 1 ? 'text-green-500' : 'text-orange-500'">
                 金额差异 ¥{{ itineraryAmountDiff(idx).toFixed(2) }}
@@ -149,12 +152,12 @@
             <input type="checkbox" :checked="selectedIds.has(p.id)" @change="togglePayment(p.id)" />
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
-                <p class="text-sm font-medium truncate">{{ p.merchant_name }}</p>
+                <p class="text-sm font-medium truncate min-w-0">{{ p.merchant_name }}</p>
                 <span class="shrink-0 text-xs px-1.5 py-0.5 rounded"
                       :class="p.source === 'Wechat' ? 'bg-green-100 text-green-700' : 'bg-primary-100 text-primary-700'">
                   {{ p.source === 'Wechat' ? '微信' : '支付宝' }}
                 </span>
-                <span v-if="p.category" class="shrink-0 text-xs text-slate-400">{{ p.category }}</span>
+                <span v-if="p.category" class="min-w-0 truncate max-w-[60%] text-xs text-slate-400">{{ p.category }}</span>
               </div>
               <div class="flex items-center gap-2 text-xs mt-0.5 flex-wrap">
                 <span class="text-slate-700 font-medium">¥{{ p.amount.toFixed(2) }}</span>

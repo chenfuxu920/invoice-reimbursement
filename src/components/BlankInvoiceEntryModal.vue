@@ -2,7 +2,7 @@
   <div v-if="visible" class="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50" @click.self="$emit('close')">
     <div class="bg-white/95 rounded-2xl shadow-card-lg animate-scale-in w-[480px] max-h-[85vh] flex flex-col">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
-        <h2 class="text-base font-semibold text-slate-800">手动添加空发票</h2>
+        <h2 class="text-base font-semibold text-slate-800">手动添加纸质发票</h2>
         <button class="text-slate-400 hover:text-slate-600" aria-label="关闭" @click="$emit('close')">
           <AppIcon name="x" :size="16" />
         </button>

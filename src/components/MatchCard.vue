@@ -37,18 +37,48 @@
         <p class="font-display text-lg font-bold text-slate-800 truncate">{{ match.invoice.invoice_number || '无编号' }}</p>
         <p class="text-xs text-slate-400 truncate mt-0.5">{{ match.invoice.seller_name || '未知销售方' }}</p>
         <p class="font-display text-xl font-extrabold text-slate-900 tabular-nums mt-1">¥{{ match.invoice.amount.toFixed(2) }}</p>
+        <!-- 行程明细：与右侧支付条目按 #N 对应，行高/字号对齐 -->
+        <div v-if="hasItineraries" class="mt-2 pt-2 border-t border-slate-200/60">
+          <div v-for="row in itineraryRows" :key="row.idx" class="flex items-center gap-1.5 py-1.5">
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5">
+                <span class="shrink-0 text-xs text-slate-400">#{{ row.idx + 1 }}</span>
+                <p class="text-sm font-medium truncate">{{ row.itin.provider || '未知' }}</p>
+              </div>
+              <div class="flex items-center gap-1.5 text-xs mt-0.5">
+                <span class="text-slate-500 min-w-0 truncate">{{ row.itin.date_time }} | {{ row.itin.pickup }} → {{ row.itin.dropoff }}</span>
+                <span class="text-slate-700 font-medium ml-auto shrink-0">¥{{ row.itin.amount.toFixed(2) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- 支付侧 -->
-      <div class="rounded-xl bg-slate-50/80 border border-slate-200/70 p-3.5">
+      <div class="rounded-xl bg-slate-50/80 border border-slate-200/70 p-3.5 flex flex-col">
         <p class="text-xs text-slate-500 mb-1.5 flex items-center gap-1">
           <Wallet :size="12" class="text-emerald-600" /> 支付
         </p>
+        <!-- 总计面板：仅一对多显示；高度与左侧发票详情区一致（实测 92px），保证上下两段一一对应 -->
+        <div v-if="match.match_type === 'OneToMany'" class="min-h-[92px] flex flex-col">
+          <div class="flex-1 flex flex-col justify-between mt-2 rounded-xl bg-white/80 border border-slate-200/70 p-2.5">
+            <div class="flex justify-between text-xs text-slate-500">
+              <span>共 {{ match.payments.length }} 笔支付<template v-if="hasItineraries"> · {{ match.invoice.itineraries.length }} 条行程</template></span>
+              <span :class="Math.abs(totalDiff) > 0.01 ? 'text-orange-400 font-medium' : 'text-emerald-500 font-medium'">差额 ¥{{ Math.abs(totalDiff).toFixed(2) }}</span>
+            </div>
+            <p class="font-display text-base font-bold text-slate-800 tabular-nums">支付合计 ¥{{ paymentTotal.toFixed(2) }}</p>
+            <div v-if="hasItineraries" class="flex justify-between text-xs text-slate-500">
+              <span>行程合计</span>
+              <span class="font-medium text-slate-700 tabular-nums">¥{{ itineraryTotal.toFixed(2) }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex-1 mt-2 pt-2 border-t border-slate-200/70">
         <!-- 行程级配对展示 -->
         <template v-if="hasItineraries">
           <div v-for="row in itineraryRows" :key="row.idx"
                class="flex items-center justify-between gap-1.5 py-1.5 group cursor-pointer hover:bg-white rounded-lg px-1.5 -mx-1.5 transition-colors"
-               @click="$emit('view-payment', match)">
+               @click="$emit('view-payment', match, row.payment)">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <span class="shrink-0 text-xs text-slate-400">#{{ row.idx + 1 }}</span>
@@ -59,13 +89,15 @@
                 </span>
               </div>
               <div class="flex items-center gap-1.5 text-xs mt-0.5 flex-wrap">
-                <span class="text-slate-500">行程 ¥{{ row.itin.amount.toFixed(2) }}</span>
-                <ArrowRight :size="10" class="text-slate-300" />
                 <span v-if="row.payment" class="text-slate-700 font-medium">¥{{ row.payment.amount.toFixed(2) }}</span>
                 <span v-if="row.payment" class="text-orange-400">差¥{{ Math.abs(row.payment.amount - row.itin.amount).toFixed(2) }}</span>
                 <template v-if="row.payment && row.timeDiffLabel">
                   <span class="text-slate-300">|</span>
                   <span class="text-orange-400">时差{{ row.timeDiffLabel }}</span>
+                </template>
+                <template v-if="row.payment">
+                  <span class="text-slate-300">|</span>
+                  <span class="text-slate-400">{{ formatTime(row.payment.transaction_time) }}</span>
                 </template>
               </div>
             </div>
@@ -80,7 +112,7 @@
         <template v-else>
           <div v-for="p in match.payments" :key="p.id"
                class="flex items-center justify-between gap-1.5 py-1.5 group cursor-pointer hover:bg-white rounded-lg px-1.5 -mx-1.5 transition-colors"
-               @click="$emit('view-payment', match)">
+               @click="$emit('view-payment', match, p)">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <p class="text-sm font-medium truncate">{{ p.merchant_name || '未知' }}</p>
@@ -107,6 +139,7 @@
             </button>
           </div>
         </template>
+        </div>
       </div>
     </div>
   </div>
@@ -114,9 +147,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Receipt, Wallet, ArrowRight, X, Gauge, SlidersHorizontal, Link2, Layers, HandCoins, UserCheck } from 'lucide-vue-next'
+import { Receipt, Wallet, X, Gauge, SlidersHorizontal, Link2, Layers, HandCoins, UserCheck } from 'lucide-vue-next'
 import AppButton from './ui/AppButton.vue'
-import type { Invoice, MatchResult, InvoiceCategory } from '../types'
+import type { Invoice, MatchResult, InvoiceCategory, PaymentRecord } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 
@@ -124,12 +157,16 @@ const props = defineProps<{ match: MatchResult }>()
 defineEmits<{
   (e: 'adjust', match: MatchResult): void
   (e: 'view-invoice', invoice: Invoice): void
-  (e: 'view-payment', match: MatchResult): void
+  (e: 'view-payment', match: MatchResult, payment?: PaymentRecord): void
   (e: 'update-category', invoiceId: string, category: InvoiceCategory): void
   (e: 'remove-payment', invoiceId: string, paymentId: string): void
 }>()
 
 const hasItineraries = computed(() => props.match.invoice.itineraries.length > 0)
+
+const paymentTotal = computed(() => props.match.payments.reduce((s, p) => s + p.amount, 0))
+const itineraryTotal = computed(() => props.match.invoice.itineraries.reduce((s, it) => s + it.amount, 0))
+const totalDiff = computed(() => paymentTotal.value - itineraryTotal.value)
 
 /// 行程-支付配对行：优先用 itinerary_payment_pairs，无配对时回退按索引
 const itineraryRows = computed(() => {

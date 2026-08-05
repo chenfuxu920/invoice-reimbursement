@@ -4,7 +4,8 @@
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
         <div class="flex items-center gap-2">
           <h2 class="text-base font-semibold text-slate-800">支付详情</h2>
-          <span v-if="payments.length === 1" class="px-2 py-0.5 rounded text-xs font-medium" :class="sourceBadgeClass">{{ sourceLabel }}</span>
+          <span v-if="payments.length > 1" class="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">#{{ activeIndex + 1 }} / {{ payments.length }}</span>
+          <span v-else-if="payments.length === 1" class="px-2 py-0.5 rounded text-xs font-medium" :class="sourceBadgeClass">{{ sourceLabel }}</span>
         </div>
         <button class="text-slate-400 hover:text-slate-600" aria-label="关闭" @click="$emit('close')">
           <AppIcon name="x" :size="16" />
@@ -20,7 +21,7 @@
           class="px-3 py-1.5 text-xs rounded-t whitespace-nowrap"
           :class="i === activeIndex ? 'bg-primary-50 text-primary-700 font-medium border border-b-white border-primary-200' : 'text-slate-500 hover:bg-slate-50'"
         >
-          {{ p.merchant_name.slice(0, 8) }}
+          <span class="text-slate-400">#{{ i + 1 }}</span> {{ p.merchant_name.slice(0, 8) }}
         </button>
       </div>
 
@@ -85,7 +86,7 @@ import type { PaymentRecord } from '../types'
 import AppButton from './ui/AppButton.vue'
 import AppIcon from './ui/AppIcon.vue'
 
-const props = defineProps<{ visible: boolean; payments: PaymentRecord[] }>()
+const props = defineProps<{ visible: boolean; payments: PaymentRecord[]; initialIndex?: number }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 function onKeydown(e: KeyboardEvent) {
@@ -93,8 +94,12 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 watch(() => props.visible, (v) => {
-  if (v) window.addEventListener('keydown', onKeydown)
-  else window.removeEventListener('keydown', onKeydown)
+  if (v) {
+    activeIndex.value = Math.min(Math.max(0, props.initialIndex ?? 0), props.payments.length - 1)
+    window.addEventListener('keydown', onKeydown)
+  } else {
+    window.removeEventListener('keydown', onKeydown)
+  }
 }, { immediate: true })
 
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))

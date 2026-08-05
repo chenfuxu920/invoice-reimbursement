@@ -30,7 +30,7 @@
             </td>
             <td class="px-3 py-2.5 text-slate-500">{{ p.payment_method || '-' }}</td>
             <td class="px-3 py-2.5">
-              <span class="chip border !py-0.5" :class="p.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70' : 'bg-primary-50 text-primary-700 border-primary-200/70'">
+              <span class="chip border !py-0.5 whitespace-nowrap -ml-2.5" :class="p.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70' : 'bg-primary-50 text-primary-700 border-primary-200/70'">
                 {{ p.source === 'Wechat' ? '微信' : '支付宝' }}
               </span>
             </td>

@@ -1,7 +1,19 @@
 <template>
   <div class="max-w-5xl mx-auto px-5 py-6 space-y-6">
-    <!-- 英雄区 -->
-    <section class="relative overflow-hidden rounded-3xl border border-white/70 bg-white/70 shadow-card p-8 md:p-10">
+    <!-- 英雄区（整卡即拖放目标） -->
+    <section
+      class="relative overflow-hidden rounded-3xl border p-8 md:p-10 transition-all duration-300"
+      :class="isDragging
+        ? 'border-primary-400/70 bg-gradient-to-br from-primary-50/90 to-accent-50/70 shadow-glow'
+        : 'border-white/70 bg-white/70 shadow-card'"
+      @dragover.prevent="isDragging = true"
+      @dragleave="onDragLeave"
+    >
+      <!-- 拖入高亮光晕 -->
+      <div v-if="isDragging" class="absolute inset-0 pointer-events-none">
+        <div class="absolute inset-0 bg-gradient-to-br from-primary-500/10 to-accent-500/10 animate-fade-in" />
+        <div class="absolute inset-0 rounded-3xl ring-2 ring-primary-500/60 ring-offset-2 ring-offset-white" />
+      </div>
       <!-- 光晕装饰 -->
       <div class="absolute -top-24 -right-16 w-80 h-80 rounded-full bg-primary-400/20 animate-drift pointer-events-none" />
       <div class="absolute -bottom-28 -left-20 w-80 h-80 rounded-full bg-accent-400/15 animate-drift pointer-events-none" style="animation-delay: -8s" />
@@ -26,6 +38,12 @@
           </button>
           <p class="text-sm text-slate-500">{{ primaryCta.hint }}</p>
         </div>
+
+        <!-- 拖放小提示：仅提示，不新增第二块拖放区 -->
+        <p class="mt-3 inline-flex items-center gap-1.5 text-xs text-slate-400 animate-fade-in-up" style="animation-delay: 200ms">
+          <UploadCloud :size="13" class="text-primary-500" />
+          也可以把发票与账单文件直接拖进这张卡片，自动跳转识别
+        </p>
 
         <!-- OCR 状态小芯片（不再独占大卡片） -->
         <div class="mt-6 flex flex-wrap items-center gap-2 animate-fade-in-up" style="animation-delay: 240ms">
@@ -111,12 +129,15 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  ArrowRight, Sparkles, Download, Loader2, Settings2, CheckCircle2,
+  ArrowRight, Sparkles, Download, Loader2, Settings2, CheckCircle2, UploadCloud,
   Upload, Link2, Package, Plus, Wand2, FolderOpen, ClipboardList,
 } from 'lucide-vue-next'
 import AppButton from '../components/ui/AppButton.vue'
 import AppBadge from '../components/ui/AppBadge.vue'
+import { pendingDrop } from '../composables/pendingDrop'
+import { useDropZone } from '../composables/useDropZone'
 import { useInvoiceStore } from '../stores/invoice'
 import { usePaymentStore } from '../stores/payment'
 import { useMatchStore } from '../stores/match'
@@ -130,12 +151,35 @@ import type { BadgeTone } from '../components/ui/AppBadge.vue'
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
 const matchStore = useMatchStore()
+const router = useRouter()
 const { ocrOnline, refresh } = useOcrStatus()
 
 const downloadingModels = ref(false)
 const showConfig = ref(false)
 const modelBaseUrl = ref('')
 const downloadProgress = ref({ file: '', index: 0, total: 0 })
+
+// 整张英雄卡即拖放目标（webview 级监听，仅 drop 触发，点击不会打开文件选择器）
+const { isDragging } = useDropZone((invoices, bills) => {
+  if (invoices.length) stashDrop('invoices', invoices)
+  if (bills.length) stashDrop('bills', bills)
+})
+
+function onDragLeave(e: DragEvent) {
+  const target = e.currentTarget as HTMLElement
+  if (target.contains(e.relatedTarget as Node)) return
+  isDragging.value = false
+}
+
+// 拖入/选择文件 → 暂存路径并跳转导入页，由 ImportView 消费后执行识别
+function stashDrop(kind: 'invoices' | 'bills', paths: string[]) {
+  const prev = pendingDrop.value
+  pendingDrop.value = {
+    invoices: kind === 'invoices' ? [...(prev?.invoices ?? []), ...paths] : (prev?.invoices ?? []),
+    bills: kind === 'bills' ? [...(prev?.bills ?? []), ...paths] : (prev?.bills ?? []),
+  }
+  router.push('/import')
+}
 
 onMounted(async () => {
   try {
@@ -257,7 +301,7 @@ const flowCards = computed(() => {
 })
 
 const quickActions = [
-  { to: '/import', label: '手动添加空发票', hint: '纸质票据补录', icon: Plus, wrap: 'bg-primary-50 text-primary-600' },
+  { to: '/import', label: '手动添加纸质发票', hint: '纸质票据补录', icon: Plus, wrap: 'bg-primary-50 text-primary-600' },
   { to: '/import', label: '全局导入', hint: '选择文件夹批量导入', icon: FolderOpen, wrap: 'bg-violet-50 text-violet-600' },
   { to: '/match', label: '手动匹配', hint: '调整配对关系', icon: Wand2, wrap: 'bg-amber-50 text-amber-600' },
   { to: '/export', label: '一键导出全部', hint: '每趟单独成文件', icon: ClipboardList, wrap: 'bg-emerald-50 text-emerald-600' },

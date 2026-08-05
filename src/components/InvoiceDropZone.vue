@@ -45,46 +45,20 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import { UploadCloud, FileText, Table2, Image } from 'lucide-vue-next'
 import { open } from '@tauri-apps/plugin-dialog'
-import { getCurrentWebview } from '@tauri-apps/api/webview'
+import { INVOICE_EXT, BILL_EXT, classifyPaths, useDropZone } from '../composables/useDropZone'
 
 defineProps<{ loading?: boolean }>()
 const emit = defineEmits<{
   (e: 'files-selected', paths: string[]): void
   (e: 'bills-import', paths: string[]): void
 }>()
-const isDragging = ref(false)
-let unlisten: (() => void) | null = null
 
-const INVOICE_EXT = ['pdf', 'jpg', 'jpeg', 'png']
-const BILL_EXT = ['xlsx', 'xls', 'csv']
-
-function classify(paths: string[]) {
-  const invoices: string[] = []
-  const bills: string[] = []
-  for (const p of paths) {
-    const ext = p.toLowerCase().split('.').pop() || ''
-    if (BILL_EXT.includes(ext)) bills.push(p)
-    else invoices.push(p)
-  }
-  return { invoices, bills }
-}
-
-onMounted(async () => {
-  unlisten = await getCurrentWebview().onDragDropEvent((event) => {
-    if (event.payload.type === 'drop' && event.payload.paths.length > 0) {
-      isDragging.value = false
-      const { invoices, bills } = classify(event.payload.paths)
-      if (invoices.length) emit('files-selected', invoices)
-      if (bills.length) emit('bills-import', bills)
-    }
-  })
-})
-
-onUnmounted(() => {
-  if (unlisten) unlisten()
+const { isDragging } = useDropZone((invoices, bills) => {
+  if (invoices.length) emit('files-selected', invoices)
+  if (bills.length) emit('bills-import', bills)
 })
 
 async function openFilePicker() {
@@ -96,12 +70,12 @@ async function openFilePicker() {
     }],
   })
   if (!selected) return
-  const { invoices, bills } = classify(Array.isArray(selected) ? selected : [selected])
+  const { invoices, bills } = classifyPaths(Array.isArray(selected) ? selected : [selected])
   if (invoices.length) emit('files-selected', invoices)
   if (bills.length) emit('bills-import', bills)
 }
 
-const zoneClass = isDragging
+const zoneClass = computed(() => isDragging.value
   ? 'border-primary-500 bg-primary-50/60 shadow-glow'
-  : 'border-slate-300 bg-white/80 hover:border-primary-400 hover:bg-primary-50/30 hover:shadow-card'
+  : 'border-slate-300 bg-white/80 hover:border-primary-400 hover:bg-primary-50/30 hover:shadow-card')
 </script>

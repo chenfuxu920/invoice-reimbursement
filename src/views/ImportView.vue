@@ -128,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import {
   Plus, FolderOpen, Trash2, Receipt, Wallet, AlertTriangle, X, ArrowRight, ChevronRight,
 } from 'lucide-vue-next'
@@ -148,6 +148,7 @@ import BlankInvoiceEntryModal from '../components/BlankInvoiceEntryModal.vue'
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import type { Invoice, ParseError } from '../types'
 import { invoke } from '@tauri-apps/api/core'
+import { consumePendingDrop } from '../composables/pendingDrop'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
@@ -162,6 +163,14 @@ const manualEntryErrorId = ref('')
 const blankVisible = ref(false)
 const clearConfirmVisible = ref(false)
 const retryingIds = ref<string[]>([])
+
+// 首页拖入的文件：消费暂存并直接执行识别（文件夹由 Rust collect_files 递归展开）
+onMounted(() => {
+  const drop = consumePendingDrop()
+  if (!drop) return
+  if (drop.invoices.length) handleInvoiceFiles(drop.invoices)
+  if (drop.bills.length) handleBillImport(drop.bills)
+})
 
 const globalLoading = ref(false)
 const billLoading = ref(false)

@@ -171,6 +171,7 @@
     <PaymentDetailModal
       :visible="showPaymentDetail"
       :payments="viewingPayments"
+      :initial-index="viewingPaymentIndex"
       @close="showPaymentDetail = false"
     />
   </div>
@@ -211,6 +212,7 @@ const showInvoiceDetail = ref(false)
 const viewingInvoice = ref<Invoice | null>(null)
 const showPaymentDetail = ref(false)
 const viewingPayments = ref<PaymentRecord[]>([])
+const viewingPaymentIndex = ref(0)
 
 const canMatch = computed(() => invoiceStore.invoices.length > 0 && paymentStore.payments.length > 0)
 const hasMatched = computed(() => matchStore.matches.length > 0)
@@ -290,15 +292,19 @@ async function handleDetailSave(updated: Invoice) {
   await matchStore.autoMatch(invoiceStore.invoices, paymentStore.payments)
 }
 
-function handleViewPayment(match: MatchResult) {
+function handleViewPayment(match: MatchResult, payment?: PaymentRecord) {
   if (match.payments.length > 0) {
     viewingPayments.value = match.payments
+    viewingPaymentIndex.value = payment
+      ? Math.max(0, match.payments.findIndex(p => p.id === payment.id))
+      : 0
     showPaymentDetail.value = true
   }
 }
 
 function handleViewSinglePayment(payment: PaymentRecord) {
   viewingPayments.value = [payment]
+  viewingPaymentIndex.value = 0
   showPaymentDetail.value = true
 }
 </script>

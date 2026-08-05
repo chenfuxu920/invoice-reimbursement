@@ -1,379 +1,195 @@
 ---
 name: but
-version: 0.19.0
-description: Commit, push, branch, and manage version control. Use for git commit, git status, git push, git diff, creating branches, staging files, editing history, pull requests, or any git/version control operation. Replaces git write commands with 'but' - always use this instead of raw git.
+version: 0.22.0
+description: "Commit, push, branch, and manage version control with GitButler. Use for commits, selective dirty-file or hunk commits, branches, diffs, PRs, history edits, squashes, amends, undo, merge, apply, and unapply. For selected dirty files or hunks, inspect with `but diff`; use compact `but status` for commit order, branch/stack placement, or conflict overview; use `but status -fv` when file/hunk IDs or per-commit file details matter. Replaces git write commands."
 author: GitButler Team
 ---
 
 # GitButler CLI Skill
 
-Help users work with GitButler CLI (`but` command) in workspace mode.
+Use GitButler CLI (`but`) as the default version-control interface.
 
-## New Session Workflow
+## Start Here
 
-**EVERY new agent session that involves code changes MUST follow this flow:**
-
-1. **Sync first** → `but pull` to get latest upstream changes (prevents conflicts and stale base)
-2. **Check state** → `but status` to see existing branches and unstaged changes
-3. **Decide branch** →
-   - If an existing branch matches the task → reuse it (it's already applied)
-   - If this is new work → `but branch new <task-name>` (e.g. `feat/add-auth`, `fix/login-bug`)
-   - If you need to resume unapplied work → `but apply <branch>`
-4. **Make changes** → Edit files as needed
-5. **Stage & commit** → `but commit <branch> -m "message" --changes <id>,<id>`
-6. **Refine** → Use `but absorb` or `but squash` to clean up history
-7. **Push when ready** → `but push <branch>`
-8. **Create PR** → `but pr new <branch> -t` (uses default target branch)
-
-**Branch naming**: Use conventional prefixes: `feat/`, `fix/`, `chore/`, `refactor/`
-
-**Commit early, commit often.** Don't hesitate to create commits - GitButler makes editing history trivial. You can always `squash`, `reword`, or `absorb` changes into existing commits later. Small atomic commits are better than large uncommitted changes.
-
-## After Using Write/Edit Tools
-
-When ready to commit:
-
-1. Run `but status --json` to see uncommitted changes and get their CLI IDs
-2. Commit the relevant files directly: `but commit <branch> -m "message" --changes <id>,<id>`
-
-You can batch multiple file edits before committing - no need to commit after every single change.
-
-## Critical Concept: Workspace Model
-
-**GitButler ≠ Traditional Git**
-
-- **Traditional Git**: One branch at a time, switch with `git checkout`
-- **GitButler**: Multiple stacks simultaneously in one workspace, changes assigned to stacks
-
-**This means:**
-
-- ❌ Don't use `git status`, `git commit`, `git checkout`
-- ✅ Use `but status`, `but commit`, `but` commands
-- ✅ Read-only git commands are fine (`git log`, `git diff`)
-
-## Hard Safety Rules (Non-Negotiable)
-
-1. **Never discard changes you did not create.**
-   - `zz` (unassigned) often contains work from other sessions/agents/users.
-   - If unrelated changes exist, leave them untouched and ask before any discard action.
-2. **Never leave your own changes in `zz` at the end of work.**
-   - After edits, run `but status --json` and move your file/hunk IDs to the correct branch via `but stage` or `but commit --changes`.
-3. **Validate branch ownership before commit.**
-   - Confirm each changed file/hunk belongs to the intended branch/task, then commit only those IDs.
-4. **Respect branch ownership across sessions.**
-   - In multi-agent environments, branches may belong to other agent sessions. Never reword, rename, or push branches you didn't create in this session.
-   - If you need to modify another session's branch, ask the user first.
-
-## Quick Start
-
-**Installation:**
+Choose the narrowest first command by task; avoid ritual status checks:
 
 ```bash
-curl -sSL https://gitbutler.com/install.sh | sh
-but setup                          # Initialize in your repo
-but skill install --path <path>    # Install/update skill (agents use --path with known location)
+# Selected dirty files/hunks:
+but diff
+
+# Commit order, branch/stack placement, conflict overview:
+but status
+
+# File/hunk IDs, per-commit files, amend/split details:
+but status -fv
+
+# Details for one known branch or commit:
+but show <id>
 ```
 
-**Note for AI agents:**
-- When installing or updating this skill programmatically, always use `--path` to specify the exact installation directory. The `--detect` flag requires user interaction if multiple installations exist.
-- **Use `--json` flag for all commands** to get structured, parseable output. This is especially important for `but status --json` to reliably parse workspace state.
+Do not run plain `but status` and then `but status -fv` unless the compact output lacks file/hunk details needed for the task.
 
-**Core workflow:**
+For "commit just/only/specific changes on a new branch", use the fast path:
 
 ```bash
-but status --json       # Always start here - shows workspace state (JSON for agents)
-but branch new feature  # Create new stack for work
-# Make changes...
-but commit <branch> -m "…" --changes <id>,<id>  # Commit specific files by CLI ID
-but push <branch>       # Push to remote
+but diff
+but commit -b <branch> -m "<msg>" <id> <id>
 ```
 
-## Essential Commands
+`but commit -b <branch> ...` creates the branch when it does not exist and prints the created commit. Do not run a separate `but branch new`, status command, or verification diff unless the task needs workspace information that the result does not provide.
 
-For detailed command syntax and all available options, see [references/reference.md](references/reference.md).
-For a hands-on learning guide, see [references/tutorial.md](references/tutorial.md).
-For a one-page quick lookup, see [references/cheatsheet.md](references/cheatsheet.md).
+## IDs
 
-**IMPORTANT for AI agents:** Add `--json` flag to all commands for structured, parseable output.
+The first token on each `but diff` / `but status` line is that line's ID — pass it to commands as-is; never hardcode or invent IDs. IDs may be a single character when unambiguous; copy them exactly from command output.
 
-**Understanding state:**
+- Changes and sources are **positional, space-separated** IDs (`but commit -b feat -m "msg" qs:5 uo`). A hunk ID is written `<file-id>:<hunk-id>` (e.g. `qs:5`, copied from `but diff`) — the part after the colon is the hunk's ID, **not** a line range (`qs:16-40` is invalid). Do not invent flags like `--changes` / `--hunk` / `--ids`, pass a line range, or comma-separate IDs — `nk,pn` is parsed as one ID and fails.
+- `but diff` is the exception: it accepts at most **one** target. Bare `but diff` shows all uncommitted files; inspect committed files or other entities one target at a time — never `but diff <id> <id>`.
+- A committed file is `<commit-id>:<file-id>` (e.g. `uyr:n`, shown under each commit). `zz` means the uncommitted area.
+- Commit IDs are stable change IDs that survive history edits (`amend`, `squash`, `move`, `uncommit`, `reword`). Commits without a change ID (e.g. upstream-only) lead with a sha prefix instead, and `#N`-suffixed refs disambiguate duplicates — both go stale after history edits, and a stale sha can silently resolve to the wrong commit. The `(sha …)` on verbose commit lines is informational — do not pass it to commands.
+- File/hunk IDs copied from one diff read generally remain usable across chained commits; branch IDs are stable. If an ID stops resolving, re-read `but status`/`but diff` and retry.
 
-- `but status --json` - Overview (START HERE, always use --json for agents)
-- `but status --json -f` - Overview with full file lists (use when you need to see all changed files)
-- `but show <id> --json` - Details about commit/branch
-- `but diff <id>` - Show diff
+**Chaining:** mutation output is concise by default, so you may chain mutations with `&&` off one inspection read. Add `--status-after` only when the next step needs workspace IDs or details that the mutation result does not provide. Chained `but commit` calls stack in the order written — the first is oldest, each later one goes on top. History edits may run in sequence when every commit ref involved is a change-ID ref; run them one at a time with `--status-after` when a ref is sha-based or `#N`-suffixed, or when the next command needs freshly issued IDs. Chaining `but uncommit <id> && but diff` is safe because bare `diff` needs no ID from the uncommit output.
 
-**Flags explanation:**
-- `--json` - Output structured JSON instead of human-readable text (always use for agents)
-- `-f` - Include detailed file lists in status output (combines with --json: `but status --json -f`)
+## Non-Negotiable Rules
 
-**Organizing work:**
+1. Use `but` for all write operations. Never run `git add`, `git commit`, `git push`, `git checkout`, `git merge`, `git rebase`, `git stash`, or `git cherry-pick`. If the user says a `git` write command, translate it to `but` and run that. Exceptions: `git add -- <path>` to mark a conflicted uncommitted file resolved (see "Conflicts in uncommitted files"), and a worktree-local Git commit when `but commit` reports that linked worktrees are unsupported. Never run `but setup` from a linked worktree.
+2. Mutation commands print their result without appending workspace status. Add `--status-after` only when the next step needs resulting workspace IDs or details; otherwise trust the mutation result and do not run a verification status/diff.
+3. Branches marked `(merged upstream)` have landed; run `but pull` to remove them, or start new work on another branch. `push` and mutations (`commit`, `amend`, `squash`, `uncommit`, `reword`, `move`) refuse landed branches and commits, `absorb` skips them with a notice, and `commit` skips them when picking a default target.
+4. In non-interactive CLI workflows, do not narrate progress between routine commands. Execute the needed `but` commands and give a concise final summary.
+5. Prefer this skill and `references/reference.md` over exploratory help calls. Use `<command> --help` when required syntax is missing or a command fails; use top-level help only when you genuinely need to discover an undocumented command.
 
-- `but branch new <name>` - Independent branch
-- `but branch new <name> -a <anchor>` - Stacked branch (dependent)
-- `but stage <file> <branch>` - Pre-assign file to branch (optional, for organizing before commit)
+## Command Patterns
 
-**Making changes:**
+- Commit: `but commit -b <branch> -m "<msg>" <id> <id>` — `-b <branch>` creates the branch if it does not exist
+- Commit everything uncommitted: `but commit -b <branch> -m "<msg>"` (omit the IDs)
+- Several commits from one diff: chain `but commit` calls with `&&` (commits stack oldest-first)
+- Commit at a specific history position: `--above <commit-or-branch>` or `--below <commit-or-branch>` instead of `-b`
+- Only one targeting flag (`-b` / `--above` / `--below`) per command. Targeting is **required** when more than one **stack** is applied; without it `but commit` fails with "Unclear where to commit. Found more than one stack". Several branches stacked together count as one stack — an untargeted commit then silently lands on the stack's top branch, so pass `-b` whenever the branch matters.
+- Always pass `-m "<msg>"` (or `--no-message`) to `but commit`, and to `but squash` whenever its sources are commits or branches — those compose a new message, and without a flag an editor opens and blocks. Squash sources that are uncommitted or committed files reuse the target's message and need no flag; squashing into `zz` rejects message flags outright.
+- Amend: `but amend -t <commit-or-branch> <file-or-hunk-id> <file-or-hunk-id>` — a branch target resolves to its newest commit
+- Uncommit: `but uncommit <commit-id>` (whole commit) or `but uncommit <commit-id>:<file-id>` (one committed file); multiple committed-file sources in one call must come from one commit
+- Insert empty commit: `but commit --empty -b <branch> -m "<msg>"`
+- Squash commits: `but squash <source-commit-id> [<source-commit-id>...] -t <target-commit-id> -m "<msg>"`
+- Squash a whole branch into one commit: `but squash <branch> -m "<msg>"` (no `-t`)
+- Reorder commits: `but move <commit-id> --below <commit-id>` (`--above` for the other direction; **commit IDs**, not branch names)
+- Reorder a block: `but move <commit-id> <commit-id> --below <following-commit-id>` or `--above <preceding-commit-id>` (both anchors accept multiple space-separated sources)
+- Move commit to branch top: `but move <commit-id> -b <branch>`
+- Stack branches: `but move <branch> --above <target-branch>` (**branch names or branch CLI IDs**)
+- Tear off a branch: `but move <branch> --unstack`
+- Discard: `but discard <id> [<id>...]` — accepts branches, commits, committed files, uncommitted files/hunks, or `zz` for all uncommitted changes
+- Push: `but push <branch-name>` — always specify the branch; bare `but push` pushes ALL branches when run non-interactively
+- Pull (update workspace from the target): `but pull` — the output reports the result; `but pull --check` previews without updating when a preview is actually needed
+- Create PR: `but pr new <branch-id> [-m "Title..."] [-F pr_message.txt] [-t] [--draft]` — auto-pushes first; do not run `but push` before it
 
-- `but commit <branch> -m "msg" --changes <id>,<id>` - Commit specific files or hunks (recommended)
-- `but commit <branch> -m "msg" -p <id>,<id>` - Same as above, using short flag
-- `but commit <branch> -m "msg"` - Commit ALL uncommitted changes to branch
-- `but commit <branch> --only -m "msg"` - Commit only pre-staged changes (cannot combine with --changes)
-- `but amend <file-id> <commit-id>` - Amend file into specific commit (explicit control)
-- `but absorb <file-id>` - Absorb file into auto-detected commit (smart matching)
-- `but absorb <branch-id>` - Absorb all changes staged to a branch
-- `but absorb` - Absorb ALL uncommitted changes (use with caution)
+## Task Recipes
 
-**Getting IDs for --changes:**
-- **File IDs**: `but status --json` - commit entire files
-- **Hunk IDs**: `but diff --json` - commit individual hunks (for fine-grained control when a file has multiple changes)
+### Update workspace from main
 
-**Editing history:**
+For "get latest from main", "update/sync this workspace", "rebase onto main", or "pull main":
 
-- `but rub <source> <dest>` - Universal edit (stage/amend/squash/move)
-- `but squash <commits>` - Combine commits
-- `but reword <id>` - Change commit message/branch name
+1. `but pull` — one command; no preflight needed. Its output reports the resulting state, it refuses safely when uncommitted changes conflict, and `but undo` reverts it.
+2. If commits come back conflicted, resolve them oldest-first following the printed instructions: `but resolve <commit>`, edit the files, then `but resolve finish`. Its result gives the current ID of the next conflict. Add `--status-after` to the finish you expect to clear the last conflict only when the task needs the complete resulting workspace. When it says no conflicted commits remain, stop; do not run a verification status. Finishing a lower commit rebases the ones above it, so always work bottom-up.
 
-**Remote operations:**
+`but pull --check` answers "would this conflict?" without updating. Do not use it as a routine
+preflight; use it when the user asks for a preview, repository policy requires one, or other agents'
+branches may move.
 
-- `but pull` - Update with upstream
-- `but push [branch]` - Push to remote
-- `but pr new <branch>` - Push and create pull request (auto-pushes, no need to push first)
-- `but pr new <branch> -m "Title..."` - Inline PR message (first line is title, rest is description)
-- `but pr new <branch> -F pr_message.txt` - PR message from file (first line is title, rest is description)
-- For stacked branches, the custom message (`-m` or `-F`) only applies to the selected branch; dependent branches use defaults
+Rebasing applied branches onto the latest target IS `but pull` — never `move`, `config target`, `unapply`, or raw `git pull`/`git rebase`. The base shown in status is the last FETCHED state: when `git log` shows `main` (local or remote) ahead of it, that is exactly the update `but pull` fetches and applies — the target setting is not stale and repointing it is never the fix. Pull carries uncommitted changes along, and its output reports the resulting state. If it refuses because uncommitted changes conflict, park them: `but commit -b <branch> -m "wip" <ids>`, pull again, then `but uncommit` the parked commit (there is no stash; do not hand-revert files).
 
-## Key Concepts
+### Commit selected files or hunks
 
-For deeper understanding of the workspace model, dependency tracking, and philosophy, see [references/concepts.md](references/concepts.md).
+1. `but diff` — shows file and hunk IDs for uncommitted changes. Do not run plain `but status` first.
+2. Use file IDs when whole files belong in the commit; use hunk IDs (`<file-id>:<hunk-id>`) when only part of a file belongs. Omit IDs you don't want committed.
+3. `but commit -b <branch> -m "<msg>" <id1> <id2>` — the branch is created if it does not exist, so no prior `but branch new` is needed.
+4. When the task requires knowing which changes remain, add `--status-after`; otherwise the created-commit result is sufficient.
 
-**CLI IDs**: Every object gets a short ID (e.g., `c5` for commit, `bu` for branch). Use these as arguments.
+Edge case: if wanted and unwanted edits are in the same diff hunk, GitButler cannot split that hunk by ID. Only when the task requires keeping part of that hunk uncommitted, temporarily edit the working tree to isolate the wanted lines, commit those IDs, then restore the leftover lines so they remain uncommitted.
 
-**Parallel vs Stacked branches**:
+### Amend into existing commit
 
-- Parallel: Independent work that doesn't depend on each other
-- Stacked: Dependent work where one feature builds on another
+1. `but status -fv` (or `but show <branch-id>`) — locate file/hunk IDs and target commit IDs.
+2. `but amend -t <commit-id> <id> <id>` — one command per target commit. For several target commits, chain the amends with `&&` when every target is a change-ID ref; otherwise run them one at a time with `--status-after` to get fresh refs.
 
-**The `but rub` primitive**: Core operation that does different things based on what you combine:
+### Split an existing commit
 
-- File + Branch → Stage
-- File + Commit → Amend
-- Commit + Commit → Squash
-- Commit + Branch → Move
+Use this when an existing commit should be replaced by selected smaller commits.
 
-## Workflow Examples
+1. `but status -fv` when you need the source commit, branch name, or placement anchor.
+2. `but uncommit <source-commit-id> && but diff` in one shell call exposes the commit's changes and prints the resulting file and hunk IDs.
+3. Pick replacement contents from that dirty diff, not from the old committed diff.
+4. Determine the requested chronological order from the user's wording, then create the replacement commits oldest-first by chaining `but commit` calls. Do not reverse that order to match `but status`, which displays commits newest-first. `-b <branch>` puts each new commit at the TOP of that branch — if the split commit had commits above it, the replacements now sit above those preserved commits.
+5. **If commits from that branch must stay ABOVE the replacements, put the preserved block back on top instead of fighting anchors.** Do not anchor with `--above <top>`/`--below <top>` (sha/`#N` anchors go stale as each insert rewrites history). Move the block together so its internal order stays intact: append `&& but move <preserved-id> [<preserved-id>...] -b <branch>` to the commit chain. Change-ID refs from step 1 stay valid; wait for fresh output first if any preserved ref is sha-based or `#N`-suffixed.
+6. Leave unwanted changes uncommitted. Replacements created oldest-first appear newest-first in status — that is correct; do not reorder them. Add `--status-after` to the final mutation when you need to inspect the resulting order.
 
-For complete step-by-step workflows and real-world scenarios, see [references/examples.md](references/examples.md).
+### Reorder commits
 
-**Starting independent work:**
+`but status` displays commits newest/top first, while task specs often list history oldest to newest — translate before moving.
 
-```bash
-but status --json
-but branch new api-endpoint
-but branch new ui-update
-# Make changes, then commit specific files to appropriate branches
-but status --json  # Get file CLI IDs
-but commit api-endpoint -m "Add endpoint" --changes <api-file-id>
-but commit ui-update -m "Update UI" --changes <ui-file-id>
-```
+1. `but status` once to get commit IDs (use `-fv` only if you also need file details).
+2. `but move <source> --below <target-commit>` places source immediately below target in `but status` (older in oldest-to-newest history). `--above` places it immediately above (newer). `but move <source> -b <branch>` moves it to branch top/newest.
+3. For an adjacent block, run ONE move, anchored either way: `but move <block-id> <block-id> --below <following-commit-id>` or `but move <block-id> <block-id> --above <preceding-commit-id>`. Pick an anchor outside the block; source order does not matter and the block keeps its internal order. Add `--status-after` when you need to inspect the resulting order; do not move the anchor or block members again.
+4. For other reorders, make the smallest set of moves.
 
-**Committing specific hunks (fine-grained control):**
+### Squash commits
 
-```bash
-but diff --json             # See hunk IDs when a file has multiple changes
-but commit <branch> -m "Fix first issue" --changes <hunk-id-1>
-but commit <branch> -m "Fix second issue" --changes <hunk-id-2>
-```
+1. `but status` for commit IDs and order.
+2. Name the sources positionally and the result/target commit with `-t`: `but squash <source> [<source>...] -t <target> -m "<new message>"`.
+3. To collapse an entire branch into one commit, pass just the branch and no `-t`: `but squash <branch> -m "<new message>"`.
+4. Multiple independent groups may run in sequence off one status read (targets keep their change-ID refs); prefer newer/top groups first. Take fresh refs only when a ref is sha-based or `#N`-suffixed.
+5. Add `--status-after` to the final squash when you need to inspect the resulting history; do not re-verify with a separate status.
 
-**Cleaning up commits:**
+### Stack existing branches
 
-```bash
-but absorb              # Auto-amend changes
-but status --json       # Verify absorb result
-but squash <branch>     # Squash all commits in branch
-```
-
-**Resolving conflicts:**
-
-```bash
-but resolve <commit>    # Enter resolution mode
-# Fix conflicts in editor
-but resolve finish      # Complete resolution
-```
+To make one existing branch depend on another: `but move <child-branch> --above <parent-branch>` (branch **names** or branch CLI IDs — commit reordering uses commit IDs). To unstack: `but move <branch> --unstack`.
 
-**Managing workspace:**
-
-```bash
-but config target origin/test   # Set default PR target (requires unapply all branches first)
-but unapply <branch>            # Remove branch from workspace (keeps commits)
-but apply <branch>              # Bring branch back into workspace
-but teardown                    # Exit GitButler mode → normal git
-but setup                       # Re-enter GitButler mode
-but discard <ids>               # Discard unstaged changes
-```
+**DO NOT** stack via `uncommit` + `branch delete` + `branch new -a` (git branch names persist after delete and it loses work), and do not use `but undo` to unstack.
 
-## Post-Merge PR Flow
+### Create or manage pull requests
 
-After a PR is squash-merged on GitHub, follow this exact sequence:
+`but pr new <branch-id>` pushes the branch and creates the PR in one step — no prior `but push`. Provide `-F pr_message.txt`, `-t`, or `-m` with real newlines (zsh/bash: `-m $'Title\n\nBody'`) so no editor opens. If forge auth is missing, run `but config forge auth`.
 
-```bash
-but unapply <merged-branch>    # MUST do BEFORE pull - prevents orphan branch errors
-but pull                        # Pull merged changes from remote
-```
+For stacked branches `but pr` is mandatory (it sets PR bases and stack metadata; `gh pr create` breaks that). To publish a whole stack: `but pr new <top-branch-id> -t`. Manage with `but pr auto-merge|set-draft|set-ready <selector>`. See `references/reference.md` for details.
 
-**Critical**: If you `but pull` before unapplying the merged branch, GitButler will error with orphan branch conflicts. Always unapply first.
+### Dependency conflict with another branch
 
-**If `but unapply` fails** (branch already gone from workspace after remote deletion with `--delete-branch`), `but pull` may also fail with "resolution mismatch" errors because the ghost stack still exists internally. In this case, the GitButler desktop app can handle it — tell the user to run `but pull` from the GUI. Alternatively, use `but teardown` → `but setup` → `but config target origin/<branch>` to reset.
+Changes that build on another branch's commits cannot land on an independent branch. `but commit` and `but amend` fail atomically ("Cannot commit: N changes could not be applied"), naming the branch and commit each rejected change depends on — nothing is committed and no `-b` branch is created.
 
-**After `but teardown` → `but setup`**: Target config resets. Run `but config target origin/<branch>` again.
+When there is a single dependency branch, the error's Hint gives the exact recovery command: `but move <your-branch> --above <dependency-branch>` to stack an existing branch on its dependency, or `but branch new <name> --anchor <dependency-branch>` when the target branch didn't exist yet. Run it, then retry the original command. When the error names dependencies without a Hint (several dependency branches, or the dependency is on the target branch itself), run `but status -fv` to see where the dependent commits live before choosing a placement.
 
-## Using `--no-hooks` Safely
+If that recovery command fails, do NOT try `uncommit`, `squash`, or `undo` as a workaround — re-run `but status -fv` to confirm both branches exist and are applied, then retry with exact branch names.
 
-When pre-commit hooks fail on pre-existing errors unrelated to your changes, use `--no-hooks`. But this skips the formatter too:
+### Resolve conflicted commits (after pull, move, or reorder)
 
-```bash
-bun run format                                    # Format FIRST
-but commit <branch> -m "msg" --changes <ids> --no-hooks  # Then commit without hooks
-```
+**NEVER use `git add`, `git commit`, `git checkout --theirs/--ours`, or any git write command during resolution.** Only `but resolve` commands plus direct file edits.
 
-Alternatively, commit normally and absorb formatter fixes:
+1. Find conflicted commits: history-editing commands (`move`, `discard`, …) warn about newly conflicted commits in their output, and the `but pull` summary lists them oldest-first; otherwise `but status` marks them.
+2. `but resolve <commit-id>` — enters resolution mode and prints the conflict regions.
+3. **Edit the files** to remove every conflict marker — `<<<<<<<`, `|||||||` (the common-ancestor section), `=======` and `>>>>>>>` — and keep the correct content. Do NOT skip this; do NOT use `but amend` on conflicted commits.
+4. `but resolve finish` reports leftover markers, surviving uncommitted changes, every remaining conflicted commit, and the exact current `but resolve <id>` command. Add `--status-after` to the finish you expect to clear the last conflict only when the task needs the complete resulting workspace. When it says no conflicted commits remain, stop; do not run a verification status.
+5. Repeat for remaining conflicted commits, oldest first — finishing a lower commit rebases the ones above it.
 
-```bash
-but commit <branch> -m "msg" --changes <ids>      # Commit (hooks may fix formatting)
-but absorb                                         # Absorb any auto-formatted changes
-```
+### Conflicts in uncommitted files
 
-## Known Issues & Workarounds
+`but status` marks uncommitted files with unresolved merge conflicts `{conflicted}`; they are excluded from committable changes and outside `but resolve` mode. Choose the desired contents or delete the file, then `git add -- <path>` to mark it resolved (the one permitted `git add`).
 
-| Issue | What happens | Workaround |
-|-------|-------------|------------|
-| `but resolve` loses target config | After entering resolve mode, `but config target` resets to "not set" | Run `but config target origin/<branch>` again after `but resolve finish`. If finish fails, do `git checkout gitbutler/workspace` → `but teardown` → `but setup` |
-| `but absorb` hunk lock | Absorb assigns hunk to wrong commit when it's locked by another commit on a different branch | Use `but amend <file> <commit>` for explicit control instead of absorb |
-| `but pr new` has no `--base` flag | Always creates PR against default target | Set target first: `but config target origin/<branch>` |
-| `but config target` requires unapply | Cannot change target with applied branches | `but unapply` all → change target → `but apply` |
-| `but config forge auth` is interactive | Cannot run in non-interactive agent mode | User must run in terminal + grant org access on GitHub |
-| `but commit` pre-commit hook fails | Hook fails on pre-existing errors unrelated to your changes | `but commit --no-hooks` if errors are not from your changes. **Always `bun run format` first** since `--no-hooks` skips the formatter |
-| `but branch delete` last segment | Cannot delete if it would leave anonymous segment | Use `but unapply` instead of delete |
-| `but stage` prefix matching | Branch name can be abbreviated | `but stage <id> ch` works for `chore/gitbutler-setup` |
-| `but discard` hunk range error | Discarding file-level changes sometimes fails with hunk range errors | Use `git checkout -- <file>` instead of `but discard` for file-level discards |
-| `but teardown` + `but setup` resets target | After teardown/setup cycle, target config is lost | Run `but config target origin/<branch>` again after setup |
-| Lefthook `pre-commit.old` accumulates | Lefthook creates `pre-commit.old` backup that conflicts on next install | Add `rm -f .git/hooks/pre-commit.old` to `prepare` script in package.json |
-| `but pull` before unapply | Pulling with merged branches still applied causes orphan errors | **Always** `but unapply <merged-branch>` before `but pull` |
-| `but unapply` after remote branch deletion | `but unapply` fails with "branch not found" when remote deleted the branch (e.g. `--delete-branch` on merge), and subsequent `but pull` fails with "resolution mismatch" | Use GitButler desktop app to pull, or `but teardown` → `but setup` → `but config target origin/<branch>` |
-| Split-hunk files stuck in `zz` | File has hunks locked to commits on different branches — GitButler sets `stack_id=None`, plugin considers file "handled" via lock reference | Manually commit each hunk: `but diff --json` to get hunk IDs, then `but commit <branch> -m "msg" --changes <hunk-id>` for each |
-| Plugin auto-cleanup misses empty branches | `ge-branch-*` cleanup has ~12% failure rate; user-named empty branches are never auto-cleaned | Run `/b-branch-gc` command or manually `but unapply <branch-id>` |
-| Notifications not reaching agent | Plugin notification delivery is ~55% (259 queued vs 142 delivered in observed sessions) | Always verify state with `but status --json` — don't rely on `<system-reminder>` notifications alone |
+## Git-to-But Map
 
-| Workspace projection mismatch | `but status` shows a branch/stack, but `but unapply <branch>` or GUI `stack_details` says the stack is not found in the workspace | Treat as **GitButler metadata corruption**, not a git-history problem. Stop mutating in place, capture logs/project/commit graph for support, then use `but teardown` → back up `.git/gitbutler` → `but setup`. If it persists, use a fresh clone/worktree. |
-| Many `(no changes)` commits after repeated resolve/rebase | A stack accumulates synthetic commits that are patch-equivalent to upstream or replayed duplicates | Do **not** keep resolving in place. Freeze refs, identify patch-equivalent commits with `git cherry -v` and rebuild clean branches from the logical base instead of preserving the broken history. |
-| Applying one stack auto-unapplies another | GitButler says it had to unapply another stack to apply the requested one | The stacks overlap in content or ancestry. Unapply the currently active conflicting stack first, or rebuild the intended stack boundaries so only one logical chain remains applied at a time. |
-| `but push` blocked by projection errors | Workspace/stack metadata is broken but the raw git refs are healthy | If the goal is to repair remote ancestry, verify branch refs with raw git and use `git push --force-with-lease` as a last resort. Afterwards return to `gitbutler/workspace` and reinitialize metadata with `but setup`. |
+| git | but |
+|---|---|
+| `git status` | `but status` for branch/stack/commit overview; `but status -fv` for file/hunk details; `but diff` for selected dirty changes |
+| `git add` + `git commit` | `but commit -b <branch> -m ... <ids>` |
+| `git checkout -b` + commit | `but commit -b <new-branch> -m ... <ids>` |
+| `git push` | `but push <branch-name>` |
+| `git rebase -i` | `but move`, `but squash`, `but reword` |
+| `git rebase --onto` | `but move <branch> --above <new-base>` |
+| `git checkout -- <file>` / `git restore` | `but discard <id>` |
+| `git cherry-pick` | `but pick` |
+| `gh pr create` | `but pr new <branch-id> -m "Title..."` |
 
-### Diagnosing `zz` Stuck Files
+## Notes
 
-When files are stuck in `zz` (unassigned) and don't auto-recover:
-
-1. **Identify the cause:**
-   ```bash
-   but status --json -f    # Look for files in zz with [LOCKED] markers
-   but diff --json          # Get hunk-level IDs and see lock targets
-   ```
-
-2. **If hunks are locked to different branches** (split-hunk scenario):
-   - Each hunk must be committed to its locked branch individually
-   - `but commit <branch> -m "msg" --changes <hunk-id>` for each hunk
-   - Or `but rub <hunk-id> <commit-id>` to amend into the locked commit
-
-3. **If files have no locks but are still in `zz`:**
-   - Plugin's `after-edit` may have failed silently — stage manually
-   - `but stage <file-id> <branch>` or commit with `--changes`
-
-4. **If many files are stuck after `but cursor stop`:**
-   - Run `but rub <file-id> <branch-id>` for each file to force assignment
-   - This is the most reliable recovery method
-
-**Key insight:** Auto-recovery won't fix multi-branch locked files. If you see `[LOCKED]` in `zz`, manual intervention is required.
-
-### Surgical Repair for Broken Stacks
-
-When a stack is too damaged for normal `but resolve` to converge quickly — for example:
-
-- repeated `conflicted` commits keep reappearing,
-- `git cherry -v` shows lots of patch-equivalent duplicates,
-- GitButler shows many commits marked `(no changes)`,
-- or a single commit drags `.auto-resolution/**` or other obvious snapshot junk,
-
-use **surgical repair** instead of trying to preserve the broken history.
-
-#### When surgical repair is the right move
-
-- The raw git graph is understandable, but GitButler metadata/history replay is not.
-- You can clearly identify the intended logical layers of the work, even if the current branch history no longer reflects them cleanly.
-- A mixed commit contains the real feature files plus obvious accidental junk.
-
-#### Surgical repair workflow
-
-1. **Freeze everything first**
-   - Create backup refs for the current broken branches.
-   - Stash any workspace dirt/hook refresh noise.
-
-2. **Find the clean logical base**
-   - Use `git cherry -v <base> <branch>` to separate patch-equivalent duplicates from truly unique commits.
-   - Use `git log --reverse <base>..<branch>` to see the branch's commit layers in order.
-
-3. **Rebuild from clean bases, not from broken branch history**
-   - Create scratch branches from the intended base.
-   - Cherry-pick only clean commits.
-   - If a commit is contaminated (for example adds `.auto-resolution/**`), do **file-level checkout** of only the intended paths from that commit or from the existing branch tip, then create a new clean commit.
-
-4. **Validate each rebuilt layer independently**
-   - Compare file deltas between layers with `git diff --name-only <base>..<layer>`.
-   - Run the project verification (`bun run check`, build/tests/analyzers, etc.) on the rebuilt stack before replacing refs.
-
-5. **Replace refs only after the clean stack is proven**
-   - Move the real branch refs to the rebuilt scratch refs.
-   - Force-push with `--force-with-lease` only after ancestry and checks are confirmed.
-
-#### Why this is fast in practice
-
-Surgical repair sounds heavier than repeated conflict resolution, but once the stack crosses into duplicated replay / `(no changes)` / metadata-corruption territory, rebuilding the logical deltas is usually faster and safer than preserving every historical artifact.
-
-## Critical Safety Rules
-
-1. **NEVER discard changes you didn't create.** Unassigned changes in `zz` may belong to other agents, sessions, or the user. Always ask the user before running `but discard` or `git checkout --` on any change you don't recognize. In GitButler workspace, multiple actors work in parallel — discarding "stale" or "already merged" changes is a destructive assumption.
-2. **Always assign your changes to a branch immediately.** Don't leave edits sitting in `zz` (unassigned). After editing files, stage them to your working branch with `but stage <file-id> <branch>` or commit directly with `--changes`.
-
-## Guidelines
-
-1. Always start with `but status --json` to understand current state (agents should always use `--json`)
-2. Create a new stack for each independent work theme
-3. Use `--changes` to commit specific files directly - no need to stage first
-4. **Commit early and often** - don't wait for perfection. Unlike traditional git, GitButler makes editing history trivial with `absorb`, `squash`, and `reword`. It's better to have small, atomic commits that you refine later than to accumulate large uncommitted changes.
-5. **Use `--json` flag for ALL commands** when running as an agent - this provides structured, parseable output instead of human-readable text
-6. Use `--dry-run` flags (push, absorb) when unsure
-7. **Run `but pull` frequently** — at session start, before creating branches, and before pushing. Stale workspace = merge conflicts
-8. When updating this skill, use `but skill install --path <known-path>` to avoid prompts
-9. **Check for `zz` files with locks before finishing work.** Run `but status --json -f` and look for files in `zz` with `[LOCKED]` markers. These won't auto-recover — you must manually commit each hunk to its correct branch using `--changes <hunk-id>`. See [references/concepts.md — Hunk Locking](references/concepts.md) for details.
-10. **Don't trust notifications alone** — plugin notification delivery is ~55%. Always verify workspace state with `but status --json` before making assumptions about branch assignments or commit status.
-
-## Plugin Auto-Behaviors (What Happens Behind the Scenes)
-
-The GitButler plugin performs several actions automatically. **You do NOT need to do these yourself** — but you should know they happen so you don't duplicate work or get confused by unexpected state changes.
-
-| Behavior | Trigger | What It Does |
-|----------|---------|--------------|
-| **File auto-assign** | After each file edit | Finds which branch owns the file and runs `but cursor after-edit` or `but rub` to assign it |
-| **Auto-commit** | Session idle (agent stops editing) | Runs `but cursor stop` which commits all uncommitted changes to their assigned branches |
-| **LLM commit reword** | After auto-commit | Rewrites generic commit messages using Claude Haiku based on the actual diff |
-| **Branch rename** | After auto-commit | Renames `ge-branch-*` branches to descriptive names based on user's prompt |
-| **Empty branch cleanup** | After auto-commit | Removes `ge-branch-*` branches with 0 commits (~88% success rate) |
-| **Session title sync** | After auto-commit | Updates session title from branch name |
-| **Context injection** | Before each agent message | Injects `<system-reminder>` with workspace notifications (branch created, commits made, etc.) |
-
-### What This Means for You
-
-1. **Don't manually rename `ge-branch-*` branches** — the plugin will do it after idle
-2. **Don't reword auto-generated commit messages** — the plugin rewrites them with LLM
-3. **If you see unexpected commits** — check if the plugin auto-committed during an idle event
-4. **Notification delivery is ~55%** — not all injected notifications reach you. Always verify state with `but status --json` rather than relying on notifications
-5. **Empty branch cleanup can fail** — if you see stale `ge-branch-*` branches, run `/b-branch-gc`
+- Read-only git inspection (`git log`, `git blame`, `git show --stat`) is allowed.
+- If `but` prints an `AGENT ACTION REQUIRED` skill warning, run the suggested command once, then reload/use the GitButler skill. If it repeats, report it instead of retrying.
+- For command syntax and flags: `references/reference.md`
+- For workspace model: `references/concepts.md`
+- For workflow examples: `references/examples.md`
