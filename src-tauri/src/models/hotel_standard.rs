@@ -204,29 +204,108 @@ fn extract_city_keyword(dest: &str) -> Vec<String> {
     keywords
 }
 
+/// 由内置扁平标准（xlsx/默认表）派生省份层级结构（供设置页展示默认标准 & 前端复制）
+pub fn get_builtin_hotel_standards() -> Vec<crate::models::reimbursement_config::ProvinceStandard> {
+    build_province_structure(&builtin_flat_entries())
+}
+
+/// 内置扁平条目（每个 region 展开为独立条目）
+fn builtin_flat_entries() -> Vec<crate::models::reimbursement_config::HotelStandardEntry> {
+    load_standards()
+        .iter()
+        .flat_map(|r| r.regions.iter().map(|region| crate::models::reimbursement_config::HotelStandardEntry {
+            region: region.clone(),
+            standard: r.standard,
+        }))
+        .collect()
+}
+
+/// 把扁平条目（region→standard）派生成省份→城市层级。
+/// 供内置标准展示和旧配置迁移共用。
+pub fn build_province_structure(
+    entries: &[crate::models::reimbursement_config::HotelStandardEntry],
+) -> Vec<crate::models::reimbursement_config::ProvinceStandard> {
+    use crate::models::reimbursement_config::{CityStandard, ProvinceStandard};
+    use std::collections::{HashMap, HashSet};
+    let map = city_province_map();
+    let provinces: HashSet<String> = map.values().cloned().collect();
+    let mut nodes: HashMap<String, ProvinceStandard> = HashMap::new();
+    for e in entries {
+        let region = e.region.trim().to_string();
+        if region.is_empty() {
+            continue;
+        }
+        if provinces.contains(&region) {
+            // 省（含直辖市）→ 省份节点，"其他城市"标准
+            nodes
+                .entry(region.clone())
+                .or_insert_with(|| ProvinceStandard {
+                    name: region.clone(),
+                    default_standard: 350.0,
+                    cities: vec![],
+                })
+                .default_standard = e.standard;
+        } else if let Some(province) = map.get(&region) {
+            // 城市 → 挂到其省份下
+            let node = nodes.entry(province.clone()).or_insert_with(|| ProvinceStandard {
+                name: province.clone(),
+                default_standard: 350.0,
+                cities: vec![],
+            });
+            node.cities.push(CityStandard { name: region, standard: e.standard });
+        } else {
+            // 未知地区 → 自成一省节点（不丢数据）
+            nodes.entry(region.clone()).or_insert_with(|| ProvinceStandard {
+                name: region.clone(),
+                default_standard: e.standard,
+                cities: vec![],
+            });
+        }
+    }
+    let mut list: Vec<ProvinceStandard> = nodes.into_values().collect();
+    list.sort_by(|a, b| a.name.cmp(&b.name));
+    for n in &mut list {
+        n.cities.sort_by(|a, b| a.name.cmp(&b.name));
+    }
+    list
+}
+
 /// 获取指定目的地的住宿每晚上限标准（元/晚）
 ///
 /// 匹配逻辑：
-/// 1. 直接匹配 xlsx 规则（如 "深圳市" 命中 "深圳市" 行）
-/// 2. 从目的地提取城市名，通过城市→省份映射找到省份
-/// 3. 用省份匹配 xlsx 规则（如 "成都市" → "四川省" → 370）
-/// 4. 无匹配时返回默认值 350
+/// - 激活了用户标准集 → 只用用户集（直接匹配 → 城市→省份 → 集兜底）
+/// - 否则用内置标准（直接匹配 xlsx/默认表 → 城市→省份 → 350）
 pub fn get_hotel_nightly_rate_std(destination: &str) -> f64 {
     if destination.is_empty() {
-        return 350.0;
+        return crate::models::reimbursement_config::active_set_rules()
+            .map(|(_, d)| d)
+            .unwrap_or(350.0);
     }
     let dest = destination.trim();
     let rules = load_standards();
+    let city_map = city_province_map();
 
-    // 第一步：直接匹配规则
+    // 激活了用户标准集 → 只用用户集（直接匹配 → 城市→省份 → 集兜底）
+    if let Some((entries, set_default)) = crate::models::reimbursement_config::active_set_rules() {
+        if let Some(std) = crate::models::reimbursement_config::find_entry(&entries, dest) {
+            return std;
+        }
+        let keywords = extract_city_keyword(dest);
+        for kw in &keywords {
+            if let Some(province) = city_map.get(kw) {
+                if let Some(std) = crate::models::reimbursement_config::find_entry(&entries, province) {
+                    return std;
+                }
+            }
+        }
+        return set_default;
+    }
+
+    // 内置标准（原逻辑，兜底 350）
     if let Some(std) = find_in_rules(rules, dest) {
         return std;
     }
-
-    // 第二步：提取城市关键词，通过映射表查找省份
-    let city_map = city_province_map();
     let keywords = extract_city_keyword(dest);
-
     for kw in &keywords {
         if let Some(province) = city_map.get(kw) {
             if let Some(std) = find_in_rules(rules, province) {
@@ -234,7 +313,6 @@ pub fn get_hotel_nightly_rate_std(destination: &str) -> f64 {
             }
         }
     }
-
     350.0
 }
 

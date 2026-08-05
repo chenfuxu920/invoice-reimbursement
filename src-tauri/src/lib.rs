@@ -12,6 +12,7 @@ use parser::alipay_parser;
 use models::invoice::{Invoice, Itinerary};
 use models::payment::PaymentRecord;
 use models::match_result::{MatchResult, ItineraryPaymentPair};
+use crate::models::reimbursement_config::{self, ReimbursementConfig};
 use matching::batch;
 use matching::manual;
 use crate::pdf::form_generator;
@@ -92,6 +93,27 @@ async fn set_ocr_model_config(
 ) -> Result<(), String> {
     let config = ocr::OcrModelConfig { model_base_url };
     ocr::model_downloader::save_config(&app, &config)
+}
+
+// 获取报销标准配置
+#[tauri::command]
+async fn get_reimbursement_config(app: tauri::AppHandle) -> Result<ReimbursementConfig, String> {
+    Ok(reimbursement_config::load_config(&app))
+}
+
+// 获取当前生效的内置住宿标准（省份→城市层级，供设置页展示默认标准）
+#[tauri::command]
+async fn get_builtin_hotel_standards() -> Result<Vec<crate::models::reimbursement_config::ProvinceStandard>, String> {
+    Ok(crate::models::hotel_standard::get_builtin_hotel_standards())
+}
+
+// 设置报销标准配置
+#[tauri::command]
+async fn set_reimbursement_config(app: tauri::AppHandle, config: ReimbursementConfig) -> Result<(), String> {
+    let cfg = reimbursement_config::sanitize(config);
+    reimbursement_config::save_config(&app, &cfg)?;
+    reimbursement_config::apply_config(&cfg);
+    Ok(())
 }
 
 // 发票识别与解析命令
@@ -262,6 +284,30 @@ async fn render_reimbursement_html(
         &hotel_level,
     );
     Ok(form_html_generator::generate_reimbursement_html_string(&form))
+}
+
+// 预览报销表单（返回结构化数据，供前端实时显示可报销金额）
+#[tauri::command]
+async fn preview_reimbursement_form(
+    match_results: Vec<MatchResult>,
+    name: String,
+    department: String,
+    destination: String,
+    travel_start: String,
+    travel_end: String,
+    companions: u32,
+    hotel_level: String,
+) -> Result<crate::models::reimbursement::ReimbursementForm, String> {
+    Ok(form_builder::build_reimbursement_form(
+        &match_results,
+        &name,
+        &department,
+        &destination,
+        &travel_start,
+        &travel_end,
+        companions as usize,
+        &hotel_level,
+    ))
 }
 
 // 生成报销单 Excel 命令
@@ -631,6 +677,9 @@ pub fn run() {
             download_ocr_models,
             get_ocr_model_config,
             set_ocr_model_config,
+            get_reimbursement_config,
+            set_reimbursement_config,
+            get_builtin_hotel_standards,
             recognize_invoice,
             batch_recognize,
             recognize_itinerary,
@@ -646,6 +695,7 @@ pub fn run() {
             generate_comparison_html,
             generate_reimbursement_html,
             render_reimbursement_html,
+            preview_reimbursement_form,
             generate_reimbursement_xlsx,
             collect_files,
             batch_global_import,
@@ -683,6 +733,10 @@ pub fn run() {
 
             let state = app.state::<AppState>();
             *state.ocr_engine.blocking_lock() = engine;
+
+            // 加载报销标准配置到进程内全局状态（启动时生效）
+            let cfg = reimbursement_config::load_config(&app_handle);
+            reimbursement_config::apply_config(&cfg);
 
             #[cfg(debug_assertions)]
             {

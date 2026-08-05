@@ -22,8 +22,10 @@
           </p>
         </div>
         <div class="text-right shrink-0">
-          <p class="text-xs text-white/60">合计金额</p>
-          <p class="font-display text-3xl md:text-4xl font-extrabold text-white tabular-nums">¥{{ tripTotal.toFixed(2) }}</p>
+          <p class="text-xs text-white/60">可报销金额</p>
+          <p class="font-display text-3xl md:text-4xl font-extrabold text-white tabular-nums">{{ displayTotal }}</p>
+          <p v-if="reimbursableTotal !== null" class="text-[11px] text-white/50 mt-1">按当前报销标准计算</p>
+          <p v-else-if="firstSettled" class="text-[11px] text-white/50 mt-1">按发票原始金额</p>
         </div>
       </div>
     </div>
@@ -93,7 +95,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import { watchDebounced } from '@vueuse/core'
+import { invoke } from '@tauri-apps/api/core'
 import { MapPin, CalendarDays, Receipt, ChevronDown, Eye } from 'lucide-vue-next'
 import AppButton from './ui/AppButton.vue'
 import ReimbursementForm from './ReimbursementForm.vue'
@@ -102,7 +106,7 @@ import InvoiceDetailModal from './InvoiceDetailModal.vue'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
 import { toast } from '../composables/toast'
-import type { Invoice, Trip } from '../types'
+import type { Invoice, Trip, ReimbursementForm as ReimbursementFormResult } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 
@@ -127,6 +131,59 @@ const previewing = ref(false)
 const previewHtml = ref<string | null>(null)
 
 const tripTotal = computed(() => props.trip.matches.reduce((s, m) => s + m.invoice.amount, 0))
+
+// 可报销金额：按最新报销标准实时计算（后端 build_reimbursement_form）
+const reimbursableTotal = ref<number | null>(null)
+// 首次计算是否已结束（成功或失败），未成功过则回退显示发票原始合计
+const firstSettled = ref(false)
+// 请求序号：并发/竞态时只采用最后一次结果
+let requestSeq = 0
+
+const displayTotal = computed(() => {
+  if (reimbursableTotal.value !== null) return '¥' + reimbursableTotal.value.toFixed(2)
+  return firstSettled.value ? '¥' + tripTotal.value.toFixed(2) : '…'
+})
+
+async function refreshReimbursable() {
+  const seq = ++requestSeq
+  if (!props.trip.matches.length) {
+    reimbursableTotal.value = 0
+    firstSettled.value = true
+    return
+  }
+  try {
+    const form = await invoke<ReimbursementFormResult>('preview_reimbursement_form', {
+      matchResults: props.trip.matches,
+      name: '',
+      department: '',
+      destination: props.trip.destination,
+      travelStart: props.trip.travelStart,
+      travelEnd: props.trip.travelEnd,
+      companions: 0,
+      hotelLevel: props.trip.hotelLevel,
+    })
+    if (seq !== requestSeq) return // 丢弃过期结果
+    reimbursableTotal.value = form.total_amount
+  } catch (e) {
+    // 失败保留旧值；从未成功过则回退显示原始合计。不 toast，避免导出页噪音
+    console.error('计算可报销金额失败:', e)
+  } finally {
+    if (seq === requestSeq) firstSettled.value = true
+  }
+}
+
+// 出差信息变化时防抖重算（避免输入过程中频繁调用后端）
+watchDebounced(
+  [
+    () => props.trip.destination,
+    () => props.trip.travelStart,
+    () => props.trip.travelEnd,
+    () => props.trip.hotelLevel,
+    () => props.trip.matches.length,
+  ],
+  () => refreshReimbursable(),
+  { debounce: 400 },
+)
 
 const formModel = computed(() => ({
   destination: props.trip.destination,
@@ -163,6 +220,8 @@ function handleDetailSave(updated: Invoice) {
   matchStore.updateMatchInvoice(updated)
   invoiceStore.updateInvoice(updated)
   detailVisible.value = false
+  // 发票金额/类别可能变化，立即重算可报销金额
+  refreshReimbursable()
 }
 
 async function togglePreview() {
@@ -180,6 +239,8 @@ async function togglePreview() {
     toast('预览失败: ' + e, 'error')
   }
 }
+
+onMounted(refreshReimbursable)
 </script>
 
 <style scoped>

@@ -26,8 +26,13 @@
         </router-link>
       </nav>
 
-      <!-- 调试入口（左下角小入口） -->
-      <div class="p-3 border-t border-slate-200/60">
+      <!-- 设置与调试入口（左下角小入口） -->
+      <div class="p-3 border-t border-slate-200/60 space-y-1">
+        <router-link to="/settings" title="报销标准"
+                     class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-100/80 transition-colors">
+          <Settings :size="13" class="shrink-0" />
+          <span v-if="!collapsed">报销标准</span>
+        </router-link>
         <router-link to="/debug" title="调试工具"
                      class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-100/80 transition-colors">
           <Bug :size="13" class="shrink-0" />
@@ -81,7 +86,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useEventListener } from '@vueuse/core'
 import {
-  PanelLeftClose, PanelLeftOpen, Home, Upload, Link2, Download, Bug, Receipt,
+  PanelLeftClose, PanelLeftOpen, Home, Upload, Link2, Download, Bug, Settings, Receipt,
 } from 'lucide-vue-next'
 import AppStepper from './components/ui/AppStepper.vue'
 import AppToast from './components/ui/AppToast.vue'
@@ -101,7 +106,7 @@ let manualCollapse: boolean | null = null
 
 const pageTitle = computed(() => {
   const map: Record<string, string> = {
-    '/': '智能控制台', '/import': '收集票据', '/match': '核对匹配', '/export': '打包导出', '/debug': '调试工具',
+    '/': '智能控制台', '/import': '收集票据', '/match': '核对匹配', '/export': '打包导出', '/debug': '调试工具', '/settings': '报销标准设置',
   }
   return map[route.path] || '发票报销助手'
 })

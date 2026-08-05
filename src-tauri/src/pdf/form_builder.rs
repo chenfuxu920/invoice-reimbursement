@@ -1,6 +1,7 @@
 use crate::models::match_result::MatchResult;
 use crate::models::invoice::InvoiceCategory;
 use crate::models::hotel_standard::get_hotel_nightly_rate_std;
+use crate::models::reimbursement_config;
 use crate::models::reimbursement::{
     ReimbursementForm, CategorySummary, TransportDetail, HotelLevelDetail, MealSubsidyDetail,
 };
@@ -32,7 +33,7 @@ pub fn build_reimbursement_form(
     hotel_level: &str,
 ) -> ReimbursementForm {
     let travel_days = days_between(travel_start, travel_end);
-    let meal_subsidy_rate: f64 = 100.0;
+    let meal_subsidy_rate: f64 = reimbursement_config::meal_subsidy_daily();
     let nightly_rate_std = get_hotel_nightly_rate_std(destination);
 
     // 按类别汇总
@@ -75,7 +76,7 @@ pub fn build_reimbursement_form(
         .unwrap_or((0, 0.0));
     let city_transport_count = city_ct.0 + toll_ct.0;
     let city_transport_actual_amount = city_ct.1 + toll_ct.1;
-    let city_transport_daily_std: f64 = 80.0;
+    let city_transport_daily_std: f64 = reimbursement_config::city_transport_daily();
     let city_transport_max = city_transport_daily_std * travel_days as f64;
     let city_transport_amount = city_transport_actual_amount.min(city_transport_max);
 
