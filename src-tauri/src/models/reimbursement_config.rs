@@ -28,13 +28,18 @@ pub struct ProvinceStandard {
     pub cities: Vec<CityStandard>, // 单独设置的城市
 }
 
-/// 一套住宿标准
+/// 一套标准集：住宿标准 + 基础标准（市内交通/伙食补助）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct StandardSet {
     pub id: String,
     pub name: String,                  // 用户可改
     pub default_hotel_standard: f64,   // 该套未匹配任何省份时的兜底
+    // 基础标准：None = 旧数据未设置，加载时继承全局值（内置默认）；保存后总是具体值
+    #[serde(default)]
+    pub city_transport_daily: Option<f64>,
+    #[serde(default)]
+    pub meal_subsidy_daily: Option<f64>,
     pub provinces: Vec<ProvinceStandard>,
 }
 
@@ -81,7 +86,16 @@ pub fn load_config(app: &AppHandle) -> ReimbursementConfig {
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
     migrate_legacy(&mut cfg);
+    stamp_base_standards(&mut cfg);
     cfg
+}
+
+/// 基础标准并入标准集：旧数据集的 None 继承全局值，保证前端总是拿到具体数字、旧自定义不丢失
+fn stamp_base_standards(cfg: &mut ReimbursementConfig) {
+    for s in &mut cfg.standard_sets {
+        s.city_transport_daily = Some(s.city_transport_daily.unwrap_or(cfg.city_transport_daily));
+        s.meal_subsidy_daily = Some(s.meal_subsidy_daily.unwrap_or(cfg.meal_subsidy_daily));
+    }
 }
 
 /// 旧版扁平自定义（hotel_standards + default_hotel_standard）→ 迁移为一个用户集并激活
@@ -99,6 +113,8 @@ fn migrate_legacy(cfg: &mut ReimbursementConfig) {
         id: uuid::Uuid::new_v4().to_string(),
         name: "我的标准".into(),
         default_hotel_standard: default,
+        city_transport_daily: None, // load_config 中统一继承全局值
+        meal_subsidy_daily: None,
         provinces,
     };
     cfg.active_standard_set_id = set.id.clone();
@@ -131,6 +147,16 @@ pub fn sanitize(mut c: ReimbursementConfig) -> ReimbursementConfig {
             }
         };
         s.default_hotel_standard = s.default_hotel_standard.max(0.0);
+        s.city_transport_daily = Some(
+            s.city_transport_daily
+                .unwrap_or(c.city_transport_daily)
+                .max(0.0),
+        );
+        s.meal_subsidy_daily = Some(
+            s.meal_subsidy_daily
+                .unwrap_or(c.meal_subsidy_daily)
+                .max(0.0),
+        );
         s.provinces.retain(|p| !p.name.trim().is_empty());
         for p in &mut s.provinces {
             p.name = p.name.trim().to_string();
@@ -153,10 +179,20 @@ pub fn sanitize(mut c: ReimbursementConfig) -> ReimbursementConfig {
 /// 把配置写入进程内全局状态
 // ponytail: 进程内全局生效（启动+保存时写入），避免改函数签名；测试/CLI 未 apply 时回退内置默认
 pub fn apply_config(config: &ReimbursementConfig) {
-    *CUSTOM_CITY_TRANSPORT_DAILY.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some(config.city_transport_daily);
-    *CUSTOM_MEAL_SUBSIDY_DAILY.lock().unwrap_or_else(|e| e.into_inner()) =
-        Some(config.meal_subsidy_daily);
+    // 基础标准：激活用户集自带 → 集值；否则（builtin/未找到）→ 全局值
+    let (city_transport, meal_subsidy) = config
+        .standard_sets
+        .iter()
+        .find(|s| s.id == config.active_standard_set_id)
+        .map(|s| {
+            (
+                s.city_transport_daily.unwrap_or(config.city_transport_daily),
+                s.meal_subsidy_daily.unwrap_or(config.meal_subsidy_daily),
+            )
+        })
+        .unwrap_or((config.city_transport_daily, config.meal_subsidy_daily));
+    *CUSTOM_CITY_TRANSPORT_DAILY.lock().unwrap_or_else(|e| e.into_inner()) = Some(city_transport);
+    *CUSTOM_MEAL_SUBSIDY_DAILY.lock().unwrap_or_else(|e| e.into_inner()) = Some(meal_subsidy);
 
     // active = "builtin" → 无激活用户集；否则找集扁平化，找不到（无效 id）→ None
     let active = if config.active_standard_set_id == "builtin" {

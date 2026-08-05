@@ -20,47 +20,8 @@
     </div>
 
     <template v-else-if="config">
-      <!-- 卡片 1：基础标准（全局） -->
+      <!-- 卡片 1：标准集管理 -->
       <div class="card p-5 mb-6 animate-fade-in-up">
-        <div class="flex items-center gap-3 mb-5">
-          <span class="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-accent-500 text-white shadow-glow-sm flex items-center justify-center shrink-0">
-            <Settings :size="18" />
-          </span>
-          <div>
-            <h3 class="font-display text-base font-bold text-slate-800">基础标准</h3>
-            <p class="text-xs text-slate-400 mt-0.5">全局通用，不属于任何标准集</p>
-          </div>
-        </div>
-
-        <div class="grid gap-5 sm:grid-cols-2">
-          <div>
-            <div class="flex items-center gap-2 mb-2">
-              <span class="w-7 h-7 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center shrink-0"><Car :size="14" /></span>
-              <label class="text-sm font-medium text-slate-700">市内交通每日上限</label>
-            </div>
-            <div class="relative">
-              <input v-model.number="config.cityTransportDaily" type="number" min="0" class="input !pr-12 tabular-nums" placeholder="80" />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">元/天</span>
-            </div>
-            <p class="text-xs text-slate-400 mt-1.5 leading-relaxed">市内打车、地铁等交通费用每日报销上限</p>
-          </div>
-
-          <div>
-            <div class="flex items-center gap-2 mb-2">
-              <span class="w-7 h-7 rounded-lg bg-accent-400/10 text-accent-600 flex items-center justify-center shrink-0"><Utensils :size="14" /></span>
-              <label class="text-sm font-medium text-slate-700">伙食补助每日标准</label>
-            </div>
-            <div class="relative">
-              <input v-model.number="config.mealSubsidyDaily" type="number" min="0" class="input !pr-12 tabular-nums" placeholder="100" />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">元/天</span>
-            </div>
-            <p class="text-xs text-slate-400 mt-1.5 leading-relaxed">出差期间每日伙食补助金额</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- 卡片 2：标准集管理 -->
-      <div class="card p-5 mb-6 animate-fade-in-up" style="animation-delay: 60ms">
         <div class="flex items-center gap-3 mb-5">
           <span class="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-600 to-slate-800 text-white shadow-glow-sm flex items-center justify-center shrink-0">
             <Layers :size="18" />
@@ -142,15 +103,15 @@
         </div>
       </div>
 
-      <!-- 卡片 3：标准详情 -->
-      <div ref="detailCardRef" class="card p-5 animate-fade-in-up" style="animation-delay: 120ms">
+      <!-- 卡片 2：标准详情 -->
+      <div ref="detailCardRef" class="card p-5 animate-fade-in-up" style="animation-delay: 60ms">
         <div class="flex items-center gap-3 mb-4">
           <span class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-glow-sm flex items-center justify-center shrink-0">
             <Building2 :size="18" />
           </span>
           <div class="min-w-0">
             <h3 class="font-display text-base font-bold text-slate-800">标准详情</h3>
-            <p class="text-xs text-slate-400 mt-0.5">按省份 → 城市设置每晚上限</p>
+            <p class="text-xs text-slate-400 mt-0.5">基础标准 + 按省份 → 城市设置每晚上限</p>
           </div>
         </div>
 
@@ -171,6 +132,35 @@
           <p class="text-xs text-slate-500 leading-relaxed">
             内置标准为软件自带数据，只读；如需调整，可点击「从默认标准创建」生成一套可编辑的新标准集。
           </p>
+        </div>
+
+        <!-- 基础标准（随标准集） -->
+        <div class="grid gap-5 sm:grid-cols-2 mb-6">
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="w-7 h-7 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center shrink-0"><Car :size="14" /></span>
+              <label class="text-sm font-medium text-slate-700">市内交通每日上限</label>
+            </div>
+            <div class="relative">
+              <input v-if="!isBuiltin" v-model.number="detailSet!.cityTransportDaily" type="number" min="0" class="input !pr-12 tabular-nums" placeholder="80" />
+              <input v-else :value="config.cityTransportDaily" disabled type="number" class="input !pr-12 tabular-nums bg-slate-50" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">元/天</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1.5 leading-relaxed">市内打车、地铁等交通费用每日报销上限</p>
+          </div>
+
+          <div>
+            <div class="flex items-center gap-2 mb-2">
+              <span class="w-7 h-7 rounded-lg bg-accent-400/10 text-accent-600 flex items-center justify-center shrink-0"><Utensils :size="14" /></span>
+              <label class="text-sm font-medium text-slate-700">伙食补助每日标准</label>
+            </div>
+            <div class="relative">
+              <input v-if="!isBuiltin" v-model.number="detailSet!.mealSubsidyDaily" type="number" min="0" class="input !pr-12 tabular-nums" placeholder="100" />
+              <input v-else :value="config.mealSubsidyDaily" disabled type="number" class="input !pr-12 tabular-nums bg-slate-50" />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">元/天</span>
+            </div>
+            <p class="text-xs text-slate-400 mt-1.5 leading-relaxed">出差期间每日伙食补助金额</p>
+          </div>
         </div>
 
         <!-- 未匹配默认值（用户集专属） -->
@@ -288,7 +278,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import {
-  Settings, Car, Utensils, Layers, CopyPlus, Plus, CheckCircle2, Copy, Pencil,
+  Car, Utensils, Layers, CopyPlus, Plus, CheckCircle2, Copy, Pencil,
   Trash2, Check, X, Building2, ChevronRight, MapPin, Info, Database,
 } from 'lucide-vue-next'
 import AppButton from '../components/ui/AppButton.vue'
@@ -402,6 +392,9 @@ async function createFromBuiltin() {
       id: crypto.randomUUID(),
       name: '我的标准',
       defaultHotelStandard: 350,
+      // 基础标准继承内置默认（全局值）
+      cityTransportDaily: config.value!.cityTransportDaily,
+      mealSubsidyDaily: config.value!.mealSubsidyDaily,
       provinces: clone(provinces),
     }
     config.value?.standardSets.push(set)
@@ -500,18 +493,16 @@ function toggleProvince(name: string) {
 function validate(): string | null {
   const c = config.value
   if (!c) return null
-  const base = [
-    { label: '市内交通每日上限', value: c.cityTransportDaily },
-    { label: '伙食补助每日标准', value: c.mealSubsidyDaily },
-  ]
-  for (const item of base) {
-    if (!Number.isFinite(item.value)) return `${item.label}不是有效数字`
-    if (item.value < 0) return `${item.label}不能为负数`
-  }
   for (const s of c.standardSets) {
     if (!s.name.trim()) return `存在未命名的标准集`
     if (!Number.isFinite(s.defaultHotelStandard) || s.defaultHotelStandard < 0) {
       return `标准集「${s.name}」的未匹配默认值无效`
+    }
+    if (!Number.isFinite(s.cityTransportDaily) || s.cityTransportDaily < 0) {
+      return `标准集「${s.name}」的市内交通每日上限无效`
+    }
+    if (!Number.isFinite(s.mealSubsidyDaily) || s.mealSubsidyDaily < 0) {
+      return `标准集「${s.name}」的伙食补助每日标准无效`
     }
     for (const [i, p] of s.provinces.entries()) {
       if (!p.name.trim()) return `标准集「${s.name}」第 ${i + 1} 个省份缺少名称`

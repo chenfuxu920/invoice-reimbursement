@@ -13,6 +13,8 @@ export interface StandardSet {
   id: string
   name: string
   defaultHotelStandard: number
+  cityTransportDaily: number
+  mealSubsidyDaily: number
   provinces: ProvinceStandard[]
 }
 
