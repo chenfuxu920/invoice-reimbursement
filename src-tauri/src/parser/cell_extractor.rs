@@ -19,6 +19,62 @@ pub struct CellInvoiceFields {
     pub remarks: Option<String>,
 }
 
+/// 单元格文本变体，供 [`try_cell_texts`] 按序尝试。
+#[cfg(feature = "pdfplumber")]
+#[derive(Clone, Copy)]
+enum CellTextKind {
+    /// Type 2: 按行组装（适合横排标签值：销售方信息、价税合计）
+    Line,
+    /// Type 3: 全合并去空白（适合 *xxx* 编码 / 竖排标签 / 小单元格）
+    Merged,
+    /// Type 4: 按列聚合（适合商品详情大单元格）
+    Column,
+    /// Type 0: pdfplumber 原生 text（跨 cell word 归属兜底）
+    Raw,
+}
+
+/// 值单元格尝试顺序：line → merged → column → raw。
+/// line 保空格，`名称：公司名 税号` 类正则依赖空格切分，必须先试。
+#[cfg(feature = "pdfplumber")]
+const ORDER_VALUE: &[CellTextKind] = &[
+    CellTextKind::Line,
+    CellTextKind::Merged,
+    CellTextKind::Column,
+    CellTextKind::Raw,
+];
+
+/// 商品名单元格尝试顺序：merged 优先（`*xxx*` 编码去空白后才能匹配），跳过 line
+/// （line 的换行/字间空格会让 `\*(.+?)\*` 捕获带空白的名字）。
+#[cfg(feature = "pdfplumber")]
+const ORDER_ITEM: &[CellTextKind] = &[
+    CellTextKind::Merged,
+    CellTextKind::Column,
+    CellTextKind::Raw,
+];
+
+/// 以单元格为主体，对单元格内几种文本变体按 `order` 依次尝试匹配 extractor。
+/// 每种变体先经 `remove_cjk_spaces` 清洗，任一命中即返回。
+/// 顺序由调用方指定（标签值/商品名需要不同顺序），不做单一固定顺序。
+#[cfg(feature = "pdfplumber")]
+fn try_cell_texts<T>(
+    cell: &TableCellInfo,
+    order: &[CellTextKind],
+    extractor: &impl Fn(&str) -> Option<T>,
+) -> Option<T> {
+    for kind in order {
+        let text = match kind {
+            CellTextKind::Line => remove_cjk_spaces(&cell.line_text),
+            CellTextKind::Merged => remove_cjk_spaces(&cell.merged_text),
+            CellTextKind::Column => remove_cjk_spaces(&cell.column_text),
+            CellTextKind::Raw => remove_cjk_spaces(&cell.text),
+        };
+        if let Some(v) = extractor(&text) {
+            return Some(v);
+        }
+    }
+    None
+}
+
 /// 从 pdfplumber 表格提取发票字段。按页遍历所有表格的所有行，
 /// 按行标签匹配字段类型（"销售方"/"价税合计"/"备注"/"项目名称"），
 /// 从标签旁的值单元格提取具体值。
@@ -106,25 +162,10 @@ where
         if cell.line_text.trim().is_empty() && cell.merged_text.is_empty() {
             continue;
         }
-        // Type 2: 按行组装文本（适合横排标签值：销售方信息、价税合计）
         let line_cleaned = remove_cjk_spaces(&cell.line_text);
         eprintln!("  [LBLDBG]   skip={si} line_text='{}'", line_cleaned.chars().take(120).collect::<String>());
-        if let Some(v) = extractor(&line_cleaned) {
-            return Some(v);
-        }
-        // Type 3: 全合并文本（适合小单元格/换行：行程单等）
-        let merged_cleaned = remove_cjk_spaces(&cell.merged_text);
-        if let Some(v) = extractor(&merged_cleaned) {
-            return Some(v);
-        }
-        // Type 4: 按列聚合文本（适合单元格内多列布置：商品详情、多列值）
-        let column_cleaned = remove_cjk_spaces(&cell.column_text);
-        if let Some(v) = extractor(&column_cleaned) {
-            return Some(v);
-        }
-        // Type 0 回退：pdfplumber 原始 text
-        let raw_cleaned = remove_cjk_spaces(&cell.text);
-        if let Some(v) = extractor(&raw_cleaned) {
+        // 统一入口：以单元格为主体，按序尝试 line/merged/column/raw 四种文本
+        if let Some(v) = try_cell_texts(cell, ORDER_VALUE, &extractor) {
             return Some(v);
         }
     }
@@ -222,36 +263,19 @@ fn extract_remarks_value(text: &str) -> Option<String> {
 }
 
 /// 从行中搜索含 `*xxx*` 的单元格，返回 (税收编码简称, 单元格bbox, 按列聚合文本)
-/// 用 merged_text (Type 3) 匹配：*运 输 服 务* → *运输服务*
+/// 统一入口：merged 优先（`*xxx*` 编码去空白后才可匹配），column 次之，raw 兜底。
 /// column_text (Type 4) 按列聚合，跨行不丢字，供 pipeline 提取完整 item_detail
 fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f64, f64), String)> {
     let re = Regex::new(r"\*(.+?)\*").ok()?;
     for cell in row {
-        // Type 3: merged_text 去除所有空白，适合 *xxx* 税收编码匹配
-        if let Some(caps) = re.captures(&cell.merged_text) {
+        let name = try_cell_texts(cell, ORDER_ITEM, &|text| {
+            let caps = re.captures(text)?;
             let name = caps[1].to_string();
-            if name.chars().any(|c| is_cjk(c)) {
-                let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
-                return Some((name, bbox, cell.column_text.clone()));
-            }
-        }
-        // Type 4: column_text 按列聚合，适合大单元格内多列项目详情
-        let column_cleaned = remove_cjk_spaces(&cell.column_text);
-        if let Some(caps) = re.captures(&column_cleaned) {
-            let name = caps[1].to_string();
-            if name.chars().any(|c| is_cjk(c)) {
-                let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
-                return Some((name, bbox, cell.column_text.clone()));
-            }
-        }
-        // Fallback: pdfplumber 原始 text + remove_cjk_spaces
-        let cleaned = remove_cjk_spaces(&cell.text);
-        if let Some(caps) = re.captures(&cleaned) {
-            let name = caps[1].to_string();
-            if name.chars().any(|c| is_cjk(c)) {
-                let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
-                return Some((name, bbox, cell.column_text.clone()));
-            }
+            if name.chars().any(|c| is_cjk(c)) { Some(name) } else { None }
+        });
+        if let Some(name) = name {
+            let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
+            return Some((name, bbox, cell.column_text.clone()));
         }
     }
     None
@@ -277,4 +301,53 @@ fn remove_cjk_spaces(text: &str) -> String {
 
 fn is_cjk(c: char) -> bool {
     matches!(c, '\u{4e00}'..='\u{9fff}' | '\u{3000}'..='\u{303f}' | '\u{ff00}'..='\u{ffef}')
+}
+
+#[cfg(all(test, feature = "pdfplumber"))]
+mod tests {
+    use super::*;
+
+    fn cell(text: &str) -> TableCellInfo {
+        TableCellInfo {
+            text: text.to_string(),
+            x0: 0.0, top: 0.0, x1: 100.0, bottom: 20.0,
+            words: vec![],
+            line_text: text.to_string(),
+            merged_text: text.chars().filter(|c| !c.is_whitespace()).collect(),
+            column_text: text.to_string(),
+        }
+    }
+
+    // 统一入口：单元格内几种文本按序尝试，任一命中即返回
+    #[test]
+    fn try_cell_texts_tries_all_variants() {
+        let mut c = cell("名称： 甲公司");
+        c.merged_text = "名称：甲公司".to_string();
+        let got = try_cell_texts(&c, ORDER_VALUE, &|t| {
+            if t.contains("甲公司") { Some("hit") } else { None }
+        });
+        assert_eq!(got, Some("hit"));
+    }
+
+    // 统一入口：line 不命中时继续试 merged/column/raw
+    #[test]
+    fn try_cell_texts_falls_through() {
+        let c = cell("no value here");
+        let got = try_cell_texts(&c, ORDER_VALUE, &|t| {
+            if t.contains("税号") { Some(t.to_string()) } else { None }
+        });
+        assert_eq!(got, None);
+    }
+
+    // 统一入口：商品名 *xxx* 用 merged 优先（line 的换行会阻断匹配）
+    #[test]
+    fn try_cell_texts_item_merged_first() {
+        let mut c = cell("*运输\n服务*");
+        c.merged_text = "*运输服务*".to_string();
+        let re = Regex::new(r"\*(.+?)\*").unwrap();
+        let got = try_cell_texts(&c, ORDER_ITEM, &|t| {
+            re.captures(t).map(|m| m[1].to_string())
+        });
+        assert_eq!(got.as_deref(), Some("运输服务"));
+    }
 }

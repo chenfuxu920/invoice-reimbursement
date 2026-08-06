@@ -184,7 +184,8 @@ fn build_invoice_from_cells(
 ) -> Result<Invoice, String> {
     use crate::models::invoice::HotelDetail;
 
-    // 发票号（8位老式号码~30位全电发票号码）
+    // 发票号（8位老式号码~30位全电发票号码）。注意：发票号/日期不在表格内，
+    // 不能走单元格提取，只能全文正则（见 CLAUDE.md 智能体定义）
     let invoice_number = {
         let re = regex::Regex::new(r"发票号码[：:\s]*(\d{8,30})").ok();
         re.and_then(|r| r.captures(all_text))
