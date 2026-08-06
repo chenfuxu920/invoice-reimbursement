@@ -89,7 +89,14 @@ where
     F: Fn(&str) -> Option<T>,
 {
     let label_idx = row.iter().position(|c| {
-        c.merged_text.contains(label) && c.merged_text.chars().count() <= 15
+        let merged_len = c.merged_text.chars().count();
+        if c.merged_text.contains(label) && merged_len <= 15 {
+            return true;
+        }
+        // pdfplumber word 重建可能丢字（竖排标签"销售方信息"→"售方信息"，
+        // "销"被 word grouping 并入相邻值列），回退到 char 级原始 text（去空白）匹配
+        let raw: String = c.text.chars().filter(|ch| !ch.is_whitespace()).collect();
+        raw.contains(label) && raw.chars().count() <= 15
     })?;
     eprintln!("  [LBLDBG] found label='{label}' at idx={label_idx}, merged='{}/{}'", row[label_idx].merged_text, row[label_idx].merged_text.chars().count());
 

@@ -430,15 +430,20 @@ pub struct WordInCell {
 
 /// pdfplumber find_tables() 返回的单元格信息（文本 + 坐标）
 ///
-/// 含 4 类文本数据，按提取场景选用：
-/// - `text`: pdfplumber 原始合并文本（向后兼容）
+/// 含 5 类文本数据，按提取场景选用：
+/// - `text`: Type 0，pdfplumber 库原生输出——库内按 cell 边界归属 char 生成，
+///   不经项目 word 归属，跨 cell word 时仍可靠（竖排标签丢字 bug 的兜底）
 /// - `words`: Type 1，原始 word 数组（每 word 独立坐标）
 /// - `line_text`: Type 2，按行组装（word 按 Y 分组，行间 \n）— 适用横排标签值
 /// - `merged_text`: Type 3，全部合并（去除空白）— 适用竖排标签 / 小单元格
 /// - `column_text`: Type 4，按列聚合（word 按 X 分组）— 适用商品详情大单元格
+///
+/// 注意：Type 1-4 由 `enrich_cells_with_words` 用页面 word 中心点归属重建，
+/// word 被 grouping 跨 cell 合并时会错位；Type 0 无此问题，标签定位优先它。
 #[cfg(feature = "pdfplumber")]
 #[derive(Debug, Clone, Default)]
 pub struct TableCellInfo {
+    /// Type 0: pdfplumber 库原生单元格文本（按 cell 边界归属 char）
     pub text: String,
     pub x0: f64,
     pub top: f64,
@@ -482,7 +487,8 @@ pub struct PdfExtraction {
     pub tables: Vec<Vec<TableInfo>>,
 }
 
-/// 用页面 Word 填充每个单元格的 4 类文本数据（words/line_text/merged_text/column_text）。
+/// 用页面 Word 填充每个单元格的 Type 1-4 文本数据（words/line_text/merged_text/column_text）。
+/// Type 0 (`text`) 是库原生输出，不经此函数。
 ///
 /// 关联方式：word 中心点 (cx, cy) 落在 cell 边界内则属于该 cell。
 /// 一个 word 可能落进多个重叠 cell（pdfplumber 表格常有共享边框），

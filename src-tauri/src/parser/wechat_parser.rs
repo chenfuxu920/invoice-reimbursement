@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn debug_parse_real_bill() {
-        let path = r"..\data\账单\微信支付账单流水文件(20260207-20260507)_20260507233144.xlsx";
+        let path = r"..\data\账单\微信支付账单流水文件(20260418-20260518)_20260518094032.xlsx";
         let records = parse_wechat_bill(path).unwrap();
         // 验证时间已正确解析（不含序列号小数点）
         for r in &records {

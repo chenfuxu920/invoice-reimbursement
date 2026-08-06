@@ -564,8 +564,15 @@ pub fn parse_itinerary_from_tables(
                 header_row.iter().map(|c| c.merged_text.as_str()).collect();
 
             // 语义列索引映射
+            // 注：Pickup 额外匹配"进出站"（表头"进出站/线路"中"进站"被"出"隔开，
+            // 但 Dropoff 的"出站"能匹配；只有 Pickup 命中同一列才能同列解析"进站：X~出站：Y"）
             let mut col_indices: HashMap<SemanticCol, usize> = HashMap::new();
             for (sem, kws) in COL_KEYWORDS {
+                let kws: &[&str] = if *sem == SemanticCol::Pickup {
+                    &["起点", "进站", "进出站", "起"]
+                } else {
+                    kws
+                };
                 if let Some(pos) = header_texts.iter().position(|h| {
                     kws.iter().any(|kw| h.contains(kw))
                 }) {

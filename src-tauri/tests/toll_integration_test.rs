@@ -22,6 +22,7 @@ fn make_trip_invoice(id: &str, amount: f64, itin_time: &str, itin_amount: f64) -
             pickup: "A 站".to_string(),
             dropoff: "B 站".to_string(),
             amount: itin_amount,
+            city: String::new(),
             incomplete_fields: vec![],
         }],
         itinerary_file: None,

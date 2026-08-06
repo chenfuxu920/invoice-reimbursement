@@ -1,4 +1,5 @@
 use invoice_reimbursement_lib::parser;
+use invoice_reimbursement_lib::models::payment::PaymentSource;
 
 #[test]
 fn debug_bill_auto_detect() {
@@ -12,7 +13,7 @@ fn debug_bill_auto_detect() {
                 eprintln!("  source={:?} merchant={} amount={}", r.source, r.merchant_name, r.amount);
             }
             assert!(!records.is_empty(), "支付宝账单解析出 0 条记录");
-            assert!(records.iter().all(|r| matches!(r.source, crate::models::payment::PaymentSource::Alipay)),
+            assert!(records.iter().all(|r| matches!(r.source, PaymentSource::Alipay)),
                 "支付宝账单来源必须全部为 Alipay");
         }
         Err(e) => eprintln!("ALIPAY ERR: {}", e),
@@ -25,7 +26,7 @@ fn debug_bill_auto_detect() {
                 eprintln!("  source={:?} merchant={} amount={}", r.source, r.merchant_name, r.amount);
             }
             assert!(!records.is_empty(), "微信账单解析出 0 条记录");
-            assert!(records.iter().all(|r| matches!(r.source, crate::models::payment::PaymentSource::Wechat)),
+            assert!(records.iter().all(|r| matches!(r.source, PaymentSource::Wechat)),
                 "微信账单来源必须全部为 Wechat");
         }
         Err(e) => eprintln!("WECHAT ERR: {}", e),

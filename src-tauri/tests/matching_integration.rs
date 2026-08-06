@@ -47,6 +47,7 @@ fn make_city_transport_invoice(id: &str, amount: f64) -> Invoice {
             pickup: "北京站".to_string(),
             dropoff: "国贸".to_string(),
             amount: 30.0,
+            city: String::new(),
             incomplete_fields: vec![],
         }],
         itinerary_file: None,
