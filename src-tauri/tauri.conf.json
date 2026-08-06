@@ -29,6 +29,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
     ],
@@ -71,5 +72,15 @@
       }
     }
   },
-  "plugins": {}
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJBQTc2OTE3RTBGRTdDQjQKUldTMGZQN2dGMm1udWhDWlk5V0V0Zm1ZdU5pVGYxWFJQNjBwNGMzNHVmUWxQSVhHYndLQjh2NlMK",
+      "endpoints": [
+        "https://github.com/chenfuxu920/invoice-reimbursement/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
 }

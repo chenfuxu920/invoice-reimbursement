@@ -4,6 +4,7 @@ pub mod models;
 pub mod ocr;
 pub mod parser;
 pub mod pdf;
+pub mod updater_portable;
 
 use ocr::OcrEngine;
 use parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, compute_incomplete_fields};
@@ -668,6 +669,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState {
             ocr_engine: AsyncMutex::new(OcrEngine::uninitialized()),
         })
@@ -704,6 +707,9 @@ pub fn run() {
             debug_extract_texts,
             open_file_with_system,
             segment_trips,
+            updater_portable::portable_check_update,
+            updater_portable::portable_download_update,
+            updater_portable::portable_install,
 
         ])
         .setup(|app| {

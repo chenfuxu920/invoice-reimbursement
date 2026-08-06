@@ -8,6 +8,9 @@ venv/
 # Build artifacts
 src-tauri/build_error.txt
 src-tauri/ocr_output.txt
+
+# Updater signing key (never commit the private key)
+.tauri/
 vite.config.ts.timestamp-*.mjs
 
 *.zip

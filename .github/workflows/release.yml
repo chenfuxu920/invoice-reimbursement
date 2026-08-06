@@ -60,6 +60,7 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           tagName: app-v__VERSION__
           releaseName: '发票报销助手 v__VERSION__'
@@ -69,8 +70,28 @@ jobs:
             自动构建的多平台安装包（Windows NSIS / macOS dmg / Linux deb+AppImage）。
 
             - **Windows**: 下载 `.exe` 安装程序（可选当前用户/所有用户安装，支持中/英文）
+            - **Windows 便携版**: 免安装，单 exe（`发票报销助手_v*_portable.exe`），含自动更新
             - **macOS**: 下载 `.dmg`（未签名，首次打开需在"系统设置 → 隐私与安全性"中允许）
             - **Linux**: 下载 `.deb` 或 `.AppImage`
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # 便携版：复制 release exe → 按版本重命名 → 签名（env 私钥兜底）→ 上传到 release。
+      # 上传必须在此步骤内（与 $v 同作用域）；tag 名 = app-v${v}，与 tauri-action 的 tagName 模板一致。
+      - name: Build, sign & upload portable exe (Windows only)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # tauri#14829: 无密码密钥时 signer 会从 stdin 提示密码，非交互环境永久挂起；
+          # 显式设空 PASSWORD env 可阻止 stdin 提示（必须设，否则 CI 卡死）
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = (Get-Content package.json | ConvertFrom-Json).version
+          $exe = "发票报销助手_v${v}_portable.exe"
+          Copy-Item src-tauri/target/release/invoice-reimbursement.exe $exe
+          npx tauri signer sign $exe
+          gh release upload "app-v$v" $exe "$exe.sig" --clobber
+          Write-Host "portable exe uploaded: $exe + $exe.sig"

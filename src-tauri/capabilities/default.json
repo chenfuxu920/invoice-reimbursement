@@ -6,6 +6,7 @@
     "core:default",
     "dialog:default",
     "opener:default",
+    "updater:default",
     "fs:default",
     "fs:scope-temp-recursive",
     "fs:allow-read"
