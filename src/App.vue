@@ -59,6 +59,12 @@
             <span class="w-1.5 h-1.5 rounded-full" :class="ocrOnline ? 'bg-emerald-500 animate-pulse-soft' : 'bg-rose-500'" />
             OCR {{ ocrOnline ? '在线' : '离线' }}
           </span>
+          <!-- GitHub 仓库 -->
+          <a href="https://github.com/chenfuxu920/invoice-reimbursement" title="GitHub 仓库"
+             class="w-9 h-9 rounded-xl text-slate-400 hover:text-primary-600 hover:bg-white transition-all flex items-center justify-center"
+             @click.prevent="openUrl('https://github.com/chenfuxu920/invoice-reimbursement')">
+            <Github :size="17" />
+          </a>
         </div>
       </header>
 
@@ -86,10 +92,11 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useEventListener } from '@vueuse/core'
 import {
-  PanelLeftClose, PanelLeftOpen, Home, Upload, Link2, Download, Bug, Settings, Receipt,
+  PanelLeftClose, PanelLeftOpen, Home, Upload, Link2, Download, Bug, Settings, Receipt, Github,
 } from 'lucide-vue-next'
 import AppStepper from './components/ui/AppStepper.vue'
 import AppToast from './components/ui/AppToast.vue'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { useOcrStatus, initOcrStatus } from './composables/ocr'
 import { useInvoiceStore } from './stores/invoice'
 import { useMatchStore } from './stores/match'
