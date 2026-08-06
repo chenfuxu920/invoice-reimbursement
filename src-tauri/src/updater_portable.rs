@@ -22,7 +22,13 @@ const REPO_LATEST_API: &str =
 /// 便携版没有。所以用户重命名 exe 不影响判断；安装版 exe 被拷出安装目录后
 /// 失去安装上下文，判为便携也符合实际（已是单 exe，走便携更新路径正确）。
 /// 便携版统一命名 `invoice-reimbursement_v{version}_portable.exe`（全英文，规避 GitHub 资产名编码问题）。
+/// 注意：仅 Windows 有"便携 vs 安装"之分。Linux AppImage / macOS .app 本身就是免安装形态，
+/// 且官方 updater 插件原生支持其更新，必须返回 false 走官方插件路径——
+/// 否则会误判为便携版去 GitHub 找 `_portable.exe` 资产（该平台 release 没有，更新会失败）。
 fn is_portable_exe() -> bool {
+    if !cfg!(target_os = "windows") {
+        return false;
+    }
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };
