@@ -23,9 +23,9 @@ New-Item -ItemType Directory -Force -Path $portableDir | Out-Null
 Copy-Item "$releaseDir/invoice-reimbursement.exe" $portableDir
 
 # 用版本号重命名 exe（_portable 后缀 = 便携版标识，与 CI release 命名一致，
-# 也是 updater_portable::is_portable_exe 的判断依据）
+# 也是 updater_portable::is_portable_exe 的判断依据；全英文规避 GitHub 资产名编码问题）
 $version = (Get-Content "$root/package.json" | ConvertFrom-Json).version
-$exeName = "发票报销助手_v${version}_portable.exe"
+$exeName = "invoice-reimbursement_v${version}_portable.exe"
 Rename-Item "$portableDir/invoice-reimbursement.exe" $exeName -Force
 
 Write-Host "Portable version created at: $portableDir"

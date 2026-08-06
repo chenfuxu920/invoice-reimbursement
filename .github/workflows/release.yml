@@ -70,7 +70,7 @@ jobs:
             自动构建的多平台安装包（Windows NSIS / macOS dmg / Linux deb+AppImage）。
 
             - **Windows**: 下载 `.exe` 安装程序（可选当前用户/所有用户安装，支持中/英文）
-            - **Windows 便携版**: 免安装，单 exe（`发票报销助手_v*_portable.exe`），含自动更新
+            - **Windows 便携版**: 免安装，单 exe（`invoice-reimbursement_v*_portable.exe`），含自动更新
             - **macOS**: 下载 `.dmg`（未签名，首次打开需在"系统设置 → 隐私与安全性"中允许）
             - **Linux**: 下载 `.deb` 或 `.AppImage`
           releaseDraft: true
@@ -90,7 +90,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $v = (Get-Content package.json | ConvertFrom-Json).version
-          $exe = "发票报销助手_v${v}_portable.exe"
+          $exe = "invoice-reimbursement_v${v}_portable.exe"
           Copy-Item src-tauri/target/release/invoice-reimbursement.exe $exe
           npx tauri signer sign $exe
           gh release upload "app-v$v" $exe "$exe.sig" --clobber

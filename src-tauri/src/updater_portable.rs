@@ -21,6 +21,7 @@ const REPO_LATEST_API: &str =
 /// Tauri NSIS 安装版同目录必有 uninstall.exe（installer.nsi 固定 WriteUninstaller "$INSTDIR\uninstall.exe"），
 /// 便携版没有。所以用户重命名 exe 不影响判断；安装版 exe 被拷出安装目录后
 /// 失去安装上下文，判为便携也符合实际（已是单 exe，走便携更新路径正确）。
+/// 便携版统一命名 `invoice-reimbursement_v{version}_portable.exe`（全英文，规避 GitHub 资产名编码问题）。
 fn is_portable_exe() -> bool {
     let Ok(exe) = std::env::current_exe() else {
         return false;
@@ -29,7 +30,7 @@ fn is_portable_exe() -> bool {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    // 快速路径：明确命名标记（历史约定）
+    // 快速路径：明确命名标记（历史约定，本地 create-portable.ps1 与 CI 统一）
     if name.ends_with("_portable.exe") {
         return true;
     }
