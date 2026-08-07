@@ -70,10 +70,14 @@ pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch 
 - jacob-cotten fork 所有分支也含 PR#206/208，同样回归
 - **无现成上游版本兼得 `<<` 修复 + CJK 正确**，故自建 fork
 
-**Fork 分支构成** (10 commits, 最新在上):
+**Fork 分支构成** (最新在上):
 ```
-f9444db fix(parse): ASCII 0x20-0x7E 半角宽度（CJK CID 字体 /W 缺 ASCII 条目时 fallback 0.5×/DW）
+44cc05a fix(parse): ASCII Unicode 码点 → Adobe CID 映射查 /W（U+0020-007E → CID 1-95，CID = 码点 - 0x1F）
+7828008 fix(words): 提取前按 non_stroking_color 分组字符（棕色表单标签与黑色填写值同坐标重叠时防错组）
+0bdfaa4 Merge cjk-safe-lenient-full: 并入 4 个缺失 CJK 修复 + ASCII 宽度修复
+f9444db fix(parse): ASCII 0x20-0x7E 半角宽度（/W 仍 miss 时 fallback 0.5×/DW）
 0729db5 feat: CharEvent/Char/Word 暴露 color/render_mode/text_object_index/font_flags/stem_v
+046e328 feat: 同上（0729db5 的重复 cherry-pick，历史遗留）
 24ffb68 fix(parse): decode predefined CJK CMap bytes via encoding_rs（火车票 GBK-EUC-H CID 乱码）
 369244b fix(parse): /Contents 间接引用→数组三层结构解析（gp-template 全电发票/dzfp）
 dea587e fix(annotations): Square/FreeText 注解合成 Rect
@@ -83,11 +87,17 @@ c2ab510 fix(table): bar-rect 单边 + 按行成格，修复发票单元格提取
 93c14cb feat: tokenize_lenient <<修复 (PR#214 cherry-pick, 适配 0.2.0 API)
 0a436bf fix: char bbox and word grouping (0.2.0 base, CJK 0% mismatch)
 ```
-（merge commit `0bdfaa4` 合并了 `cjk-safe-lenient-full` 进 canonical 分支，含上述所有修复）
+（merge commit `0bdfaa4` 合并了 `cjk-safe-lenient-full` 进 canonical 分支，含上述所有修复；当前 Cargo.lock 锁定 `44cc05a`）
 
-**Predefined CJK CMap 字节解码修复** (24ffb68): 火车票/部分行程单 PDF 用 `GBK-EUC-H` 编码 Type0 CID 字体且无 `/ToUnicode`，旧代码 `show_string_cid` 把 GBK 双字节当 2-byte CID，`emit_char_events` 走 `char::from_u32(cid)` fallback → 0xB9FA 解为 U+B9FA = "뻺"（韩文 Hangul），全文 91+11 个韩文乱码。修复：`CachedFont` 加 `encoding_name: Option<String>` 字段（Type0 分支用 `get_type0_encoding(fd)` 填充），`handle_tj`/`handle_tj_array` 在 `is_predefined_cjk_cmap(encoding_name)` 为真时分派到新函数 `show_string_predefined_cjk`，用 `encoding_rs` 解码整段字节为 Unicode 字符串（GBK/BIG5/UTF_16BE/SHIFT_JIS/EUC_JP/EUC_KR），每个 RawChar 的 `char_code` 直接是 Unicode 码点，让既有 `char::from_u32` fallback 正确解析。Identity-H 路径**未改**（仍走 `show_string_cid` + ToUnicode）。`/W` 宽度查找仍按 Unicode 码点查（数组按 CID 索引，Unicode 码点对 CJK CID 通常 miss → fallback `/DW`；CJK 字符碰巧 `/DW=1000` = 全角 = 正确，ASCII 字符过宽由 `f9444db` 修复，见下）。位置：`crates/pdfplumber-parse/src/{interpreter,text_renderer,cid_font}.rs` + `crates/pdfplumber-parse/Cargo.toml` 加 `encoding_rs = "0.8"`。项目内 `tests/train_ticket_cid_debug_test.rs` 用真实火车票 PDF 作回归检查（韩文音节+兼容字母必须为 0，CJK 主区 ≥ 50）。
+**Predefined CJK CMap 字节解码修复** (24ffb68): 火车票/部分行程单 PDF 用 `GBK-EUC-H` 编码 Type0 CID 字体且无 `/ToUnicode`，旧代码 `show_string_cid` 把 GBK 双字节当 2-byte CID，`emit_char_events` 走 `char::from_u32(cid)` fallback → 0xB9FA 解为 U+B9FA = "뻺"（韩文 Hangul），全文 91+11 个韩文乱码。修复：`CachedFont` 加 `encoding_name: Option<String>` 字段（Type0 分支用 `get_type0_encoding(fd)` 填充），`handle_tj`/`handle_tj_array` 在 `is_predefined_cjk_cmap(encoding_name)` 为真时分派到新函数 `show_string_predefined_cjk`，用 `encoding_rs` 解码整段字节为 Unicode 字符串（GBK/BIG5/UTF_16BE/SHIFT_JIS/EUC_JP/EUC_KR），每个 RawChar 的 `char_code` 直接是 Unicode 码点，让既有 `char::from_u32` fallback 正确解析。Identity-H 路径**未改**（仍走 `show_string_cid` + ToUnicode）。`/W` 宽度查找：44cc05a 起先做 Unicode 码点 → Adobe CID 映射（U+0020-007E → CID 1-95）再查 `/W`，miss 才走 f9444db 的 0.5× 兜底（见下）。位置：`crates/pdfplumber-parse/src/{interpreter,text_renderer,cid_font}.rs` + `crates/pdfplumber-parse/Cargo.toml` 加 `encoding_rs = "0.8"`。项目内 `tests/train_ticket_cid_debug_test.rs` 用真实火车票 PDF 作回归检查（韩文音节+兼容字母必须为 0，CJK 主区 ≥ 50）。
 
-**ASCII 半角宽度修复** (f9444db): 24ffb68 后 `show_string_predefined_cjk` 把字节解码为 Unicode 字符，但 `/W` 是 CID 索引的（如 `[7716 7716 500]` 的 7716 = "中" 的 Adobe CID），用 Unicode 码点（如 "中"=0x4E2D=20013）查 `/W` 永远 miss → fallback `/DW`（PDF 规范默认 1000 = 全角 em）。CJK 字符 `/DW=1000` 碰巧等于全角宽度（视觉正确），但 ASCII 字符（0x20-0x7E）也 fallback 到 1000 → 比真实半角宽度（~500）**2× 过宽**。同一 PDF 用 pymupdf 渲染（读嵌入 TTF 的 hmtx 表）得出 ASCII = 0.5× 字号，是 WPS/浏览器的 ground truth。修复在 `crates/pdfplumber-parse/src/cid_font.rs` 的 `CidFontMetrics::get_width`：`/W` miss 时对 ASCII 范围（0x20-0x7E）返回 `default_width * 0.5`，CJK 范围仍用 `default_width`。zpdf 0.9 渲染同样有此问题（`zpdf-font/lib.rs:631` Type0 分支不回退 hmtx），未修。项目内 `tests/ascii_width_test.rs` 用真实火车票 PDF 作回归（G878/Changshanan/Wuhan 的 per_char 宽度必须在半角范围内）。
+**ASCII 半角宽度修复** (f9444db + 44cc05a): 24ffb68 后 `show_string_predefined_cjk` 把字节解码为 Unicode 字符，但 `/W` 是 CID 索引的（如 `[7716 7716 500]` 的 7716 = "中" 的 Adobe CID），用 Unicode 码点（如 "中"=0x4E2D=20013）查 `/W` 永远 miss → fallback `/DW`（PDF 规范默认 1000 = 全角 em）。CJK 字符 `/DW=1000` 碰巧等于全角宽度（视觉正确），但 ASCII 字符（0x20-0x7E）也 fallback 到 1000 → 比真实半角宽度（~500）**2× 过宽**。同一 PDF 用 pymupdf 渲染（读嵌入 TTF 的 hmtx 表）得出 ASCII = 0.5× 字号，是 WPS/浏览器的 ground truth。修复分两步，都在 `crates/pdfplumber-parse/src/cid_font.rs` 的 `CidFontMetrics::get_width`：
+- **f9444db**: `/W` miss 时对 ASCII 范围（0x20-0x7E）返回 `default_width * 0.5`，CJK 范围仍用 `default_width`；
+- **44cc05a**: `/W` 是 Adobe CID 索引的，而 ASCII Unicode 码点 U+0020-007E 恰对应 CID 1-95（CID = 码点 - 0x1F），先做码点 → CID 映射再查 `/W`，命中即用真值，f9444db 的 0.5× 只作最终兜底。
+
+zpdf 0.9 渲染同样有此问题（Type0 分支 `/W` miss 不回退 hmtx），已在 zpdf fork `cjk-ascii-width` 分支修复，见下方 zpdf 依赖节。项目内 `tests/ascii_width_test.rs` 用真实火车票 PDF 作回归（G878/Changshanan/Wuhan 的 per_char 宽度必须在半角范围内）。
+
+**按 non_stroking_color 分组字符修复** (7828008): 部分中国发票 PDF（如 043002200111_32092584.pdf）把棕色表单标签（"名称:"）与黑色填写值叠在同一坐标上，坐标排序的 word 分组会把两者交错拼词。修复：word 提取前先按 `non_stroking_color` 分组（颜色不同的字符不进同一 word），依赖 fork 中 0729db5 暴露的 `color` 字段。
 
 **`/Contents` 间接引用→数组修复** (369244b): `gp-template`（税务电子发票模板）把 `/Contents` 写成 `28 0 R`，但 obj 28 解析出来是 `[29 0 R]`（间接引用包数组）。ISO 32000-1 §7.8.2 允许 `/Contents` 为 stream 或 stream 数组，但旧代码 `Reference` 分支 resolve 后直接 `as_stream()`，遇 `Reference→Array` 形状报 `/Contents is not a stream: An object does not have the expected type`，导致全电发票/dzfp 系列 PDF 文字与单元格全空。修复在 `crates/pdfplumber-parse/src/lopdf_backend.rs` 的 `get_page_content_bytes`：抽出 `decode_contents_array` helper，`Reference` 分支 resolve 后按 Stream/Array 分派。项目内 `tests/pdf_contents_array_regression.rs` 用真实 PDF1/PDF2 作回归检查。
 
@@ -116,7 +126,29 @@ c2ab510 fix(table): bar-rect 单边 + 按行成格，修复发票单元格提取
 - `pdfplumber_cell_debug_test`: 发票单元格提取诊断（`verify_find_tables_text_population` 断言 7 列行程单表；`diagnose_*` 打印逐阶段证据）
 - `pdf_contents_array_regression`: 全电发票/dzfp `/Contents` 间接引用→数组回归（PDF1 64 words/439 chars，PDF2 72 words/454 chars）
 - `train_ticket_cid_debug_test`: 火车票 GBK-EUC-H CID 解码回归（韩文音节+兼容字母必须为 0，CJK 主区 ≥ 50）
-- `ascii_width_test`: 火车票 ASCII 半角宽度回归（G878/Changshanan/Wuhan 的 per_char 宽度必须 ≈ 0.5× 字号，验证 `f9444db` 修复）
+- `ascii_width_test`: 火车票 ASCII 半角宽度回归（G878/Changshanan/Wuhan 的 per_char 宽度必须 ≈ 0.5× 字号，验证 `f9444db` + `44cc05a` 修复）
+- `zpdf_ascii_width_test`: zpdf 渲染 CJK PDF 的 ASCII 半角宽度回归（验证 zpdf fork `1..=0x7E` CID 范围修复）
+- `zpdf_cjk_identity_h_width_test`: zpdf 渲染 Identity-H 子集字体的 CJK 全角宽度回归（验证 zpdf fork hmtx 修复）
+
+### zpdf 依赖（自建 fork，zpdf-font 宽度修复）
+
+**依赖声明** (`src-tauri/Cargo.toml`):
+```toml
+zpdf-font = { git = "https://github.com/chenfuxu920/zpdf.git", branch = "cjk-ascii-width" }
+```
+
+**Fork 仓库**: https://github.com/chenfuxu920/zpdf · 分支 `cjk-ascii-width`
+
+**背景**: 上游 zpdf 0.9 的 Type0 CID 字体宽度处理与 pdfplumber fork 的 f9444db 问题同源：`zpdf-font/src/lib.rs` 的 `CidWidths::get` 对 `/W` 缺 ASCII 条目的 CID 字体回退 `/DW=1000`，ASCII 字符渲染 2× 过宽。上游无 fix，故自建 fork。
+
+**Fork 分支构成** (3 commits, 最新在上):
+```
+911d61d fix(font): Identity-H subset CJK 字形改走 hmtx，不再套用 ASCII 半角启发式（dzfp 楷体子集 GID 1-60 被误减半 → 中文重叠）
+f6a0412 fix(font): ASCII CID 范围 1..=0x7E，覆盖 GBK-EUC-H/B5pc 等 legacy CMap 的 CID 1-95（CID = byte - 0x1F）
+98005f6 fix(font): ASCII 0x20-0x7E 用 0.5× /DW（CidWidths::get 的 /W miss 兜底，与 pdfplumber f9444db 同思路）
+```
+
+**修改 zpdf 源码的流程**: Clone fork → 改 `crates/zpdf-font/src/lib.rs`（`CidWidths::get`）→ `cargo check -p zpdf-font` → 用 path 依赖测试: `zpdf-font = { path = "<local>/zpdf-fork/crates/zpdf-font" }` → 跑 `cargo test --test zpdf_ascii_width_test --test zpdf_cjk_identity_h_width_test` → push 到 fork `cjk-ascii-width` → 项目里 `cargo update -p zpdf-font` 更新 Cargo.lock。
 
 ### 近期重大改进 (2026-05)
 

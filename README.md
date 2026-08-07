@@ -155,8 +155,8 @@ npm run test
 
 项目对两个上游 PDF 库维护自建 fork，解决中文票据 PDF 的兼容性问题：
 
-- **pdfplumber-rs**（分支 `cjk-safe-lenient`）：修复 CJK CID 字体乱码、ASCII 半角宽度、`/Contents` 间接引用解析、表格单元格提取等问题，详见 [fork 仓库](https://github.com/chenfuxu920/pdfplumber-rs/tree/cjk-safe-lenient)
-- **zpdf**（分支 `cjk-ascii-width`）：修复 Type0 CID 字体 ASCII 字符宽度与 Identity-H 子集字形宽度
+- **pdfplumber-rs**（分支 `cjk-safe-lenient`）：修复 CJK CID 字体乱码、ASCII 半角宽度（Unicode→Adobe CID 映射查 `/W`）、`/Contents` 间接引用解析、表格单元格提取、按颜色分组字符等问题，详见 [fork 仓库](https://github.com/chenfuxu920/pdfplumber-rs/tree/cjk-safe-lenient)
+- **zpdf**（分支 `cjk-ascii-width`）：修复 Type0 CID 字体 ASCII 字符宽度（`CidWidths::get` 兜底与 CID 范围）与 Identity-H 子集字形宽度，详见 [fork 仓库](https://github.com/chenfuxu920/zpdf/tree/cjk-ascii-width)
 
 ## 文档
 
