@@ -38,7 +38,7 @@ calamine = "0.26"
 genpdf = "0.2"
 ocr-rs = "2.2.2"
 image = { version = "0.25", default-features = false }
-zpdf = "0.9"
+zpdf = "0.11"
 encoding_rs = "0.8"
 medpdf = "0.9.2"
 lopdf = "0.39"
@@ -46,10 +46,10 @@ allsorts = "0.16"
 ttf-parser = "0.25"
 base64 = "0.22"
 rust_xlsxwriter = "0.82"
-# ponytail: fork branch cjk-safe-lenient @ 0bdfaa4 (merge of -full into canonical branch)
-# = 24ffb68 (CJK CID 修复) + 0729db5 (Word 字段) + c2ab510/dea587e/369244b (table/annot/Contents)
-# + f9444db (ASCII 0x20-0x7E 半角宽度修复)
-pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "cjk-safe-lenient", optional = true }
+# ponytail: fork main 分支（合并上游修改后的最新版）
+# = 原 cjk-safe-lenient 全部修复（CJK CID / ASCII 宽度 / table/annot/Contents）+ 上游更新
+#   main@8a70f45 含 39ae2cd（CJK/字段暴露）+ 8a70f45（补 Word.font_flags/stem_v）
+pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "main", optional = true }
 
 [features]
 default = ["pdfplumber"]
@@ -72,11 +72,8 @@ lto = false
 codegen-units = 16
 
 # ponytail: fork zpdf to patch zpdf-font (crates.io 0.9.0 未修)
-# = chenfuxu920/zpdf branch cjk-ascii-width
-#   98005f6: 修复 Type0 CID 字体 ASCII 0x20-0x7E 字符 2× 过宽（/W 缺 ASCII 条目时 fallback 0.5× /DW）
-#   f6a0412: 修复 CID 范围 1..=0x7E 覆盖 GBK-EUC-H 的 CID 1-95（旧范围 0x20-0x7E 漏 CID 1-31，
-#            导致 '0'-'9' 等 ASCII 字符 CID 17-26 仍走 /DW=1000 → 2× 过宽）
-#   911d61d: 修复 Identity-H 子集字体 CJK 字形被错误半角化（glyph_advance 优先查 hmtx，
-#            不再走 1..=0x7E 启发式；legacy CMap 路径不变）
+# = chenfuxu920/zpdf main 分支（原 cjk-ascii-width 修复 + 上游修改）
+#   98005f6/f6a0412: 修复 Type0 CID 字体 ASCII 字符 2× 过宽（/W 缺 ASCII 条目时 fallback 0.5× /DW）
+#   911d61d: 修复 Identity-H 子集字体 CJK 字形被错误半角化（glyph_advance 优先查 hmtx）
 [patch.crates-io]
-zpdf-font = { git = "https://github.com/chenfuxu920/zpdf.git", branch = "cjk-ascii-width" }
+zpdf-font = { git = "https://github.com/chenfuxu920/zpdf.git", branch = "main" }

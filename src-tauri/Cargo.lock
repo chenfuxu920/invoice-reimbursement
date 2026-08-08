@@ -402,6 +402,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cbbc9d0964165b47557570cce6c952866c2678457aca742aafc9fb771d30270"
 
 [[package]]
+name = "base16ct"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
+
+[[package]]
 name = "base64"
 version = "0.21.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -412,6 +418,12 @@ name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+
+[[package]]
+name = "base64ct"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
 name = "bindgen"
@@ -840,6 +852,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "const-oid"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
 name = "const_fn"
 version = "0.4.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1000,6 +1018,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
+name = "crypto-bigint"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
+dependencies = [
+ "generic-array",
+ "rand_core 0.6.4",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "crypto-common"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1131,6 +1161,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "der"
+version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
+dependencies = [
+ "const-oid",
+ "pem-rfc7468",
+ "zeroize",
+]
+
+[[package]]
 name = "deranged"
 version = "0.5.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1189,6 +1230,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
+ "const-oid",
  "crypto-common",
  "subtle",
 ]
@@ -1378,10 +1420,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "ecdsa"
+version = "0.16.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee27f32b5c5292967d2d4a9d7f1e0b0aed2c15daded5a60300e4abb9d8020bca"
+dependencies = [
+ "der",
+ "digest",
+ "elliptic-curve",
+ "rfc6979",
+ "signature",
+ "spki",
+]
+
+[[package]]
 name = "either"
 version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91622ff5e7162018101f2fea40d6ebf4a78bbe5a49736a2020649edf9693679e"
+
+[[package]]
+name = "elliptic-curve"
+version = "0.13.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b5e6043086bf7973472e0c7dff2142ea0b680d30e18d9cc40f267efbf222bd47"
+dependencies = [
+ "base16ct",
+ "crypto-bigint",
+ "digest",
+ "ff",
+ "generic-array",
+ "group",
+ "pkcs8",
+ "rand_core 0.6.4",
+ "sec1",
+ "subtle",
+ "zeroize",
+]
 
 [[package]]
 name = "embed-resource"
@@ -1640,6 +1715,16 @@ name = "fearless_simd"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97b65636e5b9ef369943878ac74335ba1c55c1cb6adbf1e2c293c624248d693"
+
+[[package]]
+name = "ff"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0b50bfb653653f9ca9095b427bed08ab8d75a137839d9ad64eb11810d5b6393"
+dependencies = [
+ "rand_core 0.6.4",
+ "subtle",
+]
 
 [[package]]
 name = "field-offset"
@@ -1974,6 +2059,7 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
+ "zeroize",
 ]
 
 [[package]]
@@ -2136,6 +2222,17 @@ dependencies = [
  "glib-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "group"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0f9ef7462f7c099f518d754361858f86d8a07af53ba9af0fe635bbccb151a63"
+dependencies = [
+ "ff",
+ "rand_core 0.6.4",
+ "subtle",
 ]
 
 [[package]]
@@ -2427,7 +2524,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -2989,6 +3086,9 @@ name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd2bcb4c963f2ddae06a2efc7e9f3591312473c50c6685e1f298068316e66fe"
+dependencies = [
+ "spin",
+]
 
 [[package]]
 name = "lazycell"
@@ -3167,24 +3267,6 @@ dependencies = [
  "lzw",
  "pom",
  "time 0.2.27",
-]
-
-[[package]]
-name = "lopdf"
-version = "0.34.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5c8ecfc6c72051981c0459f75ccc585e7ff67c70829560cda8e647882a9abff"
-dependencies = [
- "encoding_rs",
- "flate2",
- "indexmap 2.14.0",
- "itoa 1.0.18",
- "log",
- "md-5",
- "nom 7.1.3",
- "rangemap",
- "time 0.3.53",
- "weezl",
 ]
 
 [[package]]
@@ -3534,6 +3616,22 @@ checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
 dependencies = [
  "num-integer",
  "num-traits",
+]
+
+[[package]]
+name = "num-bigint-dig"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e661dda6640fad38e827a6d4a310ff4763082116fe217f279885c97f511bb0b7"
+dependencies = [
+ "lazy_static",
+ "libm",
+ "num-integer",
+ "num-iter",
+ "num-traits",
+ "rand 0.8.7",
+ "smallvec",
+ "zeroize",
 ]
 
 [[package]]
@@ -3985,6 +4083,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "p256"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c9863ad85fa8f4460f9c48cb909d38a0d689dba1f6f6988a5e3e0d31071bcd4b"
+dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primeorder",
+ "sha2",
+]
+
+[[package]]
+name = "p384"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe42f1670a52a47d448f14b6a5c61dd78fce51856e68edaa38f7ae3a46b8d6b6"
+dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primeorder",
+ "sha2",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4081,8 +4203,8 @@ dependencies = [
 
 [[package]]
 name = "pdfplumber"
-version = "0.1.0"
-source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=cjk-safe-lenient#44cc05a24141632dddf56904ba41ca1dccf301e4"
+version = "0.2.0"
+source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#310fb7b06817b1de9c6a47383161e626aeb66405"
 dependencies = [
  "pdfplumber-core",
  "pdfplumber-parse",
@@ -4090,22 +4212,32 @@ dependencies = [
 
 [[package]]
 name = "pdfplumber-core"
-version = "0.1.0"
-source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=cjk-safe-lenient#44cc05a24141632dddf56904ba41ca1dccf301e4"
+version = "0.2.0"
+source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#310fb7b06817b1de9c6a47383161e626aeb66405"
 dependencies = [
  "regex",
+ "unicode-bidi",
  "unicode-normalization",
 ]
 
 [[package]]
 name = "pdfplumber-parse"
-version = "0.1.0"
-source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=cjk-safe-lenient#44cc05a24141632dddf56904ba41ca1dccf301e4"
+version = "0.2.0"
+source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#310fb7b06817b1de9c6a47383161e626aeb66405"
 dependencies = [
  "encoding_rs",
- "lopdf 0.34.0",
+ "lopdf 0.39.0",
  "pdfplumber-core",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
 ]
 
 [[package]]
@@ -4182,6 +4314,27 @@ dependencies = [
  "atomic-waker",
  "fastrand",
  "futures-io",
+]
+
+[[package]]
+name = "pkcs1"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c8ffb9f10fa047879315e6625af03c164b16962a5368d724ed16323b68ace47f"
+dependencies = [
+ "der",
+ "pkcs8",
+ "spki",
+]
+
+[[package]]
+name = "pkcs8"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
+dependencies = [
+ "der",
+ "spki",
 ]
 
 [[package]]
@@ -4305,6 +4458,15 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "primeorder"
+version = "0.13.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "353e1ca18966c16d9deb1c69278edbc5f194139612772bd9537af60ac231e1e6"
+dependencies = [
+ "elliptic-curve",
 ]
 
 [[package]]
@@ -4813,6 +4975,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfc6979"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
+dependencies = [
+ "hmac",
+ "subtle",
+]
+
+[[package]]
 name = "rfd"
 version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4865,6 +5037,26 @@ dependencies = [
  "libc",
  "rtoolbox",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rsa"
+version = "0.9.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
+dependencies = [
+ "const-oid",
+ "digest",
+ "num-bigint-dig",
+ "num-integer",
+ "num-traits",
+ "pkcs1",
+ "pkcs8",
+ "rand_core 0.6.4",
+ "signature",
+ "spki",
+ "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -5143,6 +5335,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sec1"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3e97a565f76233a6003f9f5c54be1d9c5bdfa3eccfb189469f11ec4901c47dc"
+dependencies = [
+ "base16ct",
+ "der",
+ "generic-array",
+ "pkcs8",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "security-framework"
 version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5389,6 +5595,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.10.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures",
+ "digest",
+]
+
+[[package]]
 name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5425,6 +5642,16 @@ checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
 dependencies = [
  "errno",
  "libc",
+]
+
+[[package]]
+name = "signature"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
+dependencies = [
+ "digest",
+ "rand_core 0.6.4",
 ]
 
 [[package]]
@@ -5548,6 +5775,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "spin"
+version = "0.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3763264f6b73151db08c50ff20d7d8a0b8796e021cdea7ceedad07b80155fa0e"
+
+[[package]]
+name = "spki"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
+dependencies = [
+ "base64ct",
+ "der",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5616,7 +5859,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "sha1",
+ "sha1 0.6.1",
  "syn 1.0.109",
 ]
 
@@ -5812,7 +6055,7 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "windows",
- "windows-core 0.61.2",
+ "windows-core",
  "windows-version",
  "x11-dl",
 ]
@@ -7073,7 +7316,7 @@ dependencies = [
  "webview2-com-macros",
  "webview2-com-sys",
  "windows",
- "windows-core 0.61.2",
+ "windows-core",
  "windows-implement",
  "windows-interface",
 ]
@@ -7097,7 +7340,7 @@ checksum = "381336cfffd772377d291702245447a5251a2ffa5bad679c99e61bc48bacbf9c"
 dependencies = [
  "thiserror 2.0.19",
  "windows",
- "windows-core 0.61.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -7181,7 +7424,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
 dependencies = [
  "windows-collections",
- "windows-core 0.61.2",
+ "windows-core",
  "windows-future",
  "windows-link 0.1.3",
  "windows-numerics",
@@ -7193,7 +7436,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
 ]
 
 [[package]]
@@ -7210,25 +7453,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-core"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e83a14d34d0623b51dce9581199302a221863196a1dde71a7663a4c2be9deb"
-dependencies = [
- "windows-implement",
- "windows-interface",
- "windows-link 0.2.1",
- "windows-result 0.4.1",
- "windows-strings 0.5.1",
-]
-
-[[package]]
 name = "windows-future"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
  "windows-link 0.1.3",
  "windows-threading",
 ]
@@ -7273,7 +7503,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
- "windows-core 0.61.2",
+ "windows-core",
  "windows-link 0.1.3",
 ]
 
@@ -7670,7 +7900,7 @@ dependencies = [
  "webkit2gtk-sys",
  "webview2-com",
  "windows",
- "windows-core 0.61.2",
+ "windows-core",
  "windows-version",
  "x11-dl",
 ]
@@ -7936,13 +8166,13 @@ dependencies = [
 
 [[package]]
 name = "zpdf"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01c7106db4785cd47e6b00fc53b64cbca9893c3ec96890a47802f39c61978f5e"
+checksum = "eae9b549abb81e668bf0abdcb928e6640499f0d7d6c9cab7a410cb713e35c851"
 dependencies = [
  "zpdf-color",
  "zpdf-content",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zpdf-display-list",
  "zpdf-document",
  "zpdf-font",
@@ -7950,28 +8180,29 @@ dependencies = [
  "zpdf-parser",
  "zpdf-render",
  "zpdf-render-cpu",
+ "zpdf-writer",
 ]
 
 [[package]]
 name = "zpdf-color"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5183aff97835b9183b3141aaf43ddb8e600f41df54663770a2f5b9af9694bc0"
+checksum = "ea29c5dc02d6875ce2e43bc9b6862132f78953d7a871484ac4866a1c21d879f6"
 dependencies = [
  "moxcms",
  "tracing",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "zpdf-content"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "934cf7a498ee45a8e114be82aee1dd1700248ff3f2674576648f354e8f64867e"
+checksum = "ba6d5666c682e938f066cf137686dae208dbcbea5a5706304e1b6b2acf5601ed"
 dependencies = [
  "tracing",
  "zpdf-color",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zpdf-display-list",
  "zpdf-document",
  "zpdf-font",
@@ -7981,9 +8212,9 @@ dependencies = [
 
 [[package]]
 name = "zpdf-core"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "399ba8a77c2cb0fe85007f645e86178c6de4f557f3a437630c980fd22157f0da"
+checksum = "3dd12b2ae5d7c6be9c32e2d844b63ea6f11025700c0841621c120d54f7b10600"
 dependencies = [
  "smallvec",
  "thiserror 2.0.19",
@@ -7991,8 +8222,8 @@ dependencies = [
 
 [[package]]
 name = "zpdf-core"
-version = "0.9.0"
-source = "git+https://github.com/chenfuxu920/zpdf.git?branch=cjk-ascii-width#911d61dd2b1ae65bec7372e7a30f4ae5df010321"
+version = "0.11.0"
+source = "git+https://github.com/chenfuxu920/zpdf.git?branch=main#522c4b462849f29c73b7fc067868ca6c8ffb4116"
 dependencies = [
  "smallvec",
  "thiserror 2.0.19",
@@ -8000,54 +8231,59 @@ dependencies = [
 
 [[package]]
 name = "zpdf-display-list"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee6fcb71c7f839ce936dcb2d393795e2e3869654372ee38443e34a2651ec1957"
+checksum = "657fd1d5cfd20945e241aef4b17e66f79f59af2faea1fe63972bcc07a9eb101d"
 dependencies = [
  "smallvec",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "zpdf-document"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "59bcc3f834504e5f4cbb694bd218581b34a534e63e7206dd4955df6c29b6cc0d"
+checksum = "341e10e4c59d3b1fde72d9ad4aa14c7941da3a3aa5850151677b83ae969255f9"
 dependencies = [
+ "p256",
+ "p384",
+ "rsa",
+ "sha1 0.10.7",
+ "sha2",
  "tracing",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zpdf-font",
  "zpdf-parser",
 ]
 
 [[package]]
 name = "zpdf-font"
-version = "0.9.0"
-source = "git+https://github.com/chenfuxu920/zpdf.git?branch=cjk-ascii-width#911d61dd2b1ae65bec7372e7a30f4ae5df010321"
+version = "0.11.0"
+source = "git+https://github.com/chenfuxu920/zpdf.git?branch=main#522c4b462849f29c73b7fc067868ca6c8ffb4116"
 dependencies = [
  "tracing",
  "ttf-parser",
- "zpdf-core 0.9.0 (git+https://github.com/chenfuxu920/zpdf.git?branch=cjk-ascii-width)",
+ "zpdf-core 0.11.0 (git+https://github.com/chenfuxu920/zpdf.git?branch=main)",
 ]
 
 [[package]]
 name = "zpdf-image"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35939972b0f3227f7b720b98a1f3568c9efcf8eeedd8092e81dd1be573103ede"
+checksum = "c7f14ed54f4ffb5e3b45b8f9fc11c8bb915babf9894f3b570edbdf17dcb19db7"
 dependencies = [
  "hayro-jpeg2000",
  "tracing",
  "zpdf-color",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zune-jpeg",
 ]
 
 [[package]]
 name = "zpdf-parser"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71c49a08c634c7d541e80ebae6b3b23d022dc4b0b15c028b4d867c21bdcab2d0"
+checksum = "dbaade434bd3a9498ac23793560c39a1e12a8406ef98e051ac6a74fbe2ebb0aa"
 dependencies = [
  "aes",
  "cbc",
@@ -8056,36 +8292,58 @@ dependencies = [
  "tracing",
  "winnow 0.7.15",
  "zpdf-color",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zune-jpeg",
 ]
 
 [[package]]
 name = "zpdf-render"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1743564c8478b35afc1def6e5883881683ca5d98c0964afb86faf75ca77f5b2"
+checksum = "5f23f99e49e94a76f2d0542b2c33cf46e95e792d511f2b0ae7bb86fb03361744"
 dependencies = [
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zpdf-display-list",
 ]
 
 [[package]]
 name = "zpdf-render-cpu"
-version = "0.9.0"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "642c933a817adb19cc62faa58c3cfef803637332272a1b8cbe3112f12582c2b7"
+checksum = "ce6e0a41ec60a687e1ad047e98ff9c786e27e51ef28715ed018f29d5dc15113a"
 dependencies = [
  "image",
  "thiserror 2.0.19",
  "tiny-skia",
  "tracing",
  "zpdf-content",
- "zpdf-core 0.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "zpdf-display-list",
  "zpdf-font",
  "zpdf-image",
  "zpdf-render",
+]
+
+[[package]]
+name = "zpdf-writer"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8623fec0dc76b8f88976943fcfa9a991bc08f24b1a06467340616728a1e3707f"
+dependencies = [
+ "aes",
+ "cbc",
+ "flate2",
+ "getrandom 0.2.17",
+ "p256",
+ "rsa",
+ "sha2",
+ "thiserror 2.0.19",
+ "tracing",
+ "ttf-parser",
+ "zpdf-content",
+ "zpdf-core 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "zpdf-document",
+ "zpdf-parser",
 ]
 
 [[package]]
