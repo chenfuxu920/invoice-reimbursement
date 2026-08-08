@@ -137,7 +137,10 @@ fn extract_fields_from_table(table: &TableInfo, fields: &mut CellInvoiceFields) 
 }
 
 /// 在行中查找标签单元格，从后续单元格中提取值。
-/// 标签单元格判定：merged_text（去空白后的文本）包含 label 且长度 ≤ 15（排除值单元格误匹配）。
+/// 标签单元格判定：
+/// - contains label 且长度 ≤ 15（竖排标签"销售方信息"等短标签，排除值单元格误匹配）；
+/// - 价税合计标签格常含金额大写（"价税合计（大写）贰仟…"或"贰仟…价税合计（大写）"，
+///   全电发票合并单元格后大写金额使整格超 15 字符），单独放宽到 60。
 /// 值提取优先用 line_text（按行组装，适合横排），line_text 失败则回退 merged_text（全合并，适合小单元格/换行）。
 #[cfg(feature = "pdfplumber")]
 fn extract_by_label<F, T>(row: &[TableCellInfo], label: &str, extractor: F) -> Option<T>
@@ -149,21 +152,23 @@ where
         if c.merged_text.contains(label) && merged_len <= 15 {
             return true;
         }
+        // 价税合计标签格含金额大写（可能超 15 字符），放宽；其他标签不放开（防值单元格误匹配）
+        if label == "价税合计" && c.merged_text.contains(label) && merged_len <= 60 {
+            return true;
+        }
         // pdfplumber word 重建可能丢字（竖排标签"销售方信息"→"售方信息"，
         // "销"被 word grouping 并入相邻值列），回退到 char 级原始 text（去空白）匹配
         let raw: String = c.text.chars().filter(|ch| !ch.is_whitespace()).collect();
-        raw.contains(label) && raw.chars().count() <= 15
+        let raw_len = raw.chars().count();
+        raw.contains(label) && (raw_len <= 15 || (label == "价税合计" && raw_len <= 60))
     })?;
-    eprintln!("  [LBLDBG] found label='{label}' at idx={label_idx}, merged='{}/{}'", row[label_idx].merged_text, row[label_idx].merged_text.chars().count());
 
     // 依次尝试标签后的所有单元格（不限于第一个非空单元格）
-    for (si, cell) in row.iter().skip(label_idx + 1).enumerate() {
+    for cell in row.iter().skip(label_idx + 1) {
         // 跳过空单元格（line_text 和 merged_text 都空才算空）
         if cell.line_text.trim().is_empty() && cell.merged_text.is_empty() {
             continue;
         }
-        let line_cleaned = remove_cjk_spaces(&cell.line_text);
-        eprintln!("  [LBLDBG]   skip={si} line_text='{}'", line_cleaned.chars().take(120).collect::<String>());
         // 统一入口：以单元格为主体，按序尝试 line/merged/column/raw 四种文本
         if let Some(v) = try_cell_texts(cell, ORDER_VALUE, &extractor) {
             return Some(v);
@@ -202,17 +207,11 @@ fn extract_seller_value(text: &str) -> Option<String> {
     //   "名长沙市轨称：交通运营有限公司" → 前半段="长沙市轨" + 后半段="交通运营有限公司"
     // 合并前后两段才能得到完整公司名。
     let re_interspersed = Regex::new(r"名(.+?)称[：:](.+)").ok()?;
-    // TEMP: dump codepoints around "称" to debug colon char
-    if let Some(pos) = text.find('称') {
-        let around: Vec<u32> = text[pos..].char_indices().take(5).map(|(_, c)| c as u32).collect();
-        eprintln!("  [CPDBG] chars after 称: {:?}", around);
-    }
     if let Some(caps) = re_interspersed.captures(text) {
         let part1 = caps[1].trim();
         let part2: String = caps[2].trim().chars()
             .take_while(|c| !c.is_ascii_digit() && !c.is_whitespace())
             .collect();
-        eprintln!("  [INTDBG] matched! part1='{}' part2='{}'", part1, &part2[..part2.len().min(40)]);
         let name = format!("{}{}", part1, part2);
         if name.chars().count() >= 3 && !is_tax_id(&name) && name.chars().any(is_cjk) {
             return Some(name);
