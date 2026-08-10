@@ -32,6 +32,10 @@
           <input type="checkbox" v-model="showCells" class="accent-cyan-500">
           <span class="text-cyan-600">单元格</span>
         </label>
+        <label class="flex items-center gap-1 text-sm" title="提取参数：按全表列网格切分缺竖线的行（行程单如天府通）；发票保持关闭。结果显示在「单元格」层，勾选时自动打开单元格层">
+          <input type="checkbox" v-model="normalizeColumns" class="accent-purple-500">
+          <span class="text-purple-600">列切分</span>
+        </label>
       </div>
     </div>
 
@@ -141,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import AppButton from '../components/ui/AppButton.vue'
@@ -202,6 +206,7 @@ const ENGINE_COLOR_HEX = {
 }
 
 const fileName = ref('')
+const filePath = ref('')
 const loading = ref(false)
 const error = ref('')
 const pages = ref<DebugPage[]>([])
@@ -212,6 +217,8 @@ const showPdfplumber = ref(true)
 const showOcr = ref(true)
 const showShapes = ref(true)
 const showCells = ref(true)
+// find_tables 列切分开关：默认关（与发票解析一致），调试行程单缺线行时开启
+const normalizeColumns = ref(false)
 const selectedShape = ref('')  // 'rect-3' / 'line-5' / 'cell-2' / ''
 
 const hoveredIdx = ref(-1)
@@ -407,21 +414,40 @@ function nextPage() {
 async function pickPdf() {
   error.value = ''
   try {
-    const filePath = await open({
+    const picked = await open({
       multiple: false,
       filters: [{ name: 'PDF', extensions: ['pdf'] }],
     })
-    if (!filePath) return
-    fileName.value = filePath.split(/[\\/]/).pop() ?? filePath
-    loading.value = true
-    pages.value = []
-    currentPage.value = 0
-    dragOffsets.value = {}
-    selectedShape.value = ''
-    logs.value = { pdfplumber: [], ocr: [] }
+    if (!picked) return
+    filePath.value = picked
+    await runExtraction()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
+// 列切分开关是提取参数（其余开关是显示过滤），切换后需重新提取；
+// 结果显示在「单元格」层，勾选时自动打开该层，避免用户误以为没有效果
+watch(normalizeColumns, (v) => {
+  if (v) showCells.value = true
+  if (filePath.value) runExtraction()
+})
+
+async function runExtraction() {
+  if (!filePath.value) return
+  error.value = ''
+  fileName.value = filePath.value.split(/[\\/]/).pop() ?? filePath.value
+  loading.value = true
+  pages.value = []
+  currentPage.value = 0
+  dragOffsets.value = {}
+  selectedShape.value = ''
+  logs.value = { pdfplumber: [], ocr: [] }
+  try {
     const result = await invoke<DebugTextResult>('debug_extract_texts', {
-      filePath,
+      filePath: filePath.value,
       dpi: 200,
+      normalizeColumns: normalizeColumns.value,
     })
     pages.value = result.pages
     logs.value = result.logs ?? { pdfplumber: [], ocr: [] }

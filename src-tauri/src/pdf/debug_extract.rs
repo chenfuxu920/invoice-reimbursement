@@ -79,9 +79,11 @@ pub struct DebugTextResult {
 
 /// 提取 PDF 文字并统一坐标到渲染图片像素空间。
 /// `ocr_engine` 为 None 时 OCR 数组为空（不报错）。
+/// `normalize_columns`：find_tables 是否按全表列网格切分缺线行（发票 false / 行程单 true）。
 pub fn debug_extract_texts(
     pdf_path: &str,
     dpi: u32,
+    normalize_columns: bool,
     ocr_engine: Option<&mut OcrEngine>,
 ) -> Result<DebugTextResult, String> {
     let mut logs_pdfplumber: Vec<String> = Vec::new();
@@ -121,7 +123,7 @@ pub fn debug_extract_texts(
     logs_pdfplumber.push(format!("[图形] lines={lines_total} rects={rects_total}"));
 
     // 2c. pdfplumber 表格单元格（find_tables 识别结果）
-    let cells_by_page = extract_pdfplumber_tables_by_page(pdf_path, page_count);
+    let cells_by_page = extract_pdfplumber_tables_by_page(pdf_path, page_count, normalize_columns);
     let cells_total: usize = cells_by_page.iter().map(|v| v.len()).sum();
     logs_pdfplumber.push(format!("[表格] cells={cells_total}"));
 
@@ -329,6 +331,7 @@ fn extract_pdfplumber_shapes_by_page(
 fn extract_pdfplumber_tables_by_page(
     pdf_path: &str,
     page_count: usize,
+    normalize_columns: bool,
 ) -> Vec<Vec<(f64, f64, f64, f64, String)>> {
     // ponytail: 调试工具，PDF 多次打开可接受（words/shapes/tables 各一次）
     let result = std::panic::catch_unwind(|| {
@@ -346,7 +349,10 @@ fn extract_pdfplumber_tables_by_page(
             if idx >= page_count {
                 continue;
             }
-            let tables = page.find_tables(&TableSettings::default());
+            let tables = page.find_tables(&TableSettings {
+                normalize_columns,
+                ..TableSettings::default()
+            });
             let total_cells: usize = tables.iter().map(|t| t.rows.iter().map(|r| r.len()).sum::<usize>()).sum();
             let page_area = page.width() * page.height();
             let table_area: f64 = tables.iter().map(|t| t.bbox.width() * t.bbox.height()).sum();

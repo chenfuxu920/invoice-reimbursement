@@ -566,8 +566,11 @@ async fn debug_extract_texts(
     state: tauri::State<'_, AppState>,
     file_path: String,
     dpi: Option<u32>,
+    normalize_columns: Option<bool>,
 ) -> Result<crate::pdf::debug_extract::DebugTextResult, String> {
     let dpi = dpi.unwrap_or(200);
+    // 默认 false（与发票解析一致）；调试行程单缺线行时前端开关传 true
+    let normalize_columns = normalize_columns.unwrap_or(false);
     let path = std::path::Path::new(&file_path);
     if !path.exists() {
         return Err(format!("文件不存在: {}", file_path));
@@ -587,7 +590,7 @@ async fn debug_extract_texts(
     } else {
         None
     };
-    crate::pdf::debug_extract::debug_extract_texts(&file_path, dpi, engine_ref)
+    crate::pdf::debug_extract::debug_extract_texts(&file_path, dpi, normalize_columns, engine_ref)
 }
 
 // 调用系统默认程序打开文件

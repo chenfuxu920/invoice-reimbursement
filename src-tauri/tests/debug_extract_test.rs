@@ -19,7 +19,7 @@ fn test_debug_extract_returns_structure_with_scaled_coords() {
     }
 
     // ocr_engine = None：OCR 数组应为空，不阻塞 pdfplumber/zpdf
-    let result = debug_extract_texts(&pdf_path, 200, None).expect("extract should succeed");
+    let result = debug_extract_texts(&pdf_path, 200, false, None).expect("extract should succeed");
 
     assert!(!result.pages.is_empty(), "should have at least one page");
     let page = &result.pages[0];
@@ -61,8 +61,8 @@ fn test_debug_extract_different_dpi_scales_coords_proportionally() {
         return;
     }
 
-    let r150 = debug_extract_texts(&pdf_path, 150, None).unwrap();
-    let r300 = debug_extract_texts(&pdf_path, 300, None).unwrap();
+    let r150 = debug_extract_texts(&pdf_path, 150, false, None).unwrap();
+    let r300 = debug_extract_texts(&pdf_path, 300, false, None).unwrap();
 
     let p150 = &r150.pages[0];
     let p300 = &r300.pages[0];
