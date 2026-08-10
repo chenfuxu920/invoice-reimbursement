@@ -700,7 +700,13 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
             all_words.extend(words.clone());
 
             // 表格单元格提取（find_tables 填充单元格文本，供 cell_extractor 使用）
-            let tables = page.find_tables(&TableSettings::default());
+            // normalize_columns=false：上游按全表列网格切分合并/宽单元格（Python pdfplumber
+            // 行为），会把缺竖线的行（如发票备注行）切碎导致备注/通行时间跨格丢失
+            let settings = TableSettings {
+                normalize_columns: false,
+                ..TableSettings::default()
+            };
+            let tables = page.find_tables(&settings);
             let mut table_infos: Vec<TableInfo> = tables
                 .iter()
                 .map(|t| {

@@ -4204,7 +4204,7 @@ dependencies = [
 [[package]]
 name = "pdfplumber"
 version = "0.2.0"
-source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#310fb7b06817b1de9c6a47383161e626aeb66405"
+source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#84e549b5a04c4d8a3540929033d2b375d42b207c"
 dependencies = [
  "pdfplumber-core",
  "pdfplumber-parse",
@@ -4213,7 +4213,7 @@ dependencies = [
 [[package]]
 name = "pdfplumber-core"
 version = "0.2.0"
-source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#310fb7b06817b1de9c6a47383161e626aeb66405"
+source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#84e549b5a04c4d8a3540929033d2b375d42b207c"
 dependencies = [
  "regex",
  "unicode-bidi",
@@ -4223,7 +4223,7 @@ dependencies = [
 [[package]]
 name = "pdfplumber-parse"
 version = "0.2.0"
-source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#310fb7b06817b1de9c6a47383161e626aeb66405"
+source = "git+https://github.com/chenfuxu920/pdfplumber-rs.git?branch=main#84e549b5a04c4d8a3540929033d2b375d42b207c"
 dependencies = [
  "encoding_rs",
  "lopdf 0.39.0",
