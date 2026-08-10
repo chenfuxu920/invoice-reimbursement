@@ -55,19 +55,25 @@ fn e2e_full_pipeline_from_real_files() {
         println!("  ✗ {} - {}", name, err);
     }
 
-    // 3. 导入账单
+    // 3. 导入账单（按前缀匹配，账单文件按月滚动更新）
     let mut payments = Vec::new();
-    let wechat_bill = Path::new(BILL_DIR).join("微信支付账单流水文件(20260207-20260507)_20260507233144.xlsx");
-    if wechat_bill.exists() {
-        if let Ok(records) = wechat_parser::parse_wechat_bill(wechat_bill.to_str().unwrap()) {
+    if let Some(p) = find_bill_file(BILL_DIR, "微信支付账单流水文件", "xlsx") {
+        if let Ok(records) = wechat_parser::parse_wechat_bill(p.to_str().unwrap()) {
             payments.extend(records);
+        } else {
+            eprintln!("  ✗ 微信账单解析失败: {}", p.display());
         }
+    } else {
+        eprintln!("  ✗ 未找到微信账单文件 (*.xlsx)");
     }
-    let alipay_bill = Path::new(BILL_DIR).join("支付宝交易明细(20260407-20260507).csv");
-    if alipay_bill.exists() {
-        if let Ok(records) = alipay_parser::parse_alipay_bill(alipay_bill.to_str().unwrap()) {
+    if let Some(p) = find_bill_file(BILL_DIR, "支付宝交易明细", "csv") {
+        if let Ok(records) = alipay_parser::parse_alipay_bill(p.to_str().unwrap()) {
             payments.extend(records);
+        } else {
+            eprintln!("  ✗ 支付宝账单解析失败: {}", p.display());
         }
+    } else {
+        eprintln!("  ✗ 未找到支付宝账单文件 (*.csv)");
     }
     println!("\n=== 账单: {} 条 ===", payments.len());
 
@@ -129,4 +135,19 @@ fn e2e_full_pipeline_from_real_files() {
     assert!(html.contains(&format!("{:.2}", form.total_amount)));
 
     println!("\n  所有断言通过 ✓");
+}
+
+/// 在目录下按名称前缀找账单文件（账单按月更新，文件名日期段会变）
+fn find_bill_file(dir: &str, prefix: &str, ext: &str) -> Option<std::path::PathBuf> {
+    let dir_path = Path::new(dir);
+    if !dir_path.is_dir() {
+        return None;
+    }
+    std::fs::read_dir(dir_path).ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.extension().and_then(|x| x.to_str()) == Some(ext)
+                && p.file_name().and_then(|n| n.to_str()).map(|n| n.starts_with(prefix)).unwrap_or(false)
+        })
 }

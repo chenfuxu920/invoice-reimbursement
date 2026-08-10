@@ -670,7 +670,20 @@ pub fn column_aware_merge_in_bbox(words: &[pdfplumber::Word], x0: f64, top: f64,
 /// 单次 PDF 打开：列感知合并 + 原始 Word（供坐标提取器使用，无需二次打开）
 #[cfg(feature = "pdfplumber")]
 pub fn extract_pdf_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
-    match extract_pdfplumber_column_aware(file_path) {
+    // 默认 normalize_columns=false（发票路径）：缺竖线的行（备注行）保持合并，
+    // 避免被列网格切碎导致备注/通行时间跨格丢失（a400b4d 修复）
+    extract_pdf_column_aware_with_norm(file_path, false)
+}
+
+/// 按文档类型选择列归一化开关：
+/// - 发票：false（备注行合并单元格不能被切碎）
+/// - 行程单：true（缺竖线的数据行按全表列网格补全，如天府通第 3 行无竖线）
+#[cfg(feature = "pdfplumber")]
+pub fn extract_pdf_column_aware_with_norm(
+    file_path: &str,
+    normalize_columns: bool,
+) -> Result<PdfExtraction, String> {
+    match extract_pdfplumber_column_aware(file_path, normalize_columns) {
         Ok(extraction) => Ok(extraction),
         Err(plumber_err) => {
             eprintln!("  [pdfplumber] 失败: {}，回退到 parangi/OCR", plumber_err);
@@ -680,7 +693,10 @@ pub fn extract_pdf_column_aware(file_path: &str) -> Result<PdfExtraction, String
 }
 
 /// pdfplumber 列感知提取（原 extract_pdf_column_aware 逻辑）
-fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, String> {
+fn extract_pdfplumber_column_aware(
+    file_path: &str,
+    normalize_columns: bool,
+) -> Result<PdfExtraction, String> {
     let result = std::panic::catch_unwind(|| {
         let pdf = Pdf::open_file(file_path, None).map_err(|e| format!("pdfplumber: {}", e))?;
 
@@ -700,10 +716,11 @@ fn extract_pdfplumber_column_aware(file_path: &str) -> Result<PdfExtraction, Str
             all_words.extend(words.clone());
 
             // 表格单元格提取（find_tables 填充单元格文本，供 cell_extractor 使用）
-            // normalize_columns=false：上游按全表列网格切分合并/宽单元格（Python pdfplumber
-            // 行为），会把缺竖线的行（如发票备注行）切碎导致备注/通行时间跨格丢失
+            // normalize_columns=true：按全表列网格切分合并/宽单元格（Python pdfplumber
+            // 行为），能补全缺竖线的行（行程单如天府通第 3 行）；但对发票备注行会把
+            // 合并文本切碎，故发票路径显式传 false（a400b4d 修复）
             let settings = TableSettings {
-                normalize_columns: false,
+                normalize_columns,
                 ..TableSettings::default()
             };
             let tables = page.find_tables(&settings);

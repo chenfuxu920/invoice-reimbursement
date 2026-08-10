@@ -604,14 +604,12 @@ pub fn parse_itinerary_from_tables(
                         .collect::<Vec<_>>()
                         .join(" ");
                     if re_has_time.is_match(&row_text) && re_amount.is_match(&row_text) {
-                        // 完整行程被压成 1-cell，该表无法按列提取 → 跳过该表，
-                        // 让 pipeline 回退坐标/文本解析（不 return None，避免影响已提取的其他页）
-                        // ponytail: 若该页是唯一页，all_entries 为空，最终返回 None 触发回退
-                        eprintln!("  [table] 1-cell 完整行程检测到，跳过该表");
-                        // 已累积的其他页结果仍保留，此表丢弃
-                        // 不 continue 外层循环，用标志跳过本表数据行处理
-                        // 直接 break 跳出本表行循环
-                        break;
+                        // 完整行程被压成 1-cell：说明 find_tables 把该页表格拆碎了
+                        // （如天府通 3 行被拆成"2 行部分表 + 1 行 1-cell 表"）。
+                        // 此时保留部分表结果会丢行程（历史 bug：天府通 3 笔只出 2 笔），
+                        // 必须整体放弃表格路径，让 pipeline 回退坐标/文本解析。
+                        eprintln!("  [table] 1-cell 完整行程检测到，放弃表格路径回退坐标/文本解析");
+                        return None;
                     }
                 }
 
@@ -678,9 +676,10 @@ pub fn parse_itinerary_from_tables(
                     .get(&SemanticCol::Pickup)
                     .and_then(|&idx| row.get(idx))
                     .map(|cell| {
-                        let text = cell.line_text.trim();
+                        // 去换行：折行的"出\n站：天宇路"恢复为"出站：天宇路"，高德地址折行合并
+                        let text = cell.line_text.replace('\n', "").trim().to_string();
                         // 天府通"进站：XX"（简单无空格）
-                        if let Some(c) = re_pickup_tft.captures(text) {
+                        if let Some(c) = re_pickup_tft.captures(&text) {
                             return c[1].to_string();
                         }
                         // 天府通同一列"进出站/线路"格式："进站：XX ~ 出站：YY"
@@ -694,7 +693,7 @@ pub fn parse_itinerary_from_tables(
                             }
                         }
                         // 滴滴/其他：返回完整文本（含 "|" 地点详情分隔符）
-                        text.to_string()
+                        text
                     })
                     .unwrap_or_default();
 
@@ -703,9 +702,9 @@ pub fn parse_itinerary_from_tables(
                     .get(&SemanticCol::Dropoff)
                     .and_then(|&idx| row.get(idx))
                     .map(|cell| {
-                        let text = cell.line_text.trim();
+                        let text = cell.line_text.replace('\n', "").trim().to_string();
                         // 天府通"出站：XX"（简单无空格）
-                        if let Some(c) = re_dropoff_tft.captures(text) {
+                        if let Some(c) = re_dropoff_tft.captures(&text) {
                             return c[1].to_string();
                         }
                         // 天府通同一列"进出站/线路"格式："进站：XX ~ 出站：YY"
@@ -719,7 +718,7 @@ pub fn parse_itinerary_from_tables(
                             }
                         }
                         // 滴滴/其他：返回完整文本（含 "|" 地点详情分隔符）
-                        text.to_string()
+                        text
                     })
                     .unwrap_or_default();
                 entries.push(Itinerary {
@@ -1336,22 +1335,24 @@ fn extract_reference_providers_ordered(all_text: &str) -> Vec<String> {
     ).unwrap();
 
     // 收集主匹配 + 位置（用于区间搜索续行后缀）
-    let matches: Vec<(u32, String, usize)> = re_didi_main
+    // 存 match 的 start 和 end：续行段必须截止于下一条 match 的 start，
+    // 否则会把下一行的车型文字（如"滴滴轻享"）搜进续行段误拼接（回归修复）
+    let matches: Vec<(u32, String, usize, usize)> = re_didi_main
         .captures_iter(all_text)
         .filter_map(|cap| {
             let seq: u32 = cap[1].parse().ok()?;
             let pv = cap[2].to_string();
-            let end = cap.get(0)?.end();
-            Some((seq, pv, end))
+            let m = cap.get(0)?;
+            Some((seq, pv, m.start(), m.end()))
         })
         .collect();
 
     if !matches.is_empty() {
         let mut results = Vec::new();
-        for (i, (_seq, main_pv, match_end)) in matches.iter().enumerate() {
+        for (i, (_seq, main_pv, _start, match_end)) in matches.iter().enumerate() {
             // 在当前 match 结束到下一个 match 开始之间搜索续行后缀
             let search_end = matches.get(i + 1)
-                .map(|(_, _, e)| *e)
+                .map(|(_, _, s, _)| *s)
                 .unwrap_or(all_text.len());
             let segment = &all_text[*match_end..search_end];
             if let Some(cap) = re_cont.captures(segment) {
@@ -1386,25 +1387,25 @@ fn extract_reference_times_ordered(all_text: &str) -> Vec<String> {
         r"(\d{1,2})\s*(?:分钟|周二|周一|周三|周四|周五|周六|周日)"
     ).unwrap();
 
-    // 收集主匹配 + 位置
-    let main_matches: Vec<(String, String, usize, Option<String>)> = re_main
+    // 收集主匹配 + 位置（同 provider 逻辑：续行段截止于下一条 match 的 start）
+    let main_matches: Vec<(String, String, usize, usize, Option<String>)> = re_main
         .captures_iter(all_text)
         .filter_map(|cap| {
             let date = cap[2].to_string();
             let hour = cap[3].to_string();
             let minutes = cap.get(4).map(|m| m.as_str().to_string());
-            let end = cap.get(0)?.end();
-            Some((date, hour, end, minutes))
+            let m = cap.get(0)?;
+            Some((date, hour, m.start(), m.end(), minutes))
         })
         .collect();
 
-    for (i, (date, hour, match_end, minutes)) in main_matches.iter().enumerate() {
+    for (i, (date, hour, _start, match_end, minutes)) in main_matches.iter().enumerate() {
         let time = if let Some(m) = minutes {
             format!("{} {}:{}", date, hour, m.trim_start_matches(':'))
         } else {
             // 在当前 match 到下一个 match 之间搜索分钟
             let search_end = main_matches.get(i + 1)
-                .map(|(_, _, e, _)| *e)
+                .map(|(_, _, s, _, _)| *s)
                 .unwrap_or(all_text.len());
             let segment = &all_text[*match_end..search_end];
             if let Some(cm) = re_cont_min.captures(segment) {

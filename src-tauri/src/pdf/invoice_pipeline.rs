@@ -543,9 +543,11 @@ fn check_and_parse(
 pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Result<ItineraryDoc, String> {
     // 优先使用 extract_pdf_column_aware（含 pdfplumber 回退，保留页边界）
     // 多页行程单必须按页解析，否则 Y 坐标重叠导致表格解析失败
+    // normalize_columns=true：按全表列网格补全缺竖线的数据行（如天府通第 3 行无竖线，
+    // false 时整行合并成 1-cell 导致丢行程）；发票路径保持 false（备注行不能被切碎）
     #[cfg(feature = "pdfplumber")]
     {
-        match text_extractor::extract_pdf_column_aware(pdf_path) {
+        match text_extractor::extract_pdf_column_aware_with_norm(pdf_path, true) {
             Ok(extraction) => {
                 let flat_texts: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
                 if text_extractor::has_sufficient_text(&flat_texts, 20) {
@@ -558,8 +560,16 @@ pub fn parse_itinerary_from_pdf(pdf_path: &str, engine: &mut OcrEngine) -> Resul
 
                     // 优先用 find_tables 单元格解析（merged_text 字段完整，不走坐标拆分）
                     let table_itin = parse_itinerary_from_tables(&extraction.tables);
-                    if let Some(itin) = table_itin {
+                    if let Some(mut itin) = table_itin {
                         if !itin.is_empty() && !has_incomplete_entries(&itin) {
+                            // 单元格文本直接取自 PDF，时间无年份（"06-07 20:17"），
+                            // 用顶部"行程起止日期"补全年份，与坐标/文本路径一致（回归修复）
+                            let fb_text: String = flat_texts
+                                .iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
+                            enrich_itinerary_years(&mut itin, &fb_text);
+                            // 服务商列被折行/截断时（如高德"首汽约车 六座商务"只取到"首汽约车"），
+                            // 用参考文本按位置补全（cross_validate 仅在截断/空值时修正）
+                            cross_validate_amounts(&mut itin, &flat_texts);
                             eprintln!("  [pdfplumber] 单元格表格解析成功，{} 条行程", itin.len());
                             return build_itinerary_doc(itin, &flat_texts, pdf_path);
                         }
