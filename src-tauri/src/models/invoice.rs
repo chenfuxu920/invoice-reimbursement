@@ -1,58 +1,58 @@
-use serde::{Deserialize, Serialize};
 use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum InvoiceCategory {
-    Train,          // 高铁/车船票
-    Flight,         // 飞机票
-    Insurance,      // 保险费
-    TicketChange,   // 退改签
-    CityTransport,  // 市内交通
-    Hotel,          // 住宿费
-    Meal,           // 餐饮费
-    Toll,           // 高速通行费
-    Other,          // 其他
+    Train,         // 高铁/车船票
+    Flight,        // 飞机票
+    Insurance,     // 保险费
+    TicketChange,  // 退改签
+    CityTransport, // 市内交通
+    Hotel,         // 住宿费
+    Meal,          // 餐饮费
+    Toll,          // 高速通行费
+    Other,         // 其他
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "path")]
 pub enum InvoiceSource {
-    Photo(String),       // 照片路径
-    Pdf(String),         // PDF路径
-    Link(String),        // 发票链接
-    Manual,              // 手动添加的空发票（无源文件，用于粘贴纸质票据）
+    Photo(String), // 照片路径
+    Pdf(String),   // PDF路径
+    Link(String),  // 发票链接
+    Manual,        // 手动添加的空发票（无源文件，用于粘贴纸质票据）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Invoice {
     pub id: String,
-    pub invoice_number: String,      // 发票号码
-    pub amount: f64,                  // 金额
-    pub seller_name: String,          // 销售方名称
-    pub item_name: String,            // 项目名称
-    pub date: NaiveDate,              // 开票日期
-    pub travel_date: Option<NaiveDate>,  // 票面实际出行日期（仅 Train/Flight 类发票有值）
-    pub category: InvoiceCategory,    // 自动识别的类别
-    pub source: InvoiceSource,        // 来源
-    pub itineraries: Vec<Itinerary>,  // 行程（打车场景）
+    pub invoice_number: String,         // 发票号码
+    pub amount: f64,                    // 金额
+    pub seller_name: String,            // 销售方名称
+    pub item_name: String,              // 项目名称
+    pub date: NaiveDate,                // 开票日期
+    pub travel_date: Option<NaiveDate>, // 票面实际出行日期（仅 Train/Flight 类发票有值）
+    pub category: InvoiceCategory,      // 自动识别的类别
+    pub source: InvoiceSource,          // 来源
+    pub itineraries: Vec<Itinerary>,    // 行程（打车场景）
     pub itinerary_file: Option<String>, // 关联的行程单文件（仅市内交通）
     #[serde(default)]
-    pub remarks: String,              // 备注栏内容（前端手动创建的发票可能不含此字段，默认空串）
+    pub remarks: String, // 备注栏内容（前端手动创建的发票可能不含此字段，默认空串）
     pub hotel_detail: Option<HotelDetail>, // 住宿详情（仅住宿发票）
     // NEW: 票据出发/到达城市（仅 Train/Flight 类发票有值）
     pub departure_city: Option<String>,
     pub arrival_city: Option<String>,
     #[serde(default)]
-    pub toll_travel_time: Option<chrono::NaiveDateTime>,  // 通行时间（从备注提取，仅 Toll 类）
+    pub toll_travel_time: Option<chrono::NaiveDateTime>, // 通行时间（从备注提取，仅 Toll 类）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Itinerary {
-    pub date_time: String,     // 行程时间
-    pub provider: String,      // 服务商（滴滴/高德）
-    pub pickup: String,        // 上车点
-    pub dropoff: String,       // 下车点
-    pub amount: f64,           // 行程金额
+    pub date_time: String, // 行程时间
+    pub provider: String,  // 服务商（滴滴/高德）
+    pub pickup: String,    // 上车点
+    pub dropoff: String,   // 下车点
+    pub amount: f64,       // 行程金额
     /// 打车所在城市（行程单"城市"列；缺失时为空串）
     #[serde(default)]
     pub city: String,
@@ -64,10 +64,10 @@ pub struct Itinerary {
 /// 住宿发票详情
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HotelDetail {
-    pub check_in: Option<NaiveDate>,   // 入住日期
-    pub check_out: Option<NaiveDate>,  // 离店日期
-    pub nights: usize,                 // 住宿天数
-    pub nightly_rate: f64,             // 实际每晚均价
+    pub check_in: Option<NaiveDate>,  // 入住日期
+    pub check_out: Option<NaiveDate>, // 离店日期
+    pub nights: usize,                // 住宿天数
+    pub nightly_rate: f64,            // 实际每晚均价
 }
 
 #[cfg(test)]
@@ -147,7 +147,10 @@ mod tests {
             "arrival_city": null
         }"#;
         let inv: Invoice = serde_json::from_str(json).unwrap_or_else(|e| {
-            panic!("反序列化 Manual 发票失败，这正是 auto_match 无响应的根因: {}", e)
+            panic!(
+                "反序列化 Manual 发票失败，这正是 auto_match 无响应的根因: {}",
+                e
+            )
         });
         assert!(matches!(inv.source, InvoiceSource::Manual));
         assert!((inv.amount - 50.0).abs() < f64::EPSILON);
@@ -207,7 +210,8 @@ mod tests {
 
     #[test]
     fn test_invoice_with_itineraries() {
-        let itin = Itinerary { city: String::new(),
+        let itin = Itinerary {
+            city: String::new(),
             date_time: "2025-06-15 10:30".to_string(),
             provider: "滴滴".to_string(),
             pickup: "北京站".to_string(),
@@ -273,7 +277,8 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: Some(
-                chrono::NaiveDateTime::parse_from_str("2026-05-25 10:06:04", "%Y-%m-%d %H:%M:%S").unwrap()
+                chrono::NaiveDateTime::parse_from_str("2026-05-25 10:06:04", "%Y-%m-%d %H:%M:%S")
+                    .unwrap(),
             ),
         };
         assert!(invoice.toll_travel_time.is_some());
@@ -291,6 +296,6 @@ mod tests {
             "hotel_detail":null,"departure_city":null,"arrival_city":null
         }"#;
         let invoice: Invoice = serde_json::from_str(json).unwrap();
-         assert!(invoice.toll_travel_time.is_none());
-     }
+        assert!(invoice.toll_travel_time.is_none());
+    }
 }

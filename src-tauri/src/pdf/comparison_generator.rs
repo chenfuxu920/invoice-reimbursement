@@ -1,18 +1,27 @@
 use crate::models::match_result::MatchResult;
-use genpdf::{Document, elements, fonts};
+use genpdf::{elements, fonts, Document};
 use std::error::Error;
 
 fn load_chinese_fonts() -> Result<fonts::FontFamily<fonts::FontData>, Box<dyn Error>> {
     let font_candidates: Vec<(&str, &str)> = if cfg!(target_os = "windows") {
         vec![
             ("C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simhei.ttf"),
-            ("C:/Windows/Fonts/simfang.ttf", "C:/Windows/Fonts/simfang.ttf"),
+            (
+                "C:/Windows/Fonts/simfang.ttf",
+                "C:/Windows/Fonts/simfang.ttf",
+            ),
             ("C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/simkai.ttf"),
         ]
     } else {
         vec![
-            ("/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Regular.ttf", "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Bold.ttf"),
-            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+            (
+                "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Regular.ttf",
+                "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Bold.ttf",
+            ),
+            (
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            ),
         ]
     };
 

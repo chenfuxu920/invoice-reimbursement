@@ -59,7 +59,8 @@ impl MatchEngine {
         invoice: &Invoice,
         payments: &[PaymentRecord],
     ) -> Option<MatchResult> {
-        let ref_date = invoice.travel_date
+        let ref_date = invoice
+            .travel_date
             .or_else(|| invoice.toll_travel_time.map(|t| t.date()))
             .or_else(|| invoice.hotel_detail.as_ref().and_then(|h| h.check_in))
             .unwrap_or(invoice.date);
@@ -147,22 +148,11 @@ impl MatchEngine {
     /// tolerance of the target amount. Limits subset size to MAX_SUBSET_SIZE
     /// and candidate count to MAX_PAYMENT_CANDIDATES.
     /// 搜索所有有效子集，返回金额差最小的最优解。
-    fn subset_sum_match(
-        &self,
-        target: f64,
-        candidates: &[&PaymentRecord],
-    ) -> Option<Vec<usize>> {
+    fn subset_sum_match(&self, target: f64, candidates: &[&PaymentRecord]) -> Option<Vec<usize>> {
         let amounts: Vec<f64> = candidates.iter().map(|p| p.amount).collect();
         let mut best: Option<(f64, Vec<usize>)> = None;
 
-        self.search_subset(
-            &amounts,
-            target,
-            0,
-            0.0,
-            &mut Vec::new(),
-            &mut best,
-        );
+        self.search_subset(&amounts, target, 0, 0.0, &mut Vec::new(), &mut best);
 
         best.map(|(_, indices)| indices)
     }
@@ -176,7 +166,7 @@ impl MatchEngine {
         start: usize,
         current_sum: f64,
         current_indices: &mut Vec<usize>,
-        best: &mut Option<(f64, Vec<usize>)>,  // (diff, indices)
+        best: &mut Option<(f64, Vec<usize>)>, // (diff, indices)
     ) {
         // Check if current subset sum is within tolerance
         let diff = (target - current_sum).abs();
@@ -249,7 +239,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -286,7 +276,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -386,10 +376,7 @@ mod tests {
     fn test_one_to_many_no_match() {
         let engine = MatchEngine::default();
         let invoice = make_invoice("inv1", 100.00);
-        let payments = vec![
-            make_payment("p1", 10.00),
-            make_payment("p2", 15.00),
-        ];
+        let payments = vec![make_payment("p1", 10.00), make_payment("p2", 15.00)];
 
         let result = engine.match_one_to_many(&invoice, &payments);
         assert!(result.is_none());
@@ -459,10 +446,7 @@ mod tests {
     fn test_one_to_many_exact_sum() {
         let engine = MatchEngine::default();
         let invoice = make_invoice("inv1", 100.00);
-        let payments = vec![
-            make_payment("p1", 40.00),
-            make_payment("p2", 60.00),
-        ];
+        let payments = vec![make_payment("p1", 40.00), make_payment("p2", 60.00)];
 
         let result = engine.match_one_to_many(&invoice, &payments).unwrap();
         assert!(matches!(result.match_type, MatchType::OneToMany));
@@ -502,10 +486,7 @@ mod tests {
     fn test_one_to_many_all_payments_too_large() {
         let engine = MatchEngine::default();
         let invoice = make_invoice("inv1", 100.00);
-        let payments = vec![
-            make_payment("p1", 200.00),
-            make_payment("p2", 300.00),
-        ];
+        let payments = vec![make_payment("p1", 200.00), make_payment("p2", 300.00)];
 
         let result = engine.match_one_to_many(&invoice, &payments);
         assert!(result.is_none());
@@ -577,12 +558,12 @@ mod tests {
         // 火车票时间线：支付 → 出行 → 开票
         // 支付 1/13，出行 1/15，开票 1/16
         // 两笔支付都在容差内，应选离出行日期最近的
-        let mut invoice = make_invoice_at("inv1", 100.00, "2025-01-16");  // 开票日期（出行后）
+        let mut invoice = make_invoice_at("inv1", 100.00, "2025-01-16"); // 开票日期（出行后）
         invoice.category = InvoiceCategory::Train;
         invoice.travel_date = Some(NaiveDate::from_ymd_opt(2025, 1, 15).unwrap());
         let payments = vec![
-            make_payment_at("p_early", 100.00, "2025-01-13 12:00"),  // 出行前2天支付
-            make_payment_at("p_close", 100.00, "2025-01-14 18:00"),  // 出行前1天支付（更近出行）
+            make_payment_at("p_early", 100.00, "2025-01-13 12:00"), // 出行前2天支付
+            make_payment_at("p_close", 100.00, "2025-01-14 18:00"), // 出行前1天支付（更近出行）
         ];
 
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
@@ -595,12 +576,12 @@ mod tests {
         let engine = MatchEngine::default();
         // 机票时间线：支付 → 出行 → 开票
         // 支付 1/18，出行 1/20，开票 1/22
-        let mut invoice = make_invoice_at("inv1", 800.00, "2025-01-22");  // 开票日期（出行后）
+        let mut invoice = make_invoice_at("inv1", 800.00, "2025-01-22"); // 开票日期（出行后）
         invoice.category = InvoiceCategory::Flight;
         invoice.travel_date = Some(NaiveDate::from_ymd_opt(2025, 1, 20).unwrap());
         let payments = vec![
-            make_payment_at("p_early", 800.00, "2025-01-18 14:00"),  // 出行前2天
-            make_payment_at("p_close", 800.00, "2025-01-19 20:00"),  // 出行前1天（更近出行）
+            make_payment_at("p_early", 800.00, "2025-01-18 14:00"), // 出行前2天
+            make_payment_at("p_close", 800.00, "2025-01-19 20:00"), // 出行前1天（更近出行）
         ];
 
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
@@ -619,8 +600,8 @@ mod tests {
         invoice.category = InvoiceCategory::Train;
         invoice.travel_date = Some(NaiveDate::from_ymd_opt(2025, 1, 15).unwrap());
         let payments = vec![
-            make_payment_at("p_before_travel", 100.00, "2025-01-14 12:00"),  // 出行前1天
-            make_payment_at("p_after_invoice", 100.00, "2025-01-17 12:00"),   // 开票后1天（异常，不应优先）
+            make_payment_at("p_before_travel", 100.00, "2025-01-14 12:00"), // 出行前1天
+            make_payment_at("p_after_invoice", 100.00, "2025-01-17 12:00"), // 开票后1天（异常，不应优先）
         ];
 
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
@@ -633,7 +614,7 @@ mod tests {
         let engine = MatchEngine::default();
         // 住宿时间线：支付（入住时预付）→ 入住 → 退房开票
         // 入住 1/15，退房开票 1/18
-        let mut invoice = make_invoice_at("inv1", 300.00, "2025-01-18");  // 开票日期（退房时）
+        let mut invoice = make_invoice_at("inv1", 300.00, "2025-01-18"); // 开票日期（退房时）
         invoice.category = InvoiceCategory::Hotel;
         invoice.hotel_detail = Some(crate::models::invoice::HotelDetail {
             check_in: Some(NaiveDate::from_ymd_opt(2025, 1, 15).unwrap()),
@@ -642,8 +623,8 @@ mod tests {
             nightly_rate: 100.0,
         });
         let payments = vec![
-            make_payment_at("p_checkout", 300.00, "2025-01-18 10:00"),  // 退房开票日期附近
-            make_payment_at("p_checkin", 300.00, "2025-01-15 14:00"),   // 入住日期附近（预付）
+            make_payment_at("p_checkout", 300.00, "2025-01-18 10:00"), // 退房开票日期附近
+            make_payment_at("p_checkin", 300.00, "2025-01-15 14:00"),  // 入住日期附近（预付）
         ];
 
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
@@ -656,14 +637,15 @@ mod tests {
         let engine = MatchEngine::default();
         // 高速费时间线：通行 → 支付（通行后扣款）→ 开票（ETC延迟）
         // 通行 1/15 09:30，开票 1/20
-        let mut invoice = make_invoice_at("inv1", 10.00, "2025-01-20");  // 开票日期（延迟）
+        let mut invoice = make_invoice_at("inv1", 10.00, "2025-01-20"); // 开票日期（延迟）
         invoice.category = InvoiceCategory::Toll;
         invoice.toll_travel_time = Some(
-            chrono::NaiveDateTime::parse_from_str("2025-01-15 09:30:00", "%Y-%m-%d %H:%M:%S").unwrap()
+            chrono::NaiveDateTime::parse_from_str("2025-01-15 09:30:00", "%Y-%m-%d %H:%M:%S")
+                .unwrap(),
         );
         let payments = vec![
-            make_payment_at("p_invoice", 10.00, "2025-01-20 12:00"),   // 开票日期附近
-            make_payment_at("p_travel", 10.00, "2025-01-15 09:35"),     // 通行时间附近
+            make_payment_at("p_invoice", 10.00, "2025-01-20 12:00"), // 开票日期附近
+            make_payment_at("p_travel", 10.00, "2025-01-15 09:35"),  // 通行时间附近
         ];
 
         let result = engine.match_one_to_one(&invoice, &payments).unwrap();
@@ -751,4 +733,3 @@ mod tests {
         assert!(filtered.is_empty());
     }
 }
-

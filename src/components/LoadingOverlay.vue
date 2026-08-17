@@ -11,6 +11,9 @@
             <Loader2 class="animate-spin text-white" :size="26" />
           </span>
           <p class="relative text-slate-600 text-sm animate-pulse-soft">{{ message }}</p>
+          <div v-if="progress !== undefined" class="relative w-56 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+            <div class="h-full rounded-full bg-gradient-to-r from-primary-500 to-accent-500 transition-all duration-300" :style="{ width: progress + '%' }" />
+          </div>
         </div>
       </div>
     </Transition>
@@ -23,6 +26,7 @@ import { Loader2 } from 'lucide-vue-next'
 withDefaults(defineProps<{
   visible: boolean
   message?: string
+  progress?: number
 }>(), {
   message: '处理中...'
 })

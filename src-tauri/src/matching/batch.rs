@@ -1,8 +1,8 @@
-use crate::models::invoice::{Invoice, InvoiceCategory};
-use crate::models::match_result::{MatchResult, MatchType, ItineraryPaymentPair};
-use crate::models::payment::PaymentRecord;
-use super::engine::{MatchEngine, filter_payments_by_date_direction, parse_payment_date};
+use super::engine::{filter_payments_by_date_direction, parse_payment_date, MatchEngine};
 use super::strategy_selector::{MatchingStrategy, StrategySelector};
+use crate::models::invoice::{Invoice, InvoiceCategory};
+use crate::models::match_result::{ItineraryPaymentPair, MatchResult, MatchType};
+use crate::models::payment::PaymentRecord;
 use chrono::{NaiveDate, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -19,6 +19,19 @@ pub fn batch_match(
     payments: &[PaymentRecord],
     tolerance: f64,
 ) -> BatchMatchResult {
+    batch_match_with_progress(invoices, payments, tolerance, None)
+}
+
+/// 带进度回调的批量匹配。progress 在每张发票实际处理时回调 (processed, total)，
+/// 保证每张发票恰好报告一次，总计 = invoices.len()。
+pub fn batch_match_with_progress(
+    invoices: &[Invoice],
+    payments: &[PaymentRecord],
+    tolerance: f64,
+    progress: Option<&dyn Fn(usize, usize)>,
+) -> BatchMatchResult {
+    let total = invoices.len();
+    let mut processed = 0;
     let engine = MatchEngine::new(tolerance);
     // 按交易时间升序排序，消除文件读取顺序偏差（微信/支付宝混合时不再按导入顺序）
     let mut payments_sorted: Vec<PaymentRecord> = payments.to_vec();
@@ -31,11 +44,13 @@ pub fn batch_match(
     let payments = &payments_sorted[..];
 
     // 分离 Toll 发票和其他发票
-    let toll_invoices: Vec<Invoice> = invoices.iter()
+    let toll_invoices: Vec<Invoice> = invoices
+        .iter()
         .filter(|inv| inv.category == InvoiceCategory::Toll)
         .cloned()
         .collect();
-    let non_toll_invoices: Vec<Invoice> = invoices.iter()
+    let non_toll_invoices: Vec<Invoice> = invoices
+        .iter()
         .filter(|inv| inv.category != InvoiceCategory::Toll)
         .cloned()
         .collect();
@@ -46,8 +61,12 @@ pub fn batch_match(
 
     // === 第一阶段：高速费单独匹配（最先，避免支付被行程占据）===
     // match_one_to_one 内部已统一用 toll_travel_time 匹配（见 engine.rs）
-    let mut pending_tolls: Vec<Invoice> = Vec::new();  // 单独匹配失败，待关联行程
+    let mut pending_tolls: Vec<Invoice> = Vec::new(); // 单独匹配失败，待关联行程
     for toll in &toll_invoices {
+        processed += 1;
+        if let Some(cb) = progress {
+            cb(processed, total)
+        }
         let available: Vec<PaymentRecord> = payments
             .iter()
             .filter(|p| !used_payment_ids.contains(&p.id))
@@ -65,20 +84,28 @@ pub fn batch_match(
 
     // === 第二阶段：高速费关联行程组合匹配 ===
     // 待关联 Toll 按通行时间找最近的 CityTransport，用组合金额匹配
-    let city_transport_invoices: Vec<&Invoice> = non_toll_invoices.iter()
+    let city_transport_invoices: Vec<&Invoice> = non_toll_invoices
+        .iter()
         .filter(|inv| inv.category == InvoiceCategory::CityTransport && !inv.itineraries.is_empty())
         .collect();
 
     // toll_id -> city_transport_id 关联
     let mut toll_links: HashMap<String, String> = HashMap::new();
     for toll in &pending_tolls {
-        let toll_time = toll.toll_travel_time
+        let toll_time = toll
+            .toll_travel_time
             .or_else(|| toll.date.and_hms_opt(0, 0, 0));
         if let Some(tt) = toll_time {
-            let best = city_transport_invoices.iter()
-                .filter(|ct| !toll_links.values().any(|linked_id| linked_id.as_str() == ct.id.as_str()))
+            let best = city_transport_invoices
+                .iter()
+                .filter(|ct| {
+                    !toll_links
+                        .values()
+                        .any(|linked_id| linked_id.as_str() == ct.id.as_str())
+                })
                 .min_by_key(|ct| {
-                    ct.itineraries.first()
+                    ct.itineraries
+                        .first()
                         .and_then(|e| parse_datetime(&e.date_time))
                         .map(|it| (it - tt).num_seconds().unsigned_abs())
                         .unwrap_or(u64::MAX)
@@ -94,11 +121,16 @@ pub fn batch_match(
 
     // 对每个有关联 Toll 的行程，用组合金额匹配
     for ct in &city_transport_invoices {
-        let linked_tolls: Vec<&Invoice> = pending_tolls.iter()
+        let linked_tolls: Vec<&Invoice> = pending_tolls
+            .iter()
             .filter(|t| toll_links.get(&t.id).map(|id| id.as_str()) == Some(ct.id.as_str()))
             .collect();
         if linked_tolls.is_empty() {
             continue;
+        }
+        processed += 1;
+        if let Some(cb) = progress {
+            cb(processed, total)
         }
 
         let linked_toll_amount: f64 = linked_tolls.iter().map(|t| t.amount).sum();
@@ -115,11 +147,11 @@ pub fn batch_match(
         invoice_for_match.amount = combined_amount;
 
         let result = if ct.itineraries.len() > 1 {
-            match_itinerary_to_payments(&invoice_for_match, &available, tolerance)
-                .or_else(|| {
-                    let time_filtered = filter_payments_by_itinerary_time(&invoice_for_match, &available);
-                    engine.match_one_to_many(&invoice_for_match, &time_filtered)
-                })
+            match_itinerary_to_payments(&invoice_for_match, &available, tolerance).or_else(|| {
+                let time_filtered =
+                    filter_payments_by_itinerary_time(&invoice_for_match, &available);
+                engine.match_one_to_many(&invoice_for_match, &time_filtered)
+            })
         } else {
             let time_filtered = filter_payments_by_itinerary_time(&invoice_for_match, &available);
             engine.match_one_to_many(&invoice_for_match, &time_filtered)
@@ -170,15 +202,23 @@ pub fn batch_match(
             // 组合匹配失败：解除关联，Toll 尝试其他行程
             for toll in &linked_tolls {
                 toll_links.remove(&toll.id);
-                let toll_time = toll.toll_travel_time
+                let toll_time = toll
+                    .toll_travel_time
                     .or_else(|| toll.date.and_hms_opt(0, 0, 0));
                 if let Some(tt) = toll_time {
-                    let best = city_transport_invoices.iter()
+                    let best = city_transport_invoices
+                        .iter()
                         .filter(|other| other.id != ct.id)
-                        .filter(|other| !toll_links.values().any(|linked_id| linked_id.as_str() == other.id.as_str()))
+                        .filter(|other| {
+                            !toll_links
+                                .values()
+                                .any(|linked_id| linked_id.as_str() == other.id.as_str())
+                        })
                         .filter(|other| !trip_matched_by_toll.contains(&other.id))
                         .min_by_key(|other| {
-                            other.itineraries.first()
+                            other
+                                .itineraries
+                                .first()
                                 .and_then(|e| parse_datetime(&e.date_time))
                                 .map(|it| (it - tt).num_seconds().unsigned_abs())
                                 .unwrap_or(u64::MAX)
@@ -192,7 +232,8 @@ pub fn batch_match(
     }
 
     // 仍未匹配的 Toll → unmatched
-    let matched_toll_ids: Vec<String> = matched.iter()
+    let matched_toll_ids: Vec<String> = matched
+        .iter()
         .filter(|m| m.invoice.category == InvoiceCategory::Toll)
         .map(|m| m.invoice.id.clone())
         .collect();
@@ -203,12 +244,21 @@ pub fn batch_match(
     }
 
     // === 第三阶段：剩余行程单独匹配（按金额降序，改善贪心匹配质量） ===
-    let mut sorted_non_toll: Vec<&Invoice> = non_toll_invoices.iter()
+    let mut sorted_non_toll: Vec<&Invoice> = non_toll_invoices
+        .iter()
         .filter(|inv| !trip_matched_by_toll.contains(&inv.id))
         .collect();
-    sorted_non_toll.sort_by(|a, b| b.amount.partial_cmp(&a.amount).unwrap_or(std::cmp::Ordering::Equal));
+    sorted_non_toll.sort_by(|a, b| {
+        b.amount
+            .partial_cmp(&a.amount)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     for invoice in sorted_non_toll {
+        processed += 1;
+        if let Some(cb) = progress {
+            cb(processed, total)
+        }
         let available: Vec<PaymentRecord> = payments
             .iter()
             .filter(|p| !used_payment_ids.contains(&p.id))
@@ -219,11 +269,10 @@ pub fn batch_match(
             && !invoice.itineraries.is_empty()
         {
             if invoice.itineraries.len() > 1 {
-                match_itinerary_to_payments(invoice, &available, tolerance)
-                    .or_else(|| {
-                        let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
-                        engine.match_one_to_many(invoice, &time_filtered)
-                    })
+                match_itinerary_to_payments(invoice, &available, tolerance).or_else(|| {
+                    let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
+                    engine.match_one_to_many(invoice, &time_filtered)
+                })
             } else {
                 let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
                 engine.match_one_to_many(invoice, &time_filtered)
@@ -243,7 +292,8 @@ pub fn batch_match(
                 MatchingStrategy::AmountWithMerchant if !invoice.seller_name.is_empty() => {
                     // 优先选同商户的支付
                     let merchant_lower = invoice.seller_name.to_lowercase();
-                    let merchant_filtered: Vec<PaymentRecord> = available.iter()
+                    let merchant_filtered: Vec<PaymentRecord> = available
+                        .iter()
                         .filter(|p| {
                             let m = p.merchant_name.to_lowercase();
                             m.contains(&merchant_lower) || merchant_lower.contains(&m)
@@ -251,7 +301,8 @@ pub fn batch_match(
                         .cloned()
                         .collect();
                     if !merchant_filtered.is_empty() {
-                        engine.match_one_to_one(invoice, &merchant_filtered)
+                        engine
+                            .match_one_to_one(invoice, &merchant_filtered)
                             .or_else(|| engine.match_one_to_one(invoice, &available))
                     } else {
                         engine.match_one_to_one(invoice, &available)
@@ -268,8 +319,11 @@ pub fn batch_match(
             matched.push(match_result);
         } else {
             // 行程匹配失败：尝试 toll_best 容差（支付 > 行程金额，差额可能是未开票高速费）
-            if invoice.category == InvoiceCategory::CityTransport && !invoice.itineraries.is_empty() {
-                if let Some(toll_match) = match_trip_with_toll_tolerance(invoice, &available, tolerance) {
+            if invoice.category == InvoiceCategory::CityTransport && !invoice.itineraries.is_empty()
+            {
+                if let Some(toll_match) =
+                    match_trip_with_toll_tolerance(invoice, &available, tolerance)
+                {
                     for pid in &toll_match.payment_ids {
                         used_payment_ids.insert(pid.clone());
                     }
@@ -299,8 +353,8 @@ pub fn batch_match(
 /// 机票时间窗口：用于保险费匹配时约束支付时间范围
 #[derive(Debug, Clone)]
 struct FlightWindow {
-    payment_time: String,       // 已匹配机票的支付时间（空串表示机票未匹配到支付）
-    travel_date: NaiveDate,     // 机票出行日期
+    payment_time: String,   // 已匹配机票的支付时间（空串表示机票未匹配到支付）
+    travel_date: NaiveDate, // 机票出行日期
 }
 
 /// 收集同批次内所有机票发票的时间窗口
@@ -466,19 +520,27 @@ fn match_trip_with_toll_tolerance(
 }
 
 /// 按行程时间范围过滤支付记录：支付时间必须在首条行程时间之后、且不超过12小时
-fn filter_payments_by_itinerary_time(invoice: &Invoice, payments: &[PaymentRecord]) -> Vec<PaymentRecord> {
-    let first_itin_time = invoice.itineraries.first()
+fn filter_payments_by_itinerary_time(
+    invoice: &Invoice,
+    payments: &[PaymentRecord],
+) -> Vec<PaymentRecord> {
+    let first_itin_time = invoice
+        .itineraries
+        .first()
         .and_then(|e| parse_datetime(&e.date_time));
 
     match first_itin_time {
         Some(it) => {
-            let mut filtered: Vec<PaymentRecord> = payments.iter()
+            let mut filtered: Vec<PaymentRecord> = payments
+                .iter()
                 .filter(|p| {
                     let pt = match parse_datetime(&p.transaction_time) {
                         Some(t) => t,
                         None => return false,
                     };
-                    if pt < it { return false; }
+                    if pt < it {
+                        return false;
+                    }
                     let hours = (pt - it).num_hours();
                     hours <= 12
                 })
@@ -517,7 +579,9 @@ fn match_itinerary_to_payments(
     let mut used_ids: Vec<String> = Vec::new();
 
     // 从行程单确定服务商（如"天府通""滴滴出行"）
-    let provider = invoice.itineraries.first()
+    let provider = invoice
+        .itineraries
+        .first()
         .map(|e| e.provider.to_lowercase())
         .filter(|p| !p.is_empty())
         .unwrap_or_default();
@@ -525,8 +589,14 @@ fn match_itinerary_to_payments(
     for (idx, entry) in invoice.itineraries.iter().enumerate() {
         // 先找服务商对应商户的支付，匹配不上再放宽到所有商户
         let matched = if !provider.is_empty() {
-            find_best_payment(entry, payments, &used_ids, Some(provider.as_str()), tolerance)
-                .or_else(|| find_best_payment(entry, payments, &used_ids, None, tolerance))
+            find_best_payment(
+                entry,
+                payments,
+                &used_ids,
+                Some(provider.as_str()),
+                tolerance,
+            )
+            .or_else(|| find_best_payment(entry, payments, &used_ids, None, tolerance))
         } else {
             find_best_payment(entry, payments, &used_ids, None, tolerance)
         };
@@ -547,7 +617,8 @@ fn match_itinerary_to_payments(
         *merchant_counts.entry(key).or_default() += 1;
     }
 
-    let real_merchant = merchant_counts.into_iter()
+    let real_merchant = merchant_counts
+        .into_iter()
         .max_by_key(|(_, count)| *count)
         .map(|(name, _)| name)
         .unwrap_or_default();
@@ -655,7 +726,9 @@ fn find_best_payment(
             let abs_diff = diff.abs();
             match exact_best {
                 Some((best_diff, best_h, _))
-                    if hours_after < best_h || ((hours_after - best_h).abs() < f64::EPSILON && abs_diff < best_diff) =>
+                    if hours_after < best_h
+                        || ((hours_after - best_h).abs() < f64::EPSILON
+                            && abs_diff < best_diff) =>
                 {
                     exact_best = Some((abs_diff, hours_after, pay));
                 }
@@ -669,7 +742,9 @@ fn find_best_payment(
             if is_same_day_or_next_morning(&entry.date_time, &pay.transaction_time) {
                 match toll_best {
                     Some((best_diff, best_h, _))
-                        if hours_after < best_h || ((hours_after - best_h).abs() < f64::EPSILON && diff < best_diff) =>
+                        if hours_after < best_h
+                            || ((hours_after - best_h).abs() < f64::EPSILON
+                                && diff < best_diff) =>
                     {
                         toll_best = Some((diff, hours_after, pay));
                     }
@@ -760,7 +835,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -775,7 +850,8 @@ mod tests {
             travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
-            itineraries: vec![Itinerary { city: String::new(),
+            itineraries: vec![Itinerary {
+                city: String::new(),
                 date_time: "2025-01-01 09:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),
@@ -788,7 +864,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -819,11 +895,11 @@ mod tests {
 
         // 5笔支付
         let payments = vec![
-            make_payment("p1", 100.00),  // 匹配 inv1 (一对一)
-            make_payment("p2", 50.00),   // 匹配 inv2 (一对一)
-            make_payment("p3", 30.00),   // 匹配 inv3 (一对多组合)
-            make_payment("p4", 40.00),   // 匹配 inv3 (一对多组合)
-            make_payment("p5", 30.50),   // 匹配 inv3 (一对多组合) → 30+40+30.50=100.50
+            make_payment("p1", 100.00), // 匹配 inv1 (一对一)
+            make_payment("p2", 50.00),  // 匹配 inv2 (一对一)
+            make_payment("p3", 30.00),  // 匹配 inv3 (一对多组合)
+            make_payment("p4", 40.00),  // 匹配 inv3 (一对多组合)
+            make_payment("p5", 30.50),  // 匹配 inv3 (一对多组合) → 30+40+30.50=100.50
         ];
 
         let result = batch_match(&invoices, &payments, 1.00);
@@ -851,7 +927,11 @@ mod tests {
         assert_eq!(one_to_many_results[0].invoice_id, "inv3");
         assert_eq!(one_to_many_results[0].payment_ids.len(), 3);
 
-        let total: f64 = one_to_many_results[0].payments.iter().map(|p| p.amount).sum();
+        let total: f64 = one_to_many_results[0]
+            .payments
+            .iter()
+            .map(|p| p.amount)
+            .sum();
         assert!((total - 100.50).abs() < 0.01);
     }
 
@@ -862,10 +942,7 @@ mod tests {
             make_invoice("inv2", 999.00, InvoiceCategory::Meal),
         ];
 
-        let payments = vec![
-            make_payment("p1", 10.00),
-            make_payment("p2", 20.00),
-        ];
+        let payments = vec![make_payment("p1", 10.00), make_payment("p2", 20.00)];
 
         let result = batch_match(&invoices, &payments, 1.00);
 
@@ -981,7 +1058,8 @@ mod tests {
             travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
-            itineraries: vec![Itinerary { city: String::new(),
+            itineraries: vec![Itinerary {
+                city: String::new(),
                 date_time: itin_time.to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),
@@ -994,7 +1072,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -1017,9 +1095,7 @@ mod tests {
     #[test]
     fn test_itinerary_rejects_payment_too_far_after_trip() {
         let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
-        let payments = vec![
-            make_payment_at("p1", 30.00, "2025-01-16 10:00"),
-        ];
+        let payments = vec![make_payment_at("p1", 30.00, "2025-01-16 10:00")];
 
         let result = batch_match(&[invoice], &payments, 1.00);
 
@@ -1044,9 +1120,7 @@ mod tests {
     #[test]
     fn test_itinerary_allows_payment_same_day_after_trip() {
         let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
-        let payments = vec![
-            make_payment_at("p1", 30.00, "2025-01-15 09:05"),
-        ];
+        let payments = vec![make_payment_at("p1", 30.00, "2025-01-15 09:05")];
 
         let result = batch_match(&[invoice], &payments, 1.00);
 
@@ -1057,9 +1131,7 @@ mod tests {
     #[test]
     fn test_itinerary_allows_payment_within_12h() {
         let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
-        let payments = vec![
-            make_payment_at("p1", 30.00, "2025-01-15 20:00"),
-        ];
+        let payments = vec![make_payment_at("p1", 30.00, "2025-01-15 20:00")];
 
         let result = batch_match(&[invoice], &payments, 1.00);
 
@@ -1070,9 +1142,7 @@ mod tests {
     #[test]
     fn test_itinerary_rejects_payment_beyond_12h() {
         let invoice = make_itinerary_invoice("inv1", 30.00, "2025-01-15 09:00", 30.00);
-        let payments = vec![
-            make_payment_at("p1", 30.00, "2025-01-16 08:00"),
-        ];
+        let payments = vec![make_payment_at("p1", 30.00, "2025-01-16 08:00")];
 
         let result = batch_match(&[invoice], &payments, 1.00);
 
@@ -1085,8 +1155,24 @@ mod tests {
         // 2条行程的市内交通发票：行程1(09:00,30元) 行程2(14:00,40元)
         let mut invoice = make_city_transport_invoice("inv1", 70.00);
         invoice.itineraries = vec![
-            Itinerary { city: String::new(), date_time: "2025-01-15 09:00".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 30.00, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "2025-01-15 14:00".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.00, incomplete_fields: vec![] },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 30.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 14:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.00,
+                incomplete_fields: vec![],
+            },
         ];
         // 支付顺序故意打乱：p1 对应行程2，p2 对应行程1
         let payments = vec![
@@ -1150,8 +1236,10 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: chrono::NaiveDateTime::parse_from_str(
-                travel_time, "%Y-%m-%d %H:%M:%S"
-            ).ok(),
+                travel_time,
+                "%Y-%m-%d %H:%M:%S",
+            )
+            .ok(),
         }
     }
 
@@ -1159,7 +1247,8 @@ mod tests {
     fn test_toll_auto_links_to_nearest_city_transport() {
         // 行程发票 50元，高速费 10元，支付 60元
         let mut invoice = make_city_transport_invoice("inv1", 50.00);
-        invoice.itineraries = vec![Itinerary { city: String::new(),
+        invoice.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1178,13 +1267,21 @@ mod tests {
         assert_eq!(result.unmatched_payments.len(), 0);
 
         // 行程发票 MatchResult
-        let trip_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::CityTransport).unwrap();
+        let trip_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::CityTransport)
+            .unwrap();
         assert_eq!(trip_match.payment_ids, vec!["p1".to_string()]);
         assert!(trip_match.shared_payment_ids.is_empty());
         assert!(trip_match.shared_from_invoice_id.is_none());
 
         // 高速费 MatchResult
-        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+        let toll_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::Toll)
+            .unwrap();
         assert_eq!(toll_match.payment_ids, vec!["p1".to_string()]);
         assert_eq!(toll_match.shared_payment_ids, vec!["p1".to_string()]);
         assert_eq!(toll_match.shared_from_invoice_id, Some("inv1".to_string()));
@@ -1207,7 +1304,8 @@ mod tests {
     fn test_toll_combination_amount_matches_payment() {
         // 行程 50 + 高速费 10 = 60，支付 60元
         let mut invoice = make_city_transport_invoice("inv1", 50.00);
-        invoice.itineraries = vec![Itinerary { city: String::new(),
+        invoice.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1222,7 +1320,11 @@ mod tests {
         let result = batch_match(&[invoice, toll], &[payment], 1.00);
 
         assert_eq!(result.matched.len(), 2);
-        let trip_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::CityTransport).unwrap();
+        let trip_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::CityTransport)
+            .unwrap();
         // 行程发票 50 元，支付 60 元，差额 10 元（高速费部分）
         assert!((trip_match.amount_diff - 10.0).abs() < 0.01);
     }
@@ -1233,7 +1335,8 @@ mod tests {
         // 高速费 20元，通行时间 14:30（更近行程2）
         // 支付1: 60元（行程1+高速费=70 不匹配） 支付2: 60元（行程2+高速费=60 匹配）
         let mut inv1 = make_city_transport_invoice("inv1", 50.00);
-        inv1.itineraries = vec![Itinerary { city: String::new(),
+        inv1.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1242,7 +1345,8 @@ mod tests {
             incomplete_fields: vec![],
         }];
         let mut inv2 = make_city_transport_invoice("inv2", 40.00);
-        inv2.itineraries = vec![Itinerary { city: String::new(),
+        inv2.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 14:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "C".to_string(),
@@ -1252,14 +1356,18 @@ mod tests {
         }];
         let toll = make_toll_invoice("toll1", 20.00, "2025-01-15 14:30:00");
         let payments = vec![
-            make_payment_at("p1", 60.00, "2025-01-15 09:05"),  // 行程1时间附近，但50+20=70≠60
-            make_payment_at("p2", 60.00, "2025-01-15 14:05"),  // 行程2时间附近，40+20=60 匹配
+            make_payment_at("p1", 60.00, "2025-01-15 09:05"), // 行程1时间附近，但50+20=70≠60
+            make_payment_at("p2", 60.00, "2025-01-15 14:05"), // 行程2时间附近，40+20=60 匹配
         ];
 
         let result = batch_match(&[inv1, inv2, toll], &payments, 1.00);
 
         // 高速费应关联到行程2（时间更近且金额组合匹配）
-        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+        let toll_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::Toll)
+            .unwrap();
         assert_eq!(toll_match.shared_from_invoice_id, Some("inv2".to_string()));
         assert_eq!(toll_match.payment_ids, vec!["p2".to_string()]);
     }
@@ -1269,7 +1377,8 @@ mod tests {
         // 反例场景：Toll 通行时间更近 inv1，但 inv1 组合金额不匹配，
         // 应解除关联并重新关联到 inv2（组合金额匹配）
         let mut inv1 = make_city_transport_invoice("inv1", 50.00);
-        inv1.itineraries = vec![Itinerary { city: String::new(),
+        inv1.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1278,7 +1387,8 @@ mod tests {
             incomplete_fields: vec![],
         }];
         let mut inv2 = make_city_transport_invoice("inv2", 40.00);
-        inv2.itineraries = vec![Itinerary { city: String::new(),
+        inv2.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 14:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "C".to_string(),
@@ -1289,8 +1399,8 @@ mod tests {
         // Toll 通行时间 09:15，更近 inv1（09:00）而非 inv2（14:00）
         let toll = make_toll_invoice("toll1", 20.00, "2025-01-15 09:15:00");
         let payments = vec![
-            make_payment_at("p1", 50.00, "2025-01-15 09:10"),  // 仅匹配 inv1 单独金额，但 inv1+Toll=70≠50
-            make_payment_at("p2", 60.00, "2025-01-15 14:05"),  // inv2+Toll=40+20=60 匹配
+            make_payment_at("p1", 50.00, "2025-01-15 09:10"), // 仅匹配 inv1 单独金额，但 inv1+Toll=70≠50
+            make_payment_at("p2", 60.00, "2025-01-15 14:05"), // inv2+Toll=40+20=60 匹配
         ];
 
         let result = batch_match(&[inv1, inv2, toll], &payments, 1.00);
@@ -1301,9 +1411,15 @@ mod tests {
         assert_eq!(inv1_match.unwrap().payment_ids, vec!["p1".to_string()]);
 
         // Toll 应重新关联到 inv2，匹配 p2
-        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll);
+        let toll_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::Toll);
         assert!(toll_match.is_some(), "Toll 应重新关联到 inv2 并匹配");
-        assert_eq!(toll_match.unwrap().shared_from_invoice_id, Some("inv2".to_string()));
+        assert_eq!(
+            toll_match.unwrap().shared_from_invoice_id,
+            Some("inv2".to_string())
+        );
         assert_eq!(toll_match.unwrap().payment_ids, vec!["p2".to_string()]);
     }
 
@@ -1311,7 +1427,8 @@ mod tests {
     fn test_toll_independent_match_before_trip() {
         // 高速费有单独支付，应先单独匹配，不关联行程
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary { city: String::new(),
+        inv.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1321,8 +1438,8 @@ mod tests {
         }];
         let toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
         let payments = vec![
-            make_payment_at("p_toll", 10.00, "2025-01-15 09:35"),  // 高速费单独支付
-            make_payment_at("p_trip", 50.00, "2025-01-15 09:10"),  // 行程单独支付
+            make_payment_at("p_toll", 10.00, "2025-01-15 09:35"), // 高速费单独支付
+            make_payment_at("p_trip", 50.00, "2025-01-15 09:10"), // 行程单独支付
         ];
 
         let result = batch_match(&[inv, toll], &payments, 1.00);
@@ -1331,7 +1448,11 @@ mod tests {
         assert_eq!(result.matched.len(), 2);
         assert_eq!(result.unmatched_payments.len(), 0);
 
-        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+        let toll_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::Toll)
+            .unwrap();
         // 高速费单独匹配，不共享
         assert!(toll_match.shared_from_invoice_id.is_none());
         assert_eq!(toll_match.payment_ids, vec!["p_toll".to_string()]);
@@ -1343,7 +1464,8 @@ mod tests {
     fn test_toll_combination_match_when_independent_fails() {
         // 高速费无单独支付，应关联行程组合匹配
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary { city: String::new(),
+        inv.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1358,7 +1480,11 @@ mod tests {
         let result = batch_match(&[inv, toll], &[payment], 1.00);
 
         assert_eq!(result.matched.len(), 2);
-        let toll_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+        let toll_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::Toll)
+            .unwrap();
         // 高速费组合匹配，共享行程支付
         assert_eq!(toll_match.shared_from_invoice_id, Some("inv1".to_string()));
         assert_eq!(toll_match.payment_ids, vec!["p1".to_string()]);
@@ -1370,7 +1496,8 @@ mod tests {
     fn test_toll_independent_match_does_not_block_trip() {
         // 高速费先单独匹配占用自己的支付，行程再匹配自己的支付
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary { city: String::new(),
+        inv.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1386,7 +1513,11 @@ mod tests {
 
         let result = batch_match(&[inv, toll], &payments, 1.00);
 
-        let trip_match = result.matched.iter().find(|m| m.invoice.category == InvoiceCategory::CityTransport).unwrap();
+        let trip_match = result
+            .matched
+            .iter()
+            .find(|m| m.invoice.category == InvoiceCategory::CityTransport)
+            .unwrap();
         assert_eq!(trip_match.payment_ids, vec!["p_trip".to_string()]);
     }
 
@@ -1408,7 +1539,8 @@ mod tests {
         // 行程 50 元，支付 60 元（多 10 元可能是未开票高速费），无高速费发票
         // 行程仍应匹配（toll_best 容差：差额 <= 行程金额且时间相近）
         let mut inv = make_city_transport_invoice("inv1", 50.00);
-        inv.itineraries = vec![Itinerary { city: String::new(),
+        inv.itineraries = vec![Itinerary {
+            city: String::new(),
             date_time: "2025-01-15 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -1431,7 +1563,7 @@ mod tests {
         // 支付1：10元，2025-01-15 09:35（通行时间附近，应优先匹配）
         // 支付2：10元，2025-01-20 12:00（开票日期附近，不应匹配）
         let mut toll = make_toll_invoice("toll1", 10.00, "2025-01-15 09:30:00");
-        toll.date = NaiveDate::from_ymd_opt(2025, 1, 20).unwrap();  // 开票日期延迟5天
+        toll.date = NaiveDate::from_ymd_opt(2025, 1, 20).unwrap(); // 开票日期延迟5天
         let payments = vec![
             make_payment_at("p_travel", 10.00, "2025-01-15 09:35"),
             make_payment_at("p_invoice", 10.00, "2025-01-20 12:00"),
@@ -1447,9 +1579,7 @@ mod tests {
     #[test]
     fn test_insurance_filters_out_payment_after_invoice_date() {
         let invoice = make_invoice_at("ins1", 30.00, InvoiceCategory::Insurance, "2025-01-20");
-        let payments = vec![
-            make_payment_at("p_after", 30.00, "2025-01-21 12:00"),
-        ];
+        let payments = vec![make_payment_at("p_after", 30.00, "2025-01-21 12:00")];
         let result = batch_match(&[invoice], &payments, 1.00);
         assert_eq!(result.matched.len(), 0);
         assert_eq!(result.unmatched_invoices.len(), 1);
@@ -1458,9 +1588,7 @@ mod tests {
     #[test]
     fn test_insurance_matches_payment_before_invoice_date() {
         let invoice = make_invoice_at("ins1", 30.00, InvoiceCategory::Insurance, "2025-01-20");
-        let payments = vec![
-            make_payment_at("p_real", 30.00, "2025-01-10 14:00"),
-        ];
+        let payments = vec![make_payment_at("p_real", 30.00, "2025-01-10 14:00")];
         let result = batch_match(&[invoice], &payments, 1.00);
         assert_eq!(result.matched.len(), 1);
         assert_eq!(result.matched[0].payment_ids, vec!["p_real".to_string()]);
@@ -1481,11 +1609,12 @@ mod tests {
     #[test]
     fn test_insurance_same_day_payment_matched() {
         let invoice = make_invoice_at("ins1", 30.00, InvoiceCategory::Insurance, "2025-01-20");
-        let payments = vec![
-            make_payment_at("p_same_day", 30.00, "2025-01-20 10:00"),
-        ];
+        let payments = vec![make_payment_at("p_same_day", 30.00, "2025-01-20 10:00")];
         let result = batch_match(&[invoice], &payments, 1.00);
         assert_eq!(result.matched.len(), 1);
-        assert_eq!(result.matched[0].payment_ids, vec!["p_same_day".to_string()]);
+        assert_eq!(
+            result.matched[0].payment_ids,
+            vec!["p_same_day".to_string()]
+        );
     }
 }

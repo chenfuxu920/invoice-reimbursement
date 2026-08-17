@@ -73,22 +73,66 @@ struct DirCase {
 
 fn build_invoice_cases() -> Vec<DirCase> {
     vec![
-        DirCase { dir_label: "住宿", path: "../data/住宿", expected_category: InvoiceCategory::Hotel },
-        DirCase { dir_label: "市内交通", path: "../data/市内交通", expected_category: InvoiceCategory::CityTransport },
-        DirCase { dir_label: "机票", path: "../data/机票", expected_category: InvoiceCategory::Flight },
-        DirCase { dir_label: "火车票", path: "../data/火车票", expected_category: InvoiceCategory::Train },
-        DirCase { dir_label: "保险", path: "../data/保险", expected_category: InvoiceCategory::Insurance },
-        DirCase { dir_label: "通行费", path: "../data/通行费", expected_category: InvoiceCategory::Toll },
-        DirCase { dir_label: "退改签", path: "../data/退改签", expected_category: InvoiceCategory::TicketChange },
-        DirCase { dir_label: "未分类", path: "../data/未分类", expected_category: InvoiceCategory::Other },
+        DirCase {
+            dir_label: "住宿",
+            path: "../data/住宿",
+            expected_category: InvoiceCategory::Hotel,
+        },
+        DirCase {
+            dir_label: "市内交通",
+            path: "../data/市内交通",
+            expected_category: InvoiceCategory::CityTransport,
+        },
+        DirCase {
+            dir_label: "机票",
+            path: "../data/机票",
+            expected_category: InvoiceCategory::Flight,
+        },
+        DirCase {
+            dir_label: "火车票",
+            path: "../data/火车票",
+            expected_category: InvoiceCategory::Train,
+        },
+        DirCase {
+            dir_label: "保险",
+            path: "../data/保险",
+            expected_category: InvoiceCategory::Insurance,
+        },
+        DirCase {
+            dir_label: "通行费",
+            path: "../data/通行费",
+            expected_category: InvoiceCategory::Toll,
+        },
+        DirCase {
+            dir_label: "退改签",
+            path: "../data/退改签",
+            expected_category: InvoiceCategory::TicketChange,
+        },
+        DirCase {
+            dir_label: "未分类",
+            path: "../data/未分类",
+            expected_category: InvoiceCategory::Other,
+        },
     ]
 }
 
 fn build_itinerary_cases() -> Vec<DirCase> {
     vec![
-        DirCase { dir_label: "滴滴", path: "../data/行程单/滴滴", expected_category: InvoiceCategory::CityTransport },
-        DirCase { dir_label: "天府通", path: "../data/行程单/天府通", expected_category: InvoiceCategory::CityTransport },
-        DirCase { dir_label: "高德", path: "../data/行程单/高德", expected_category: InvoiceCategory::CityTransport },
+        DirCase {
+            dir_label: "滴滴",
+            path: "../data/行程单/滴滴",
+            expected_category: InvoiceCategory::CityTransport,
+        },
+        DirCase {
+            dir_label: "天府通",
+            path: "../data/行程单/天府通",
+            expected_category: InvoiceCategory::CityTransport,
+        },
+        DirCase {
+            dir_label: "高德",
+            path: "../data/行程单/高德",
+            expected_category: InvoiceCategory::CityTransport,
+        },
     ]
 }
 
@@ -109,7 +153,12 @@ fn e2e_extraction_snapshot_test() {
         let entries = process_invoice_dir(case.path, &mut engine, &config);
         let ok = entries.iter().filter(|e| e.data.is_some()).count();
         let fail = entries.iter().filter(|e| e.data.is_none()).count();
-        println!("  解析: {} 个文件, {} 成功, {} 失败", entries.len(), ok, fail);
+        println!(
+            "  解析: {} 个文件, {} 成功, {} 失败",
+            entries.len(),
+            ok,
+            fail
+        );
         actual_invoices.insert(case.dir_label.to_string(), entries);
     }
 
@@ -122,7 +171,12 @@ fn e2e_extraction_snapshot_test() {
         let entries = process_itinerary_dir(case.path, &mut engine);
         let ok = entries.iter().filter(|e| e.data.is_some()).count();
         let fail = entries.iter().filter(|e| e.data.is_none()).count();
-        println!("  解析: {} 个文件, {} 成功, {} 失败", entries.len(), ok, fail);
+        println!(
+            "  解析: {} 个文件, {} 成功, {} 失败",
+            entries.len(),
+            ok,
+            fail
+        );
         actual_itineraries.insert(case.dir_label.to_string(), entries);
     }
 
@@ -144,7 +198,10 @@ fn e2e_extraction_snapshot_test() {
         let itin_count: usize = snapshot.itineraries.values().map(|v| v.len()).sum();
         println!("\n═══════════════════════════════════════════");
         println!("  ✓ 已生成基准快照: {}", SNAPSHOT_PATH);
-        println!("    发票文件: {} 个, 行程单文件: {} 个", inv_count, itin_count);
+        println!(
+            "    发票文件: {} 个, 行程单文件: {} 个",
+            inv_count, itin_count
+        );
         println!("\n  每个文件含 data(结构化) + raw_text(原始文字) + error(失败原因)");
         println!("  请人工/LLM 核对 raw_text 与 data 是否吻合，确认后再次运行即比对。");
         println!("  解析逻辑升级后，用 UPDATE_SNAPSHOT=1 重新生成。");
@@ -159,23 +216,35 @@ fn e2e_extraction_snapshot_test() {
 
     // 比对发票
     for (dir, expected_entries) in &snapshot.invoices {
-        let actual = actual_invoices.get(dir).map(|v| v.as_slice()).unwrap_or(&[]);
+        let actual = actual_invoices
+            .get(dir)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         compare_dir_entries(dir, expected_entries, actual, &mut failures);
     }
     for dir in actual_invoices.keys() {
         if !snapshot.invoices.contains_key(dir) {
-            failures.push(format!("发票目录 [{}] 在快照中不存在（需 UPDATE_SNAPSHOT=1 重新生成）", dir));
+            failures.push(format!(
+                "发票目录 [{}] 在快照中不存在（需 UPDATE_SNAPSHOT=1 重新生成）",
+                dir
+            ));
         }
     }
 
     // 比对行程单
     for (dir, expected_entries) in &snapshot.itineraries {
-        let actual = actual_itineraries.get(dir).map(|v| v.as_slice()).unwrap_or(&[]);
+        let actual = actual_itineraries
+            .get(dir)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[]);
         compare_dir_entries(dir, expected_entries, actual, &mut failures);
     }
     for dir in actual_itineraries.keys() {
         if !snapshot.itineraries.contains_key(dir) {
-            failures.push(format!("行程单目录 [{}] 在快照中不存在（需 UPDATE_SNAPSHOT=1 重新生成）", dir));
+            failures.push(format!(
+                "行程单目录 [{}] 在快照中不存在（需 UPDATE_SNAPSHOT=1 重新生成）",
+                dir
+            ));
         }
     }
 
@@ -185,7 +254,9 @@ fn e2e_extraction_snapshot_test() {
         println!("  ✓ 快照比对通过");
     } else {
         eprintln!("  ❌ 快照比对失败 ({} 项):", failures.len());
-        for f in &failures { eprintln!("    - {}", f); }
+        for f in &failures {
+            eprintln!("    - {}", f);
+        }
         eprintln!("\n  如解析逻辑有意升级，用 UPDATE_SNAPSHOT=1 重新生成快照。");
         panic!("{} 项快照比对失败", failures.len());
     }
@@ -204,7 +275,8 @@ fn process_invoice_dir(
     pdf_files.sort();
 
     for path in pdf_files {
-        let fname = Path::new(&path).file_name()
+        let fname = Path::new(&path)
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&path)
             .to_string();
@@ -215,8 +287,14 @@ fn process_invoice_dir(
         // 解析结构化数据
         match parse_invoice_from_pdf(&path, engine, config) {
             Ok(inv) => {
-                println!("  ✓ {}  金额={:.2}  类别={:?}  日期={}  原始文字={}字",
-                    fname, inv.amount, inv.category, inv.date, raw_text.chars().count());
+                println!(
+                    "  ✓ {}  金额={:.2}  类别={:?}  日期={}  原始文字={}字",
+                    fname,
+                    inv.amount,
+                    inv.category,
+                    inv.date,
+                    raw_text.chars().count()
+                );
                 entries.push(SnapshotEntry {
                     file: fname,
                     data: Some(normalize_invoice_value(&inv)),
@@ -225,7 +303,12 @@ fn process_invoice_dir(
                 });
             }
             Err(e) => {
-                eprintln!("  ✗ {}  解析失败: {}  原始文字={}字", fname, e, raw_text.chars().count());
+                eprintln!(
+                    "  ✗ {}  解析失败: {}  原始文字={}字",
+                    fname,
+                    e,
+                    raw_text.chars().count()
+                );
                 entries.push(SnapshotEntry {
                     file: fname,
                     data: None,
@@ -245,7 +328,8 @@ fn process_itinerary_dir(dir: &str, engine: &mut OcrEngine) -> Vec<SnapshotEntry
     pdf_files.sort();
 
     for path in pdf_files {
-        let fname = Path::new(&path).file_name()
+        let fname = Path::new(&path)
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or(&path)
             .to_string();
@@ -254,8 +338,13 @@ fn process_itinerary_dir(dir: &str, engine: &mut OcrEngine) -> Vec<SnapshotEntry
 
         match parse_itinerary_from_pdf(&path, engine) {
             Ok(doc) => {
-                println!("  ✓ {}  行程数={}  合计={:.2}  原始文字={}字",
-                    fname, doc.itineraries.len(), doc.total_amount, raw_text.chars().count());
+                println!(
+                    "  ✓ {}  行程数={}  合计={:.2}  原始文字={}字",
+                    fname,
+                    doc.itineraries.len(),
+                    doc.total_amount,
+                    raw_text.chars().count()
+                );
                 entries.push(SnapshotEntry {
                     file: fname,
                     data: Some(normalize_itinerary_doc_value(&doc)),
@@ -264,7 +353,12 @@ fn process_itinerary_dir(dir: &str, engine: &mut OcrEngine) -> Vec<SnapshotEntry
                 });
             }
             Err(e) => {
-                eprintln!("  ✗ {}  解析失败: {}  原始文字={}字", fname, e, raw_text.chars().count());
+                eprintln!(
+                    "  ✗ {}  解析失败: {}  原始文字={}字",
+                    fname,
+                    e,
+                    raw_text.chars().count()
+                );
                 entries.push(SnapshotEntry {
                     file: fname,
                     data: None,
@@ -301,9 +395,11 @@ fn list_pdf_files(dir: &str) -> Vec<String> {
 /// 提取 PDF 的原始文字（OCR/pdfplumber 输出，按行拼接）
 fn extract_raw_text(pdf_path: &str, engine: &mut OcrEngine) -> String {
     match extract_text_with_coords_or_fallback(pdf_path, engine) {
-        Ok(items) => {
-            items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join("\n")
-        }
+        Ok(items) => items
+            .iter()
+            .map(|i| i.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
         Err(e) => {
             eprintln!("  [warn] 原始文字提取失败 {}: {}", pdf_path, e);
             String::new()
@@ -318,7 +414,8 @@ fn extract_filename(inv: &Invoice) -> String {
         InvoiceSource::Pdf(p) | InvoiceSource::Photo(p) | InvoiceSource::Link(p) => p,
         InvoiceSource::Manual => return "(manual)".to_string(),
     };
-    Path::new(path).file_name()
+    Path::new(path)
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(path)
         .to_string()
@@ -333,7 +430,8 @@ fn normalize_invoice_value(inv: &Invoice) -> Value {
         // itinerary_file 可能含路径，归一化为 basename
         if let Some(Value::String(ref mut p)) = map.get_mut("itinerary_file") {
             if !p.is_empty() {
-                *p = Path::new(p).file_name()
+                *p = Path::new(p)
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or(p)
                     .to_string();
@@ -361,13 +459,10 @@ fn compare_dir_entries(
     actual: &[SnapshotEntry],
     fails: &mut Vec<String>,
 ) {
-    let actual_map: HashMap<&str, &SnapshotEntry> = actual.iter()
-        .map(|e| (e.file.as_str(), e))
-        .collect();
+    let actual_map: HashMap<&str, &SnapshotEntry> =
+        actual.iter().map(|e| (e.file.as_str(), e)).collect();
 
-    let exp_files: HashSet<&str> = expected.iter()
-        .map(|e| e.file.as_str())
-        .collect();
+    let exp_files: HashSet<&str> = expected.iter().map(|e| e.file.as_str()).collect();
 
     // 比对快照中已有的文件
     for exp in expected {
@@ -376,16 +471,14 @@ fn compare_dir_entries(
                 // 比对结构化数据（data 字段）
                 match (&exp.data, &act.data) {
                     (Some(exp_val), Some(act_val)) => {
-                        compare_values(
-                            exp_val, act_val,
-                            &format!("[{}/{}]", dir, exp.file),
-                            fails,
-                        );
+                        compare_values(exp_val, act_val, &format!("[{}/{}]", dir, exp.file), fails);
                     }
                     (Some(_), None) => {
                         fails.push(format!(
                             "[{}/{}] 解析回归：快照有结构化数据，实际解析失败: {}",
-                            dir, exp.file, act.error.as_deref().unwrap_or("(unknown)")
+                            dir,
+                            exp.file,
+                            act.error.as_deref().unwrap_or("(unknown)")
                         ));
                     }
                     (None, Some(_)) => {
@@ -426,12 +519,18 @@ fn compare_values(expected: &Value, actual: &Value, path: &str, fails: &mut Vec<
             let ef = e.as_f64().unwrap_or(0.0);
             let af = a.as_f64().unwrap_or(0.0);
             if (ef - af).abs() > FLOAT_TOLERANCE {
-                fails.push(format!("{}: 数值不符 预期={} 实际={} (容差{})", path, ef, af, FLOAT_TOLERANCE));
+                fails.push(format!(
+                    "{}: 数值不符 预期={} 实际={} (容差{})",
+                    path, ef, af, FLOAT_TOLERANCE
+                ));
             }
         }
         (Value::String(e), Value::String(a)) => {
             if e != a {
-                fails.push(format!("{}: 字符串不符\n    预期='{}'\n    实际='{}'", path, e, a));
+                fails.push(format!(
+                    "{}: 字符串不符\n    预期='{}'\n    实际='{}'",
+                    path, e, a
+                ));
             }
         }
         (Value::Object(e), Value::Object(a)) => {
@@ -443,13 +542,21 @@ fn compare_values(expected: &Value, actual: &Value, path: &str, fails: &mut Vec<
             }
             for k in a.keys() {
                 if !e.contains_key(k) {
-                    fails.push(format!("{}.{}: 实际结果多出字段（快照无，需 UPDATE_SNAPSHOT=1）", path, k));
+                    fails.push(format!(
+                        "{}.{}: 实际结果多出字段（快照无，需 UPDATE_SNAPSHOT=1）",
+                        path, k
+                    ));
                 }
             }
         }
         (Value::Array(e), Value::Array(a)) => {
             if e.len() != a.len() {
-                fails.push(format!("{}: 数组长度不符 预期={} 实际={}", path, e.len(), a.len()));
+                fails.push(format!(
+                    "{}: 数组长度不符 预期={} 实际={}",
+                    path,
+                    e.len(),
+                    a.len()
+                ));
             }
             for (i, (ev, av)) in e.iter().zip(a.iter()).enumerate() {
                 compare_values(ev, av, &format!("{}[{}]", path, i), fails);
@@ -462,7 +569,10 @@ fn compare_values(expected: &Value, actual: &Value, path: &str, fails: &mut Vec<
             }
         }
         _ => {
-            fails.push(format!("{}: 类型不符 预期={} 实际={}", path, expected, actual));
+            fails.push(format!(
+                "{}: 类型不符 预期={} 实际={}",
+                path, expected, actual
+            ));
         }
     }
 }

@@ -106,7 +106,11 @@ fn build_table_html(form: &ReimbursementForm) -> String {
 </table>"##,
         name = form.name,
         department = form.department,
-        companions = if form.companions > 0 { form.companions.to_string() } else { String::new() },
+        companions = if form.companions > 0 {
+            form.companions.to_string()
+        } else {
+            String::new()
+        },
         destination = form.destination,
         travel_start = form.travel_start,
         travel_end = form.travel_end,
@@ -136,7 +140,7 @@ fn build_transport_rows(form: &ReimbursementForm) -> String {
     let transport_row_count = 5; // 4 detail + 1 subtotal
     let hotel_levels = ["战区级以上", "军级", "师级", "其他人员"];
     let hotel_row_count = hotel_levels.len() + 1; // 4 levels + 1 subtotal = 5
-    // total_rows must be at least transport_row_count+1 (for 市内交通费 overflow) and hotel_row_count
+                                                  // total_rows must be at least transport_row_count+1 (for 市内交通费 overflow) and hotel_row_count
     let total_rows = (transport_row_count + 1).max(hotel_row_count); // max(6, 5) = 6
 
     let hotel_actual_total: f64 = form.hotel_levels.iter().map(|h| h.actual_amount).sum();
@@ -307,19 +311,41 @@ mod tests {
             travel_days: 12,
             companions: 0,
             transport_details: vec![
-                TransportDetail { label: "车、船票".to_string(), count: 1, amount: 553.0 },
-                TransportDetail { label: "飞机票".to_string(), count: 1, amount: 1090.0 },
-                TransportDetail { label: "订（退、改签）票".to_string(), count: 1, amount: 110.5 },
+                TransportDetail {
+                    label: "车、船票".to_string(),
+                    count: 1,
+                    amount: 553.0,
+                },
+                TransportDetail {
+                    label: "飞机票".to_string(),
+                    count: 1,
+                    amount: 1090.0,
+                },
+                TransportDetail {
+                    label: "订（退、改签）票".to_string(),
+                    count: 1,
+                    amount: 110.5,
+                },
             ],
             transport_subtotal: 1753.5,
             city_transport_count: 20,
             city_transport_amount: 956.65,
             city_transport_actual_amount: 956.65,
-            hotel_levels: vec![
-                HotelLevelDetail { level: "其他人员".to_string(), persons: 1, days: 11, daily_rate: 350.0, amount: 3850.0, actual_amount: 4222.63 },
-            ],
+            hotel_levels: vec![HotelLevelDetail {
+                level: "其他人员".to_string(),
+                persons: 1,
+                days: 11,
+                daily_rate: 350.0,
+                amount: 3850.0,
+                actual_amount: 4222.63,
+            }],
             hotel_subtotal: 4222.63,
-            meal_subsidy: MealSubsidyDetail { persons: 1, days: 12, daily_rate: 100.0, amount: 1200.0 },
+            meal_subsidy: MealSubsidyDetail {
+                persons: 1,
+                days: 12,
+                daily_rate: 100.0,
+                amount: 1200.0,
+            },
             baggage_amount: 0.0,
             meal_reimbursement: 0.0,
             summaries: vec![],

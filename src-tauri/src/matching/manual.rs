@@ -1,6 +1,6 @@
 use crate::models::invoice::Invoice;
+use crate::models::match_result::{ItineraryPaymentPair, MatchResult, MatchType};
 use crate::models::payment::PaymentRecord;
-use crate::models::match_result::{MatchResult, MatchType, ItineraryPaymentPair};
 
 /// 手动创建匹配
 /// itinerary_payment_pairs：行程-支付显式配对（市内交通一对多场景）；
@@ -28,9 +28,7 @@ pub fn create_manual_match(
 }
 
 /// 取消匹配，释放支付记录
-pub fn unmatch_invoice(
-    match_result: &MatchResult,
-) -> (Invoice, Vec<PaymentRecord>) {
+pub fn unmatch_invoice(match_result: &MatchResult) -> (Invoice, Vec<PaymentRecord>) {
     (match_result.invoice.clone(), match_result.payments.clone())
 }
 
@@ -55,7 +53,11 @@ pub fn create_manual_match_shared(
         confidence: if diff == 0.0 { 1.0 } else { 0.8 },
         amount_diff: diff,
         itinerary_payment_pairs,
-        shared_payment_ids: if shared_from_invoice_id.is_some() { payment_ids } else { vec![] },
+        shared_payment_ids: if shared_from_invoice_id.is_some() {
+            payment_ids
+        } else {
+            vec![]
+        },
         shared_from_invoice_id,
     }
 }
@@ -84,7 +86,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -127,12 +129,8 @@ mod tests {
     fn test_manual_match_with_shared_payment() {
         let invoice = make_invoice("toll1", 10.0);
         let payments = vec![make_payment("pay1", 60.0)];
-        let result = create_manual_match_shared(
-            invoice,
-            payments,
-            vec![],
-            Some("inv_trip".to_string()),
-        );
+        let result =
+            create_manual_match_shared(invoice, payments, vec![], Some("inv_trip".to_string()));
         assert_eq!(result.shared_from_invoice_id, Some("inv_trip".to_string()));
         assert_eq!(result.shared_payment_ids, vec!["pay1".to_string()]);
         assert!(matches!(result.match_type, MatchType::ManualConfirmed));

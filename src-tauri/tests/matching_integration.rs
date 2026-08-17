@@ -1,11 +1,13 @@
-use invoice_reimbursement_lib::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
-use invoice_reimbursement_lib::models::payment::{PaymentRecord, PaymentSource};
-use invoice_reimbursement_lib::models::match_result::{MatchResult, MatchType};
-use invoice_reimbursement_lib::matching::engine::MatchEngine;
-use invoice_reimbursement_lib::matching::batch::batch_match;
-use invoice_reimbursement_lib::matching::manual::{create_manual_match, unmatch_invoice};
-use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 use chrono::NaiveDate;
+use invoice_reimbursement_lib::matching::batch::batch_match;
+use invoice_reimbursement_lib::matching::engine::MatchEngine;
+use invoice_reimbursement_lib::matching::manual::{create_manual_match, unmatch_invoice};
+use invoice_reimbursement_lib::models::invoice::{
+    Invoice, InvoiceCategory, InvoiceSource, Itinerary,
+};
+use invoice_reimbursement_lib::models::match_result::{MatchResult, MatchType};
+use invoice_reimbursement_lib::models::payment::{PaymentRecord, PaymentSource};
+use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 
 // ===== Helper functions =====
 
@@ -26,7 +28,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
-                    toll_travel_time: None,
+        toll_travel_time: None,
     }
 }
 
@@ -55,7 +57,7 @@ fn make_city_transport_invoice(id: &str, amount: f64) -> Invoice {
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
-                    toll_travel_time: None,
+        toll_travel_time: None,
     }
 }
 
@@ -121,11 +123,11 @@ fn test_batch_match_full_flow() {
     ];
 
     let payments = vec![
-        make_payment("pay1", 500.0, "测试酒店"),       // matches inv1
-        make_payment("pay2", 150.0, "测试餐厅"),      // matches inv2
-        make_payment("pay3", 30.0, "滴滴出行"),        // matches inv3 (one-to-many)
-        make_payment("pay4", 40.0, "滴滴出行"),        // matches inv3 (one-to-many)
-        make_payment("pay5", 30.0, "滴滴出行"),        // matches inv3 (one-to-many)
+        make_payment("pay1", 500.0, "测试酒店"), // matches inv1
+        make_payment("pay2", 150.0, "测试餐厅"), // matches inv2
+        make_payment("pay3", 30.0, "滴滴出行"),  // matches inv3 (one-to-many)
+        make_payment("pay4", 40.0, "滴滴出行"),  // matches inv3 (one-to-many)
+        make_payment("pay5", 30.0, "滴滴出行"),  // matches inv3 (one-to-many)
     ];
 
     let result = batch_match(&invoices, &payments, 1.0);
@@ -136,13 +138,17 @@ fn test_batch_match_full_flow() {
     assert_eq!(result.unmatched_payments.len(), 0, "No unmatched payments");
 
     // Verify one-to-one matches
-    let one_to_one: Vec<&MatchResult> = result.matched.iter()
+    let one_to_one: Vec<&MatchResult> = result
+        .matched
+        .iter()
         .filter(|r| matches!(r.match_type, MatchType::OneToOne))
         .collect();
     assert_eq!(one_to_one.len(), 2, "Should have 2 one-to-one matches");
 
     // Verify one-to-many match
-    let one_to_many: Vec<&MatchResult> = result.matched.iter()
+    let one_to_many: Vec<&MatchResult> = result
+        .matched
+        .iter()
         .filter(|r| matches!(r.match_type, MatchType::OneToMany))
         .collect();
     assert_eq!(one_to_many.len(), 1, "Should have 1 one-to-many match");
@@ -158,8 +164,8 @@ fn test_batch_match_with_unmatched() {
     ];
 
     let payments = vec![
-        make_payment("pay1", 100.0, "酒店"),   // matches inv1
-        make_payment("pay2", 50.0, "超市"),    // no matching invoice
+        make_payment("pay1", 100.0, "酒店"), // matches inv1
+        make_payment("pay2", 50.0, "超市"),  // no matching invoice
     ];
 
     let result = batch_match(&invoices, &payments, 1.0);
@@ -224,11 +230,22 @@ fn test_form_builder_integration() {
 
     // Verify total amount (发票金额 + 伙食补助6天×100=600)
     let expected_total = 553.0 + 1200.0 + 450.0 + 80.0 + 600.0;
-    println!("actual total: {:.2}, expected: {:.2}", form.total_amount, expected_total);
-    println!("transport: {:.2}, city: {:.2}, hotel: {:.2}, meal_subsidy: {:.2}",
-        form.transport_subtotal, form.city_transport_amount, form.hotel_subtotal, form.meal_subsidy.amount);
-    assert!((form.total_amount - expected_total).abs() < 0.01,
-        "Total amount should be {}", expected_total);
+    println!(
+        "actual total: {:.2}, expected: {:.2}",
+        form.total_amount, expected_total
+    );
+    println!(
+        "transport: {:.2}, city: {:.2}, hotel: {:.2}, meal_subsidy: {:.2}",
+        form.transport_subtotal,
+        form.city_transport_amount,
+        form.hotel_subtotal,
+        form.meal_subsidy.amount
+    );
+    assert!(
+        (form.total_amount - expected_total).abs() < 0.01,
+        "Total amount should be {}",
+        expected_total
+    );
 }
 
 /// Test form builder with empty match results.
@@ -281,9 +298,7 @@ fn test_manual_match_and_unmatch_flow() {
 #[test]
 fn test_manual_match_amount_mismatch() {
     let invoice = make_invoice("inv1", 100.0, InvoiceCategory::Hotel);
-    let payments = vec![
-        make_payment("pay1", 70.0, "酒店"),
-    ];
+    let payments = vec![make_payment("pay1", 70.0, "酒店")];
 
     let result = create_manual_match(invoice, payments, vec![]);
     assert!(matches!(result.match_type, MatchType::ManualConfirmed));
@@ -324,8 +339,11 @@ fn test_end_to_end_flow() {
     let match_result = batch_match(&invoices, &payments, 1.0);
 
     // All invoices should be matched
-    assert_eq!(match_result.matched.len(), invoices.len(),
-        "All invoices should be matched");
+    assert_eq!(
+        match_result.matched.len(),
+        invoices.len(),
+        "All invoices should be matched"
+    );
     assert_eq!(match_result.unmatched_invoices.len(), 0);
     assert_eq!(match_result.unmatched_payments.len(), 0);
 

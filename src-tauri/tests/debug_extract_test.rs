@@ -34,7 +34,10 @@ fn test_debug_extract_returns_structure_with_scaled_coords() {
     );
 
     // pdfplumber 应提取到文字（这是文字型 PDF）
-    assert!(!page.pdfplumber.is_empty(), "pdfplumber should extract words");
+    assert!(
+        !page.pdfplumber.is_empty(),
+        "pdfplumber should extract words"
+    );
 
     // 所有 pdfplumber 坐标必须在图片像素范围内（验证缩放正确）
     for item in &page.pdfplumber {
@@ -42,11 +45,20 @@ fn test_debug_extract_returns_structure_with_scaled_coords() {
     }
 
     // OCR 引擎未提供，应为空数组（不报错）
-    assert!(page.ocr.is_empty(), "ocr should be empty when engine is None");
+    assert!(
+        page.ocr.is_empty(),
+        "ocr should be empty when engine is None"
+    );
 
     // 日志应存在（至少有渲染日志）
-    assert!(!result.logs.pdfplumber.is_empty(), "pdfplumber logs should exist");
-    assert!(!result.logs.ocr.is_empty(), "ocr logs should exist (degradation reason)");
+    assert!(
+        !result.logs.pdfplumber.is_empty(),
+        "pdfplumber logs should exist"
+    );
+    assert!(
+        !result.logs.ocr.is_empty(),
+        "ocr logs should exist (degradation reason)"
+    );
 
     // 图形元素字段应存在（线条/矩形，发票通常有表格线条）
     let _ = &page.lines;

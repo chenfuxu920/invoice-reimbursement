@@ -2,7 +2,9 @@ use invoice_reimbursement_lib::pdf::image_embedder::render_pdf_all_pages_to_pngs
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let pdf_path = args.get(1).expect("usage: dump_render_preview <pdf_path> [dpi]");
+    let pdf_path = args
+        .get(1)
+        .expect("usage: dump_render_preview <pdf_path> [dpi]");
     let dpi: u32 = args.get(2).map(|s| s.parse().unwrap_or(150)).unwrap_or(150);
     let out_dir = "C:/Users/chenf/AppData/Local/Temp/opencode/preview_test";
 

@@ -57,12 +57,7 @@ pub fn render_pdf_to_rgb_images(pdf_path: &str, dpi: u32) -> Result<Vec<image::R
             .copied()
             .collect();
         let img = image::RgbImage::from_raw(rendered.width, rendered.height, rgb_data)
-            .ok_or_else(|| {
-                format!(
-                    "创建图片失败 ({}x{})",
-                    rendered.width, rendered.height
-                )
-            })?;
+            .ok_or_else(|| format!("创建图片失败 ({}x{})", rendered.width, rendered.height))?;
         images.push(img);
     }
 

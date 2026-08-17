@@ -1,7 +1,9 @@
 #![cfg(feature = "pdfplumber")]
 
 use invoice_reimbursement_lib::ocr::OcrEngine;
-use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_invoice_from_pdf, parse_itinerary_from_pdf, ExtractionConfig};
+use invoice_reimbursement_lib::pdf::invoice_pipeline::{
+    parse_invoice_from_pdf, parse_itinerary_from_pdf, ExtractionConfig,
+};
 use std::path::Path;
 
 /// Resolves to project-root/data/
@@ -63,7 +65,10 @@ fn try_init_engine() -> Option<OcrEngine> {
         return None;
     }
     let has_mnn = std::fs::read_dir(models_path)
-        .map(|rd| rd.filter_map(|e| e.ok()).any(|e| e.path().extension().map_or(false, |ext| ext == "mnn")))
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .any(|e| e.path().extension().map_or(false, |ext| ext == "mnn"))
+        })
         .unwrap_or(false);
     if !has_mnn {
         eprintln!("  [SKIP] No .mnn model files in '{MODELS_DIR}'");
@@ -113,7 +118,10 @@ fn print_result_line(category: &str, file: &str, outcome: &TestOutcome, extra: &
         TestOutcome::Fail(d) => d,
         TestOutcome::Skip(d) => d,
     };
-    println!("  {:<10} {:<38} {:<8} {:<32} {}", category, file, status, detail, amount);
+    println!(
+        "  {:<10} {:<38} {:<8} {:<32} {}",
+        category, file, status, detail, amount
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -125,10 +133,20 @@ fn test_invoice_impl(
     subdir: &str,
     file: &str,
     engine: &mut OcrEngine,
-) -> (String, TestOutcome, Option<invoice_reimbursement_lib::models::invoice::Invoice>) {
+) -> (
+    String,
+    TestOutcome,
+    Option<invoice_reimbursement_lib::models::invoice::Invoice>,
+) {
     let pdf_path = match pdf_exists(subdir, file) {
         Some(p) => p,
-        None => return (file.to_string(), TestOutcome::Skip("file not found".to_string()), None),
+        None => {
+            return (
+                file.to_string(),
+                TestOutcome::Skip("file not found".to_string()),
+                None,
+            )
+        }
     };
 
     eprintln!("\n    Parsing: {}", file);
@@ -145,7 +163,11 @@ fn test_invoice_impl(
                 invoice.invoice_number.clone()
             };
             let date = invoice.date.format("%Y-%m-%d").to_string();
-            let item = if invoice.item_name.is_empty() { "(empty)" } else { &invoice.item_name };
+            let item = if invoice.item_name.is_empty() {
+                "(empty)"
+            } else {
+                &invoice.item_name
+            };
 
             println!(
                 "    ✓ seller='{}' no='{}' amount={:.2} date={} item='{}'",
@@ -163,13 +185,17 @@ fn test_invoice_impl(
             if invoice.seller_name.is_empty() {
                 issues.push("seller_name is empty".to_string());
             }
-            if invoice.seller_name.starts_with("名称：") || invoice.seller_name.contains("买 售") {
+            if invoice.seller_name.starts_with("名称：") || invoice.seller_name.contains("买 售")
+            {
                 // Known limitation: pdfplumber on multi-column Chinese PDFs can produce garbled
                 // seller text like "名称：买 售" instead of the actual seller name.
                 // The pipeline falls back to parangi or OCR when possible, but for PDFs where
                 // pdfplumber extracts some text, the fallback check (seller_name.is_empty())
                 // does not trigger. This is a known issue documented in CLAUDE.md.
-                issues.push(format!("seller='{}' looks garbled (known pdfplumber multi-column CJK issue)", seller));
+                issues.push(format!(
+                    "seller='{}' looks garbled (known pdfplumber multi-column CJK issue)",
+                    seller
+                ));
             }
 
             let outcome = if issues.is_empty() {
@@ -192,10 +218,20 @@ fn test_itinerary_impl(
     subdir: &str,
     file: &str,
     engine: &mut OcrEngine,
-) -> (String, TestOutcome, Option<invoice_reimbursement_lib::pdf::invoice_pipeline::ItineraryDoc>) {
+) -> (
+    String,
+    TestOutcome,
+    Option<invoice_reimbursement_lib::pdf::invoice_pipeline::ItineraryDoc>,
+) {
     let pdf_path = match pdf_exists(subdir, file) {
         Some(p) => p,
-        None => return (file.to_string(), TestOutcome::Skip("file not found".to_string()), None),
+        None => {
+            return (
+                file.to_string(),
+                TestOutcome::Skip("file not found".to_string()),
+                None,
+            )
+        }
     };
 
     eprintln!("\n    Parsing: {}", file);
@@ -225,7 +261,10 @@ fn test_itinerary_impl(
                 issues.push("no itineraries parsed".to_string());
             }
             if doc.total_amount <= 0.0 {
-                issues.push(format!("total_amount={:.2} should be > 0", doc.total_amount));
+                issues.push(format!(
+                    "total_amount={:.2} should be > 0",
+                    doc.total_amount
+                ));
             }
 
             let outcome = if issues.is_empty() {
@@ -260,10 +299,18 @@ fn test_pipeline_invoice_didi_with_pdfplumber() {
     if let Some(inv) = invoice {
         println!(
             "  seller_name='{}' invoice_number='{}' amount={:.2} date='{}' item_name='{}'",
-            inv.seller_name, inv.invoice_number, inv.amount, inv.date.format("%Y-%m-%d"), inv.item_name
+            inv.seller_name,
+            inv.invoice_number,
+            inv.amount,
+            inv.date.format("%Y-%m-%d"),
+            inv.item_name
         );
     }
-    assert!(outcome.is_ok(), "Didi invoice A test failed: {}", outcome.detail());
+    assert!(
+        outcome.is_ok(),
+        "Didi invoice A test failed: {}",
+        outcome.detail()
+    );
 }
 
 #[test]
@@ -279,10 +326,18 @@ fn test_pipeline_invoice_didi_b_with_pdfplumber() {
     if let Some(inv) = invoice {
         println!(
             "  seller_name='{}' invoice_number='{}' amount={:.2} date='{}' item_name='{}'",
-            inv.seller_name, inv.invoice_number, inv.amount, inv.date.format("%Y-%m-%d"), inv.item_name
+            inv.seller_name,
+            inv.invoice_number,
+            inv.amount,
+            inv.date.format("%Y-%m-%d"),
+            inv.item_name
         );
     }
-    assert!(outcome.is_ok(), "Didi invoice B test failed: {}", outcome.detail());
+    assert!(
+        outcome.is_ok(),
+        "Didi invoice B test failed: {}",
+        outcome.detail()
+    );
 }
 
 #[test]
@@ -342,11 +397,19 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
                 if invoice.amount <= 0.0 {
                     issues.push(format!("amount={:.2}", invoice.amount));
                 }
-                if invoice.seller_name.is_empty() || invoice.seller_name.starts_with("名称：") || invoice.seller_name.contains("买 售") {
-                    issues.push("seller garbled (known pdfplumber multi-column CJK issue)".to_string());
+                if invoice.seller_name.is_empty()
+                    || invoice.seller_name.starts_with("名称：")
+                    || invoice.seller_name.contains("买 售")
+                {
+                    issues.push(
+                        "seller garbled (known pdfplumber multi-column CJK issue)".to_string(),
+                    );
                 }
                 if invoice.invoice_number.is_empty() {
-                    issues.push("invoice_number empty (known pdfplumber multi-column CJK issue)".to_string());
+                    issues.push(
+                        "invoice_number empty (known pdfplumber multi-column CJK issue)"
+                            .to_string(),
+                    );
                 }
 
                 let outcome = if issues.is_empty() {
@@ -355,7 +418,13 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
                     TestOutcome::Fail(issues.join("; "))
                 };
 
-                print_result_line("Invoice", &file_name, &outcome, "", &format!("{:.2}", invoice.amount));
+                print_result_line(
+                    "Invoice",
+                    &file_name,
+                    &outcome,
+                    "",
+                    &format!("{:.2}", invoice.amount),
+                );
                 outcomes.push((file_name.clone(), outcome));
             }
             Err(e) => {
@@ -369,7 +438,10 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
 
     // Check for any OK results
     let ok_count = outcomes.iter().filter(|(_, o)| o.is_ok()).count();
-    let fail_count = outcomes.iter().filter(|(_, o)| matches!(o, TestOutcome::Fail(_))).count();
+    let fail_count = outcomes
+        .iter()
+        .filter(|(_, o)| matches!(o, TestOutcome::Fail(_)))
+        .count();
 
     println!("\n  VAT summary: {ok_count} OK, {fail_count} with issues");
     println!("  NOTE: VAT invoice parsing with pdfplumber is a known challenge");
@@ -379,7 +451,9 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
     // Don't fail the test for known issues — the pipeline already has fallback paths
     // This test documents the current state of pdfplumber extraction for VAT PDFs
     if ok_count == 0 && fail_count > 0 {
-        eprintln!("  All VAT PDFs had issues. This is expected — parangi/OCR fallback handles these.");
+        eprintln!(
+            "  All VAT PDFs had issues. This is expected — parangi/OCR fallback handles these."
+        );
     }
 }
 
@@ -391,7 +465,8 @@ fn test_pipeline_itinerary_tianfutong_with_pdfplumber() {
     };
 
     println!("\n=== 天府通 Itinerary with pdfplumber ===");
-    let (file, outcome, doc) = test_itinerary_impl("行程单\\天府通", "天府通电子行程单.pdf", &mut engine);
+    let (file, outcome, doc) =
+        test_itinerary_impl("行程单\\天府通", "天府通电子行程单.pdf", &mut engine);
     print_result_line("Itinerary", &file, &outcome, "", "");
 
     // 天府通行程单 uses a dense table format that pdfplumber coordinate extraction
@@ -426,7 +501,8 @@ fn test_pipeline_itinerary_didi_with_pdfplumber() {
     };
 
     println!("\n=== Didi Itinerary A with pdfplumber ===");
-    let (file, outcome, doc) = test_itinerary_impl("行程单\\滴滴", "滴滴出行行程报销单A.pdf", &mut engine);
+    let (file, outcome, doc) =
+        test_itinerary_impl("行程单\\滴滴", "滴滴出行行程报销单A.pdf", &mut engine);
     print_result_line("Itinerary", &file, &outcome, "", "");
     if let Some(d) = doc {
         println!(
@@ -435,7 +511,11 @@ fn test_pipeline_itinerary_didi_with_pdfplumber() {
             d.total_amount
         );
     }
-    assert!(outcome.is_ok(), "Didi itinerary A test failed: {}", outcome.detail());
+    assert!(
+        outcome.is_ok(),
+        "Didi itinerary A test failed: {}",
+        outcome.detail()
+    );
 }
 
 #[test]
@@ -446,7 +526,8 @@ fn test_pipeline_itinerary_didi_b_with_pdfplumber() {
     };
 
     println!("\n=== Didi Itinerary B with pdfplumber ===");
-    let (file, outcome, doc) = test_itinerary_impl("行程单\\滴滴", "滴滴出行行程报销单B.pdf", &mut engine);
+    let (file, outcome, doc) =
+        test_itinerary_impl("行程单\\滴滴", "滴滴出行行程报销单B.pdf", &mut engine);
     print_result_line("Itinerary", &file, &outcome, "", "");
     if let Some(d) = doc {
         println!(
@@ -490,9 +571,21 @@ fn test_pipeline_summary() {
         let (f, outcome, invoice) = test_invoice_impl(subdir, file, &mut engine);
         if let Some(inv) = &invoice {
             let extra = format!("seller='{}' no='{}'", inv.seller_name, inv.invoice_number);
-            results.push((label.to_string(), f, outcome, extra, format!("{:.2}", inv.amount)));
+            results.push((
+                label.to_string(),
+                f,
+                outcome,
+                extra,
+                format!("{:.2}", inv.amount),
+            ));
         } else {
-            results.push((label.to_string(), f, outcome, String::new(), "-".to_string()));
+            results.push((
+                label.to_string(),
+                f,
+                outcome,
+                String::new(),
+                "-".to_string(),
+            ));
         }
     }
 
@@ -537,10 +630,22 @@ fn test_pipeline_summary() {
                     TestOutcome::Fail(issues.join("; "))
                 };
                 let extra = format!("seller='{}' no='{}'", seller, inv_no);
-                results.push(("Invoice".to_string(), file_name, outcome, extra, format!("{:.2}", invoice.amount)));
+                results.push((
+                    "Invoice".to_string(),
+                    file_name,
+                    outcome,
+                    extra,
+                    format!("{:.2}", invoice.amount),
+                ));
             }
             Err(e) => {
-                results.push(("Invoice".to_string(), file_name, TestOutcome::Fail(e), String::new(), "-".to_string()));
+                results.push((
+                    "Invoice".to_string(),
+                    file_name,
+                    TestOutcome::Fail(e),
+                    String::new(),
+                    "-".to_string(),
+                ));
             }
         }
     }
@@ -557,19 +662,38 @@ fn test_pipeline_summary() {
         let (f, outcome, doc) = test_itinerary_impl(subdir, file, &mut engine);
         if let Some(d) = &doc {
             let extra = format!("{} itineraries", d.itineraries.len());
-            results.push((label.to_string(), f, outcome, extra, format!("{:.2}", d.total_amount)));
+            results.push((
+                label.to_string(),
+                f,
+                outcome,
+                extra,
+                format!("{:.2}", d.total_amount),
+            ));
         } else {
-            results.push((label.to_string(), f, outcome, String::new(), "-".to_string()));
+            results.push((
+                label.to_string(),
+                f,
+                outcome,
+                String::new(),
+                "-".to_string(),
+            ));
         }
     }
 
     // ── Print summary table ────────────────────────────────────────────────
 
     println!();
-    println!("====================================================================================");
+    println!(
+        "===================================================================================="
+    );
     println!("              Pipeline Validation Summary (pdfplumber)");
-    println!("====================================================================================");
-    println!("{:<12} {:<38} {:<8} {:<32} {}", "PDF Type", "File", "Result", "Details", "Amount");
+    println!(
+        "===================================================================================="
+    );
+    println!(
+        "{:<12} {:<38} {:<8} {:<32} {}",
+        "PDF Type", "File", "Result", "Details", "Amount"
+    );
     println!("{:-<12}-{:-<38}-{:-<8}-{:-<32}-{:-<10}", "", "", "", "", "");
     println!();
 
@@ -633,7 +757,9 @@ fn test_pipeline_summary() {
     }
 
     println!("  Core assertions passed ✓");
-    println!("====================================================================================");
+    println!(
+        "===================================================================================="
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -695,7 +821,11 @@ fn test_pipeline_original_invoice_dir() {
 
                     println!(
                         "    ✓ (invoice) seller='{}' no='{}' amount={:.2} date={} item='{}'",
-                        seller, inv_no, invoice.amount, invoice.date.format("%Y-%m-%d"), invoice.item_name
+                        seller,
+                        inv_no,
+                        invoice.amount,
+                        invoice.date.format("%Y-%m-%d"),
+                        invoice.item_name
                     );
 
                     let mut issues = Vec::new();
@@ -703,8 +833,18 @@ fn test_pipeline_original_invoice_dir() {
                         issues.push(format!("amount={:.2}", invoice.amount));
                     }
 
-                    let outcome = if issues.is_empty() { TestOutcome::Ok } else { TestOutcome::Fail(issues.join("; ")) };
-                    results.push(("Invoice".to_string(), file_name, outcome, format!("seller='{}' no='{}'", seller, inv_no), format!("{:.2}", invoice.amount)));
+                    let outcome = if issues.is_empty() {
+                        TestOutcome::Ok
+                    } else {
+                        TestOutcome::Fail(issues.join("; "))
+                    };
+                    results.push((
+                        "Invoice".to_string(),
+                        file_name,
+                        outcome,
+                        format!("seller='{}' no='{}'", seller, inv_no),
+                        format!("{:.2}", invoice.amount),
+                    ));
                 }
                 Err(e) => {
                     // Try itinerary parsing
@@ -712,18 +852,31 @@ fn test_pipeline_original_invoice_dir() {
                         Ok(doc) => {
                             println!(
                                 "    ✓ (itinerary) {} itineraries, total={:.2}",
-                                doc.itineraries.len(), doc.total_amount
+                                doc.itineraries.len(),
+                                doc.total_amount
                             );
                             let outcome = if doc.itineraries.is_empty() {
                                 TestOutcome::Fail("no itineraries".to_string())
                             } else {
                                 TestOutcome::Ok
                             };
-                            results.push(("Itinerary".to_string(), file_name, outcome, format!("{} itineraries", doc.itineraries.len()), format!("{:.2}", doc.total_amount)));
+                            results.push((
+                                "Itinerary".to_string(),
+                                file_name,
+                                outcome,
+                                format!("{} itineraries", doc.itineraries.len()),
+                                format!("{:.2}", doc.total_amount),
+                            ));
                         }
                         Err(e2) => {
                             eprintln!("    ✗ Invoice: {e} | Itinerary: {e2}");
-                            results.push(("Unknown".to_string(), file_name, TestOutcome::Fail(format!("inv={e}; itin={e2}")), String::new(), "-".to_string()));
+                            results.push((
+                                "Unknown".to_string(),
+                                file_name,
+                                TestOutcome::Fail(format!("inv={e}; itin={e2}")),
+                                String::new(),
+                                "-".to_string(),
+                            ));
                         }
                     }
                 }
@@ -738,15 +891,28 @@ fn test_pipeline_original_invoice_dir() {
 
     // Print summary
     println!();
-    println!("====================================================================================");
+    println!(
+        "===================================================================================="
+    );
     println!("              All Type-Based Invoice Dirs Summary");
-    println!("====================================================================================");
-    println!("{:<12} {:<38} {:<8} {:<32} {}", "Type", "File", "Result", "Detail", "Amount");
+    println!(
+        "===================================================================================="
+    );
+    println!(
+        "{:<12} {:<38} {:<8} {:<32} {}",
+        "Type", "File", "Result", "Detail", "Amount"
+    );
     println!("{:-<12}-{:-<38}-{:-<8}-{:-<32}-{:-<10}", "", "", "", "", "");
 
     let ok = results.iter().filter(|(_, _, o, _, _)| o.is_ok()).count();
-    let fail = results.iter().filter(|(_, _, o, _, _)| matches!(o, TestOutcome::Fail(_))).count();
-    let skip = results.iter().filter(|(_, _, o, _, _)| matches!(o, TestOutcome::Skip(_))).count();
+    let fail = results
+        .iter()
+        .filter(|(_, _, o, _, _)| matches!(o, TestOutcome::Fail(_)))
+        .count();
+    let skip = results
+        .iter()
+        .filter(|(_, _, o, _, _)| matches!(o, TestOutcome::Skip(_)))
+        .count();
 
     for (label, file, outcome, extra, amount) in &results {
         print_result_line(label, file, outcome, extra, amount);
@@ -755,6 +921,14 @@ fn test_pipeline_original_invoice_dir() {
     println!();
     println!("  {}", "-".repeat(80));
     println!();
-    println!("  {ok}/{total_count} OK, {fail} FAILED, {skip} SKIPPED", ok=ok, fail=fail, skip=skip, total_count=total_count);
-    println!("====================================================================================");
+    println!(
+        "  {ok}/{total_count} OK, {fail} FAILED, {skip} SKIPPED",
+        ok = ok,
+        fail = fail,
+        skip = skip,
+        total_count = total_count
+    );
+    println!(
+        "===================================================================================="
+    );
 }

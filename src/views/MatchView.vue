@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-4xl mx-auto px-5 py-6 pb-8">
-    <LoadingOverlay :visible="matchStore.loading" message="正在匹配发票与账单..." />
+    <LoadingOverlay :visible="matchStore.loading" :message="matchProgressText" :progress="matchProgressPercent" />
 
     <!-- 状态横幅 + 大按钮 -->
     <section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary-600 via-accent-500 to-flare-500 shadow-float p-7 md:p-8 animate-fade-in-up">
@@ -30,7 +30,7 @@
             :disabled="!canMatch || matchStore.loading" @click="runAutoMatch">
             <Loader2 v-if="matchStore.loading" :size="20" class="animate-spin" />
             <Sparkles v-else :size="20" />
-            {{ matchStore.loading ? '正在扫描匹配...' : (hasMatched ? '重新自动匹配' : '开始自动匹配') }}
+            {{ matchProgress ? `正在匹配 ${matchProgress.index + 1}/${matchProgress.total}` : (matchStore.loading ? '正在扫描匹配...' : (hasMatched ? '重新自动匹配' : '开始自动匹配')) }}
           </button>
         </div>
       </div>
@@ -180,7 +180,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   ScanSearch, Sparkles, CheckCircle2, AlertTriangle, ArrowRight, ChevronRight, Wand2, Loader2,
 } from 'lucide-vue-next'
@@ -194,6 +194,7 @@ import AppButton from '../components/ui/AppButton.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import AppEmpty from '../components/ui/AppEmpty.vue'
 import { toast } from '../composables/toast'
+import { listen } from '@tauri-apps/api/event'
 import MatchAdjustDialog from '../components/MatchAdjustDialog.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import PaymentDetailModal from '../components/PaymentDetailModal.vue'
@@ -219,6 +220,24 @@ const viewingPaymentIndex = ref(0)
 const canMatch = computed(() => invoiceStore.invoices.length > 0 && paymentStore.payments.length > 0)
 const hasMatched = computed(() => matchStore.matches.length > 0)
 
+const matchProgress = ref<{ index: number; total: number } | null>(null)
+const matchProgressPercent = computed(() =>
+  matchProgress.value ? Math.round((matchProgress.value.index + 1) / matchProgress.value.total * 100) : undefined
+)
+const matchProgressText = computed(() =>
+  matchProgress.value ? `正在匹配发票与账单 ${matchProgress.value.index + 1}/${matchProgress.value.total}...` : '正在匹配发票与账单...'
+)
+
+let unlistenMatch: (() => void) | undefined
+onMounted(async () => {
+  unlistenMatch = await listen<{ index: number; total: number }>('match-progress', (e) => {
+    matchProgress.value = e.payload
+  })
+})
+onUnmounted(() => {
+  unlistenMatch?.()
+})
+
 const matchCount = useCountUp(() => matchStore.matches.length)
 const pendingCount = useCountUp(() => matchStore.unmatchedInvoices.length + matchStore.unmatchedPayments.length)
 
@@ -238,10 +257,14 @@ function getCategoryIconWrap(category: InvoiceCategory) {
 }
 
 async function runAutoMatch() {
+  matchProgress.value = null
   try {
     await matchStore.autoMatch(invoiceStore.invoices, paymentStore.payments)
   } catch (e) {
     toast('自动匹配失败: ' + e, 'error')
+  } finally {
+    // 匹配结束（成功或失败）都必须清掉进度，否则按钮会一直卡在“正在匹配 x/y”
+    matchProgress.value = null
   }
 }
 

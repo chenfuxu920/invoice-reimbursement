@@ -59,7 +59,8 @@ impl MultiDimensionalScorer {
         let score_amount = self.score_amount(invoice.amount, payment.amount);
         let amount_score = score_total.max(score_amount);
         let merchant_score = self.score_merchant(&invoice.seller_name, &payment.merchant_name);
-        let ref_date = invoice.travel_date
+        let ref_date = invoice
+            .travel_date
             .or_else(|| invoice.toll_travel_time.map(|t| t.date()))
             .or_else(|| invoice.hotel_detail.as_ref().and_then(|h| h.check_in))
             .unwrap_or(invoice.date);
@@ -80,7 +81,8 @@ impl MultiDimensionalScorer {
             time_score,
             category_score,
             breakdown: ScoreBreakdown {
-                amount_diff: (invoice.amount - payment.total_value()).abs()
+                amount_diff: (invoice.amount - payment.total_value())
+                    .abs()
                     .min((invoice.amount - payment.amount).abs()),
                 merchant_similarity: merchant_score,
                 time_diff_hours,
@@ -147,7 +149,11 @@ impl MultiDimensionalScorer {
         }
     }
 
-    pub fn score_category(&self, invoice_category: &InvoiceCategory, payment_category: &str) -> f64 {
+    pub fn score_category(
+        &self,
+        invoice_category: &InvoiceCategory,
+        payment_category: &str,
+    ) -> f64 {
         let category_keywords = match invoice_category {
             InvoiceCategory::Hotel => vec!["酒店", "住宿", "宾馆", "旅馆", "饭店"],
             InvoiceCategory::CityTransport => vec!["滴滴", "高德", "交通", "出租", "网约车"],
@@ -213,7 +219,17 @@ impl MultiDimensionalScorer {
     }
 
     pub fn keyword_matching_score(&self, seller: &str, merchant: &str) -> f64 {
-        let hotel_brands = vec!["如家", "汉庭", "锦江", "7天", "华住", "希尔顿", "万豪", "喜来登", "香格里拉"];
+        let hotel_brands = vec![
+            "如家",
+            "汉庭",
+            "锦江",
+            "7天",
+            "华住",
+            "希尔顿",
+            "万豪",
+            "喜来登",
+            "香格里拉",
+        ];
         for brand in &hotel_brands {
             if seller.contains(brand) && merchant.contains(brand) {
                 return 0.85;
@@ -276,11 +292,17 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
-    fn make_payment(id: &str, amount: f64, merchant: &str, time: &str, category: &str) -> PaymentRecord {
+    fn make_payment(
+        id: &str,
+        amount: f64,
+        merchant: &str,
+        time: &str,
+        category: &str,
+    ) -> PaymentRecord {
         PaymentRecord {
             id: id.to_string(),
             transaction_id: format!("TX-{}", id),

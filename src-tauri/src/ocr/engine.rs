@@ -1,7 +1,10 @@
-use serde::{Deserialize, Serialize};
+use super::structured_output::{
+    BoundingBox, OcrStructuredOutput, OcrTextBlock, PageLayout, RegionType, TextBlockType,
+    TextRegion,
+};
 use ocr_rs::OcrEngine as PaddleOcrEngine;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
-use super::structured_output::{OcrStructuredOutput, OcrTextBlock, BoundingBox, TextBlockType, PageLayout, TextRegion, RegionType};
 
 // 保留原有数据结构（被 parser 和前端使用）
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -62,7 +65,11 @@ impl OcrEngine {
         let rec_model = Path::new(models_dir).join("PP-OCRv5_mobile_rec.mnn");
         let dict_file = Path::new(models_dir).join("ppocr_keys_v5.txt");
 
-        for (name, path) in [("det", &det_model), ("rec", &rec_model), ("dict", &dict_file)] {
+        for (name, path) in [
+            ("det", &det_model),
+            ("rec", &rec_model),
+            ("dict", &dict_file),
+        ] {
             if !path.exists() {
                 eprintln!("OCR model file not found: {} ({})", name, path.display());
                 return Ok(Self::uninitialized());
@@ -74,9 +81,12 @@ impl OcrEngine {
             rec_model.to_str().unwrap(),
             dict_file.to_str().unwrap(),
             None,
-        ).map_err(|e| format!("Failed to init PaddleOCR: {:?}", e))?;
+        )
+        .map_err(|e| format!("Failed to init PaddleOCR: {:?}", e))?;
 
-        Ok(Self { engine: Some(engine) })
+        Ok(Self {
+            engine: Some(engine),
+        })
     }
 
     /// 健康检查 - 返回 OCR 引擎是否可用（模型是否已加载）
@@ -86,13 +96,15 @@ impl OcrEngine {
 
     /// 识别图片中的文字
     pub fn recognize_image(&mut self, file_path: &str) -> Result<OcrImageResponse, String> {
-        let engine = self.engine.as_mut()
+        let engine = self
+            .engine
+            .as_mut()
             .ok_or("OCR 模型未安装，请先在首页下载 OCR 模型")?;
 
-        let image = image::open(file_path)
-            .map_err(|e| format!("Failed to open image: {:?}", e))?;
-        
-        let results = engine.recognize(&image)
+        let image = image::open(file_path).map_err(|e| format!("Failed to open image: {:?}", e))?;
+
+        let results = engine
+            .recognize(&image)
             .map_err(|e| format!("OCR recognition failed: {:?}", e))?;
 
         let texts = results
@@ -123,11 +135,14 @@ impl OcrEngine {
         &mut self,
         img: &image::RgbImage,
     ) -> Result<OcrImageResponse, String> {
-        let engine = self.engine.as_mut()
+        let engine = self
+            .engine
+            .as_mut()
             .ok_or("OCR 模型未安装，请先在首页下载 OCR 模型")?;
 
         let dynamic_image = image::DynamicImage::ImageRgb8(img.clone());
-        let results = engine.recognize(&dynamic_image)
+        let results = engine
+            .recognize(&dynamic_image)
             .map_err(|e| format!("OCR recognition failed: {:?}", e))?;
 
         let texts = results
@@ -283,7 +298,10 @@ fn cluster_text_regions(blocks: &[OcrTextBlock]) -> Vec<TextRegion> {
         return vec![];
     }
 
-    let max_y = blocks.iter().map(|b| b.bbox.y + b.bbox.height).fold(0.0, f64::max);
+    let max_y = blocks
+        .iter()
+        .map(|b| b.bbox.y + b.bbox.height)
+        .fold(0.0, f64::max);
     if max_y == 0.0 {
         return vec![];
     }
@@ -375,7 +393,10 @@ fn render_pdf_to_images(pdf_path: &str) -> Result<Vec<image::RgbImage>, String> 
 /// 查找 pdftoppm 可执行文件路径（在 PATH 或常见安装目录中搜索）
 fn find_pdftoppm() -> Option<std::path::PathBuf> {
     // 1. 尝试 PATH
-    if let Ok(path) = std::process::Command::new("pdftoppm").arg("--version").output() {
+    if let Ok(path) = std::process::Command::new("pdftoppm")
+        .arg("--version")
+        .output()
+    {
         if path.status.success() {
             // 在 PATH 中能找到，返回默认名称即可（Command::new 会搜索 PATH）
             // 但我们无法直接获取 PATH 中的完整路径，返回 None 让调用方使用 "pdftoppm"
@@ -427,9 +448,12 @@ fn pdftoppm_to_images(pdf_path: &str) -> Result<Vec<String>, String> {
     let output = pdftoppm_cmd
         .args([
             "-png",
-            "-f", "1",
-            "-l", "5",  // 最多处理 5 页
-            "-r", "200",
+            "-f",
+            "1",
+            "-l",
+            "5", // 最多处理 5 页
+            "-r",
+            "200",
             pdf_path,
             output_prefix.to_str().unwrap_or_default(),
         ])
@@ -539,10 +563,7 @@ mod tests {
             TextBlockType::Title
         ));
         assert!(matches!(infer_block_type("发票"), TextBlockType::Title));
-        assert!(matches!(
-            infer_block_type("电子凭证"),
-            TextBlockType::Title
-        ));
+        assert!(matches!(infer_block_type("电子凭证"), TextBlockType::Title));
     }
 
     #[test]
@@ -563,7 +584,10 @@ mod tests {
 
     #[test]
     fn test_infer_block_type_other() {
-        assert!(matches!(infer_block_type("一些普通文本"), TextBlockType::Other));
+        assert!(matches!(
+            infer_block_type("一些普通文本"),
+            TextBlockType::Other
+        ));
         assert!(matches!(
             infer_block_type("四川景澜酒店"),
             TextBlockType::Other
@@ -645,8 +669,12 @@ mod tests {
         let regions = cluster_text_regions(&blocks);
 
         assert!(!regions.is_empty());
-        assert!(regions.iter().any(|r| matches!(r.region_type, RegionType::Header)));
-        assert!(regions.iter().any(|r| matches!(r.region_type, RegionType::Body)));
+        assert!(regions
+            .iter()
+            .any(|r| matches!(r.region_type, RegionType::Header)));
+        assert!(regions
+            .iter()
+            .any(|r| matches!(r.region_type, RegionType::Body)));
     }
 
     #[test]
@@ -838,13 +866,32 @@ mod tests {
     #[test]
     fn test_bounding_box_coordinate_formats() {
         let test_cases = vec![
-            (r#"{"points": [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": 0.0}, {"x": 100.0, "y": 50.0}, {"x": 0.0, "y": 50.0}]}"#, 0.0, 0.0, 100.0, 50.0),
-            (r#"{"points": [{"x": 50.5, "y": 25.3}, {"x": 150.7, "y": 25.3}, {"x": 150.7, "y": 75.8}, {"x": 50.5, "y": 75.8}]}"#, 50.5, 25.3, 100.2, 50.5),
-            (r#"{"points": [{"x": 1000.0, "y": 500.0}, {"x": 1200.0, "y": 500.0}, {"x": 1200.0, "y": 550.0}, {"x": 1000.0, "y": 550.0}]}"#, 1000.0, 500.0, 200.0, 50.0),
+            (
+                r#"{"points": [{"x": 0.0, "y": 0.0}, {"x": 100.0, "y": 0.0}, {"x": 100.0, "y": 50.0}, {"x": 0.0, "y": 50.0}]}"#,
+                0.0,
+                0.0,
+                100.0,
+                50.0,
+            ),
+            (
+                r#"{"points": [{"x": 50.5, "y": 25.3}, {"x": 150.7, "y": 25.3}, {"x": 150.7, "y": 75.8}, {"x": 50.5, "y": 75.8}]}"#,
+                50.5,
+                25.3,
+                100.2,
+                50.5,
+            ),
+            (
+                r#"{"points": [{"x": 1000.0, "y": 500.0}, {"x": 1200.0, "y": 500.0}, {"x": 1200.0, "y": 550.0}, {"x": 1000.0, "y": 550.0}]}"#,
+                1000.0,
+                500.0,
+                200.0,
+                50.0,
+            ),
         ];
 
         for (json_str, expected_x, expected_y, expected_w, expected_h) in test_cases {
-            let box_coords: Option<serde_json::Value> = Some(serde_json::from_str(json_str).unwrap());
+            let box_coords: Option<serde_json::Value> =
+                Some(serde_json::from_str(json_str).unwrap());
             let bbox = parse_box_coords(&box_coords).unwrap();
 
             assert!((bbox.x - expected_x).abs() < 0.1);

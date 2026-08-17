@@ -1,9 +1,11 @@
-use invoice_reimbursement_lib::models::invoice::{HotelDetail, Invoice, InvoiceCategory, InvoiceSource};
+use chrono::NaiveDate;
+use invoice_reimbursement_lib::models::invoice::{
+    HotelDetail, Invoice, InvoiceCategory, InvoiceSource,
+};
 use invoice_reimbursement_lib::models::match_result::{MatchResult, MatchType};
 use invoice_reimbursement_lib::models::payment::{PaymentRecord, PaymentSource};
 use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
-use chrono::NaiveDate;
 
 fn make_hotel_match(
     id: &str,
@@ -42,7 +44,7 @@ fn make_hotel_match(
         }),
         departure_city: None,
         arrival_city: None,
-                    toll_travel_time: None,
+        toll_travel_time: None,
     };
     let payment = PaymentRecord {
         id: format!("pay-{}", id),
@@ -71,7 +73,12 @@ fn make_hotel_match(
     }
 }
 
-fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller: &str) -> MatchResult {
+fn make_transport_match(
+    id: &str,
+    amount: f64,
+    category: InvoiceCategory,
+    seller: &str,
+) -> MatchResult {
     let invoice = Invoice {
         id: id.to_string(),
         invoice_number: format!("INV-{}", id),
@@ -88,7 +95,7 @@ fn make_transport_match(id: &str, amount: f64, category: InvoiceCategory, seller
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
-                    toll_travel_time: None,
+        toll_travel_time: None,
     };
     let payment = PaymentRecord {
         id: format!("pay-{}", id),
@@ -126,14 +133,29 @@ fn e2e_full_reimbursement_with_hotel_standard() {
         // 飞机票
         make_transport_match("inv-flight", 1090.0, InvoiceCategory::Flight, "中国国航"),
         // 退改签
-        make_transport_match("inv-change", 110.5, InvoiceCategory::TicketChange, "中国铁路"),
+        make_transport_match(
+            "inv-change",
+            110.5,
+            InvoiceCategory::TicketChange,
+            "中国铁路",
+        ),
         // 市内交通
-        make_transport_match("inv-city1", 500.0, InvoiceCategory::CityTransport, "滴滴出行"),
-        make_transport_match("inv-city2", 456.65, InvoiceCategory::CityTransport, "高德打车"),
+        make_transport_match(
+            "inv-city1",
+            500.0,
+            InvoiceCategory::CityTransport,
+            "滴滴出行",
+        ),
+        make_transport_match(
+            "inv-city2",
+            456.65,
+            InvoiceCategory::CityTransport,
+            "高德打车",
+        ),
         // 住宿 - 成都（四川省标准 370元/晚，11晚）
         make_hotel_match(
             "inv-hotel",
-            4222.63,  // 实际: 4222.63/11晚 ≈ 383.88/晚 > 标准 370/晚
+            4222.63, // 实际: 4222.63/11晚 ≈ 383.88/晚 > 标准 370/晚
             "2025-08-04",
             "2025-08-15",
             11,

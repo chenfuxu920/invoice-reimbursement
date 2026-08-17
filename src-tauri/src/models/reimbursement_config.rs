@@ -7,16 +7,16 @@ use tauri::Manager;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HotelStandardEntry {
-    pub region: String,    // 地区名（城市或省份），如 "成都市"、"四川省"
-    pub standard: f64,     // 每晚上限（元）
+    pub region: String, // 地区名（城市或省份），如 "成都市"、"四川省"
+    pub standard: f64,  // 每晚上限（元）
 }
 
 /// 城市标准（挂在省份下）
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CityStandard {
-    pub name: String,          // 城市名，如 "福州"
-    pub standard: f64,         // 每晚上限
+    pub name: String,  // 城市名，如 "福州"
+    pub standard: f64, // 每晚上限
 }
 
 /// 省份标准：default_standard 是"其他城市"的标准（未单独列出的城市用）
@@ -33,8 +33,8 @@ pub struct ProvinceStandard {
 #[serde(rename_all = "camelCase")]
 pub struct StandardSet {
     pub id: String,
-    pub name: String,                  // 用户可改
-    pub default_hotel_standard: f64,   // 该套未匹配任何省份时的兜底
+    pub name: String,                // 用户可改
+    pub default_hotel_standard: f64, // 该套未匹配任何省份时的兜底
     // 基础标准：None = 旧数据未设置，加载时继承全局值（内置默认）；保存后总是具体值
     #[serde(default)]
     pub city_transport_daily: Option<f64>,
@@ -161,7 +161,8 @@ pub fn sanitize(mut c: ReimbursementConfig) -> ReimbursementConfig {
         for p in &mut s.provinces {
             p.name = p.name.trim().to_string();
             p.default_standard = p.default_standard.max(0.0);
-            p.cities.retain(|c| !c.name.trim().is_empty() && c.standard > 0.0);
+            p.cities
+                .retain(|c| !c.name.trim().is_empty() && c.standard > 0.0);
             for c in &mut p.cities {
                 c.name = c.name.trim().to_string();
                 c.standard = c.standard.max(0.0);
@@ -169,7 +170,10 @@ pub fn sanitize(mut c: ReimbursementConfig) -> ReimbursementConfig {
         }
     }
     if c.active_standard_set_id != "builtin"
-        && !c.standard_sets.iter().any(|s| s.id == c.active_standard_set_id)
+        && !c
+            .standard_sets
+            .iter()
+            .any(|s| s.id == c.active_standard_set_id)
     {
         c.active_standard_set_id = "builtin".to_string();
     }
@@ -186,13 +190,18 @@ pub fn apply_config(config: &ReimbursementConfig) {
         .find(|s| s.id == config.active_standard_set_id)
         .map(|s| {
             (
-                s.city_transport_daily.unwrap_or(config.city_transport_daily),
+                s.city_transport_daily
+                    .unwrap_or(config.city_transport_daily),
                 s.meal_subsidy_daily.unwrap_or(config.meal_subsidy_daily),
             )
         })
         .unwrap_or((config.city_transport_daily, config.meal_subsidy_daily));
-    *CUSTOM_CITY_TRANSPORT_DAILY.lock().unwrap_or_else(|e| e.into_inner()) = Some(city_transport);
-    *CUSTOM_MEAL_SUBSIDY_DAILY.lock().unwrap_or_else(|e| e.into_inner()) = Some(meal_subsidy);
+    *CUSTOM_CITY_TRANSPORT_DAILY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(city_transport);
+    *CUSTOM_MEAL_SUBSIDY_DAILY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(meal_subsidy);
 
     // active = "builtin" → 无激活用户集；否则找集扁平化，找不到（无效 id）→ None
     let active = if config.active_standard_set_id == "builtin" {

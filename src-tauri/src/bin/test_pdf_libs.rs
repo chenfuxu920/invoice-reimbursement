@@ -21,13 +21,29 @@ struct LibResult {
 
 impl LibResult {
     fn fail(lib: &'static str, err: String, elapsed_ms: u128) -> Self {
-        Self { lib, ok: false, chars: 0, garbled: false, sample: String::new(), elapsed_ms, error: Some(err) }
+        Self {
+            lib,
+            ok: false,
+            chars: 0,
+            garbled: false,
+            sample: String::new(),
+            elapsed_ms,
+            error: Some(err),
+        }
     }
     fn ok(lib: &'static str, text: String, elapsed_ms: u128) -> Self {
         let chars = text.chars().count();
         let garbled = is_garbled_text(&text, 0.3);
         let sample: String = text.chars().take(80).collect::<String>().replace('\n', " ");
-        Self { lib, ok: true, chars, garbled, sample, elapsed_ms, error: None }
+        Self {
+            lib,
+            ok: true,
+            chars,
+            garbled,
+            sample,
+            elapsed_ms,
+            error: None,
+        }
     }
 }
 
@@ -38,7 +54,11 @@ fn test_pdfplumber(path: &str) -> LibResult {
     use invoice_reimbursement_lib::pdf::text_extractor::extract_text_with_coords_flat;
     match extract_text_with_coords_flat(path) {
         Ok(items) => {
-            let text: String = items.iter().map(|i| i.text.as_str()).collect::<Vec<_>>().join(" ");
+            let text: String = items
+                .iter()
+                .map(|i| i.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
             LibResult::ok("pdfplumber", text, t.elapsed().as_millis())
         }
         Err(e) => LibResult::fail("pdfplumber", e, t.elapsed().as_millis()),
@@ -58,7 +78,10 @@ fn collect_pdfs(dir: &Path) -> Vec<PathBuf> {
             let path = entry.path();
             if path.is_dir() {
                 pdfs.extend(collect_pdfs(&path));
-            } else if path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("pdf")) {
+            } else if path
+                .extension()
+                .map_or(false, |ext| ext.eq_ignore_ascii_case("pdf"))
+            {
                 pdfs.push(path);
             }
         }
@@ -69,7 +92,10 @@ fn collect_pdfs(dir: &Path) -> Vec<PathBuf> {
 
 fn process_pdf(path: &Path) -> Vec<LibResult> {
     let path_str = path.to_string_lossy().to_string();
-    let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
 
     println!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("FILE: {}", name);
@@ -89,11 +115,19 @@ fn print_result(r: &LibResult) {
     let status = if r.ok { "OK" } else { "FAIL" };
     let garbled = if r.garbled { " [GARBLED]" } else { "" };
     if r.ok {
-        println!("  {:<14} {}  {:>5} chars  {:>4}ms{}  {}",
-            r.lib, status, r.chars, r.elapsed_ms, garbled, r.sample);
+        println!(
+            "  {:<14} {}  {:>5} chars  {:>4}ms{}  {}",
+            r.lib, status, r.chars, r.elapsed_ms, garbled, r.sample
+        );
     } else {
-        println!("  {:<14} {}  {:>5}        {:>4}ms  ERR: {}",
-            r.lib, status, "", r.elapsed_ms, r.error.as_deref().unwrap_or("?"));
+        println!(
+            "  {:<14} {}  {:>5}        {:>4}ms  ERR: {}",
+            r.lib,
+            status,
+            "",
+            r.elapsed_ms,
+            r.error.as_deref().unwrap_or("?")
+        );
     }
 }
 
@@ -129,7 +163,8 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
     println!("共 {} 个 PDF，目录: {}", pdfs.len(), dir.display());
 
     // 统计：每个库的成功数、乱码数、总字符数
-    let mut stats: std::collections::HashMap<&str, (usize, usize, usize)> = std::collections::HashMap::new();
+    let mut stats: std::collections::HashMap<&str, (usize, usize, usize)> =
+        std::collections::HashMap::new();
     for lib in &["pdfplumber"] {
         stats.insert(lib, (0, 0, 0));
     }
@@ -150,7 +185,10 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
                 }
             }
         }
-        let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let name = p
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
         all_results.push((name, results));
     }
 
@@ -169,7 +207,10 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
             "pdfplumber" => "坐标感知, Word级",
             _ => "",
         };
-        println!("║ {:<13} │ {:>3}/{:<5}  │ {:>5} │ {:>6} │ {} ║", lib, s.0, total, s.1, s.2, desc);
+        println!(
+            "║ {:<13} │ {:>3}/{:<5}  │ {:>5} │ {:>6} │ {} ║",
+            lib, s.0, total, s.1, s.2, desc
+        );
     }
     println!("╚══════════════════════════════════════════════════════════════════╝");
 
@@ -206,13 +247,32 @@ fn run_all(dir: &Path, pdfs: &[PathBuf]) {
     println!("\n── 乱码情况 ──");
     let mut any_garbled = false;
     for (name, results) in &all_results {
-        let garbled_libs: Vec<&str> = results.iter().filter(|r| r.ok && r.garbled).map(|r| r.lib).collect();
+        let garbled_libs: Vec<&str> = results
+            .iter()
+            .filter(|r| r.ok && r.garbled)
+            .map(|r| r.lib)
+            .collect();
         if !garbled_libs.is_empty() {
             any_garbled = true;
-            let clean_libs: Vec<&str> = results.iter().filter(|r| r.ok && !r.garbled).map(|r| r.lib).collect();
-            println!("  {} → 乱码:{}  正常:{}", name,
-                if garbled_libs.is_empty() { "无".to_string() } else { garbled_libs.join("+") },
-                if clean_libs.is_empty() { "无".to_string() } else { clean_libs.join("+") });
+            let clean_libs: Vec<&str> = results
+                .iter()
+                .filter(|r| r.ok && !r.garbled)
+                .map(|r| r.lib)
+                .collect();
+            println!(
+                "  {} → 乱码:{}  正常:{}",
+                name,
+                if garbled_libs.is_empty() {
+                    "无".to_string()
+                } else {
+                    garbled_libs.join("+")
+                },
+                if clean_libs.is_empty() {
+                    "无".to_string()
+                } else {
+                    clean_libs.join("+")
+                }
+            );
         }
     }
     if !any_garbled {

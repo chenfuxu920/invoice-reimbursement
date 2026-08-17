@@ -1,6 +1,6 @@
 <template>
   <div class="max-w-4xl mx-auto px-5 py-6 pb-8">
-    <LoadingOverlay :visible="isLoading" :message="loadingMessage" />
+    <LoadingOverlay :visible="isLoading" :message="loadingMessage" :progress="recognizeProgressPercent" />
 
     <!-- 页头 -->
     <div class="flex flex-wrap items-center justify-between gap-3 mb-6 animate-fade-in-up">
@@ -42,7 +42,7 @@
       <TransitionGroup name="card-flow" tag="div" class="grid gap-3">
         <InvoiceCard v-for="(inv, i) in invoiceStore.invoices" :key="inv.id" :invoice="inv"
                      :style="{ transitionDelay: `${Math.min(i * 40, 320)}ms` }"
-                     @remove="invoiceStore.removeInvoice" @view-detail="openInvoiceDetail" />
+                     @remove="requestDeleteInvoice" @view-detail="openInvoiceDetail" />
       </TransitionGroup>
     </div>
 
@@ -124,11 +124,13 @@
     <ConfirmDialog :visible="clearConfirmVisible" title="清空全部数据"
                    message="确定清空全部发票、账单与匹配数据？此操作不可撤销。"
                    confirm-text="清空" @confirm="doClearAll" @cancel="clearConfirmVisible = false" />
+    <ConfirmDialog :visible="deleteTarget !== null" title="删除发票" :message="deleteMessage"
+                   confirm-text="删除" @confirm="confirmDeleteInvoice" @cancel="deleteTarget = null" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import {
   Plus, FolderOpen, Trash2, Receipt, Wallet, AlertTriangle, X, ArrowRight, ChevronRight,
 } from 'lucide-vue-next'
@@ -148,6 +150,7 @@ import BlankInvoiceEntryModal from '../components/BlankInvoiceEntryModal.vue'
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import type { Invoice, ParseError } from '../types'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { consumePendingDrop } from '../composables/pendingDrop'
 
 const invoiceStore = useInvoiceStore()
@@ -162,7 +165,23 @@ const manualEntryFile = ref('')
 const manualEntryErrorId = ref('')
 const blankVisible = ref(false)
 const clearConfirmVisible = ref(false)
+const deleteTarget = ref<Invoice | null>(null)
+const deleteMessage = computed(() => {
+  if (!deleteTarget.value) return ''
+  const inv = deleteTarget.value
+  const name = inv.seller_name || inv.invoice_number || '未命名'
+  return `确定删除发票「${name}」？此操作不可撤销。`
+})
 const retryingIds = ref<string[]>([])
+
+function requestDeleteInvoice(id: string) {
+  deleteTarget.value = invoiceStore.invoices.find(i => i.id === id) ?? null
+}
+
+function confirmDeleteInvoice() {
+  if (deleteTarget.value) invoiceStore.removeInvoice(deleteTarget.value.id)
+  deleteTarget.value = null
+}
 
 // 首页拖入的文件：消费暂存并直接执行识别（文件夹由 Rust collect_files 递归展开）
 onMounted(() => {
@@ -172,12 +191,32 @@ onMounted(() => {
   if (drop.bills.length) handleBillImport(drop.bills)
 })
 
+let unlistenRecognize: (() => void) | undefined
+onMounted(async () => {
+  unlistenRecognize = await listen<{ index: number; total: number; fileName: string }>('recognize-progress', (e) => {
+    recognizeProgress.value = e.payload
+  })
+})
+onUnmounted(() => {
+  unlistenRecognize?.()
+})
+
 const globalLoading = ref(false)
 const billLoading = ref(false)
+
+const recognizeProgress = ref<{ index: number; total: number; fileName: string } | null>(null)
+const recognizeProgressPercent = computed(() =>
+  recognizeProgress.value ? Math.round((recognizeProgress.value.index + 1) / recognizeProgress.value.total * 100) : undefined
+)
 
 const isLoading = computed(() => globalLoading.value || invoiceStore.loading || billLoading.value)
 
 const loadingMessage = computed(() => {
+  if (recognizeProgress.value && (invoiceStore.loading || globalLoading.value)) {
+    const { index, total, fileName } = recognizeProgress.value
+    const name = fileName.length > 30 ? fileName.slice(0, 30) + '…' : fileName
+    return `正在识别发票 ${index + 1}/${total} · ${name}`
+  }
   if (globalLoading.value) return '正在批量导入发票与账单...'
   if (invoiceStore.loading) return '正在识别发票...'
   if (billLoading.value) return '正在解析账单...'
@@ -201,6 +240,7 @@ async function handleInvoiceFiles(paths: string[]) {
   const pdfs = invoiceFiles.filter(p => p.toLowerCase().endsWith('.pdf'))
   const images = invoiceFiles.filter(p => !p.toLowerCase().endsWith('.pdf'))
 
+  recognizeProgress.value = null
   invoiceStore.loading = true
   const skipped: string[] = []
   try {
@@ -254,6 +294,7 @@ async function handleGlobalImport() {
 
   const dirs = Array.isArray(selected) ? selected : [selected]
 
+  recognizeProgress.value = null
   globalLoading.value = true
   let totalInvoices = 0
   let totalPayments = 0
@@ -261,31 +302,29 @@ async function handleGlobalImport() {
   const allSkipped: string[] = []
 
   try {
-    for (const dir of dirs) {
-      const result = await invoke<{
-        invoices: any[]
-        payments: any[]
-        errors: [string, string][]
-        duplicates: string[]
-      }>('batch_global_import', { dirPath: dir })
+    const result = await invoke<{
+      invoices: any[]
+      payments: any[]
+      errors: [string, string][]
+      duplicates: string[]
+    }>('batch_global_import', { dirPaths: dirs })
 
-      const crossSkipped = invoiceStore.addInvoicesSkipDuplicates(result.invoices)
-      allSkipped.push(...result.duplicates, ...crossSkipped)
-      for (const p of result.payments) {
-        paymentStore.payments.push(p)
-      }
-
-      totalInvoices += result.invoices.length - crossSkipped.length
-      totalPayments += result.payments.length
-      allErrors.push(...result.errors)
-      const errs: ParseError[] = result.errors.map(([name, msg], i) => ({
-        id: `global-${Date.now()}-${i}`,
-        filePath: name,
-        fileName: name.replace(/\\/g, '/').split('/').pop() || name,
-        message: msg,
-      }))
-      invoiceStore.addParseErrors(errs)
+    const crossSkipped = invoiceStore.addInvoicesSkipDuplicates(result.invoices)
+    allSkipped.push(...result.duplicates, ...crossSkipped)
+    for (const p of result.payments) {
+      paymentStore.payments.push(p)
     }
+
+    totalInvoices += result.invoices.length - crossSkipped.length
+    totalPayments += result.payments.length
+    allErrors.push(...result.errors)
+    const errs: ParseError[] = result.errors.map(([name, msg], i) => ({
+      id: `global-${Date.now()}-${i}`,
+      filePath: name,
+      fileName: name.replace(/\\/g, '/').split('/').pop() || name,
+      message: msg,
+    }))
+    invoiceStore.addParseErrors(errs)
 
     const errCount = allErrors.length
     const dupCount = allSkipped.length

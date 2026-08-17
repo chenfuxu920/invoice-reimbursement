@@ -2,8 +2,10 @@
 //! 验证单元格引导提取：从发票 PDF 的 find_tables 结果中提取字段。
 //! Run: cargo test --features pdfplumber --test cell_extract_verify_test -- --nocapture
 
+use invoice_reimbursement_lib::parser::cell_extractor::{
+    extract_fields_from_tables, CellInvoiceFields,
+};
 use invoice_reimbursement_lib::pdf::text_extractor::{extract_pdf_column_aware, PdfExtraction};
-use invoice_reimbursement_lib::parser::cell_extractor::{extract_fields_from_tables, CellInvoiceFields};
 use std::path::Path;
 
 const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data");
@@ -27,7 +29,10 @@ fn verify_pdf(name: &str, pdf_path: &str) {
 
     let seller = fields.seller_name.as_deref().unwrap_or("");
     assert!(!seller.is_empty(), "[{name}] seller_name is None");
-    assert!(seller.chars().count() >= 3, "[{name}] seller_name too short: '{seller}'");
+    assert!(
+        seller.chars().count() >= 3,
+        "[{name}] seller_name too short: '{seller}'"
+    );
     assert!(
         !seller.chars().all(|c| c.is_ascii_alphanumeric()),
         "[{name}] seller_name looks like tax ID: '{seller}'"
@@ -36,7 +41,10 @@ fn verify_pdf(name: &str, pdf_path: &str) {
     assert!(amount > 0.0, "[{name}] amount is None or zero");
     assert!(fields.item_name.is_some(), "[{name}] item_name is None");
 
-    println!("  [{name}] ✓ seller={seller}, amount={amount}, item={}", fields.item_name.as_deref().unwrap_or(""));
+    println!(
+        "  [{name}] ✓ seller={seller}, amount={amount}, item={}",
+        fields.item_name.as_deref().unwrap_or("")
+    );
 }
 
 fn has_invoice_cells(extraction: &PdfExtraction) -> bool {
@@ -45,7 +53,8 @@ fn has_invoice_cells(extraction: &PdfExtraction) -> bool {
             for row in &table.rows {
                 for cell in row {
                     let t: String = cell.text.chars().filter(|c| !c.is_whitespace()).collect();
-                    if t.contains("销售方") || t.contains("购买方") || t.contains("价税合计") {
+                    if t.contains("销售方") || t.contains("购买方") || t.contains("价税合计")
+                    {
                         return true;
                     }
                 }
@@ -76,7 +85,10 @@ fn scan_and_verify_dir(dir: &str, label: &str) {
         let path = entry.path();
         if path.extension().map_or(false, |ext| ext == "pdf") {
             let filename = path.file_name().unwrap().to_string_lossy().to_string();
-            if filename.contains("行程报销单") || filename.contains("行程单") || filename.contains("结账单") {
+            if filename.contains("行程报销单")
+                || filename.contains("行程单")
+                || filename.contains("结账单")
+            {
                 continue;
             }
             verify_pdf(&format!("{label}/{filename}"), &path.to_string_lossy());

@@ -5,10 +5,10 @@ use std::path::Path;
 use lopdf::{Object, ObjectId, Stream};
 use medpdf::{create_blank_page, insert_content_stream};
 
+use super::cjk_font;
 use crate::models::hotel_standard::get_hotel_nightly_rate_std;
 use crate::models::invoice::{InvoiceCategory, InvoiceSource};
 use crate::models::match_result::MatchResult;
-use super::cjk_font;
 
 const PAGE_W: f32 = 842.0; // A4 横版 pt (297mm)
 const PAGE_H: f32 = 595.0; // A4 横版 pt (210mm)
@@ -24,9 +24,7 @@ enum PageSpec {
         over_std: Option<String>,
     },
     /// 手动空发票：虚线框 + 提示
-    Blank {
-        payment: String,
-    },
+    Blank { payment: String },
     /// 市内交通行程表格
     Table {
         rows: Vec<(usize, f64, String)>,
@@ -107,7 +105,10 @@ fn deep_copy_value(
                     continue; // 不向上拷贝整棵页面树
                 }
                 if let Object::Reference(id) = v {
-                    nd.set(k.clone(), Object::Reference(deep_copy(doc, src, *id, cache)?));
+                    nd.set(
+                        k.clone(),
+                        Object::Reference(deep_copy(doc, src, *id, cache)?),
+                    );
                 } else {
                     nd.set(k.clone(), deep_copy_value(doc, src, v, cache)?);
                 }
@@ -130,7 +131,10 @@ fn deep_copy_value(
             let mut new_dict = lopdf::Dictionary::new();
             for (k, v) in s.dict.iter() {
                 if let Object::Reference(id) = v {
-                    new_dict.set(k.clone(), Object::Reference(deep_copy(doc, src, *id, cache)?));
+                    new_dict.set(
+                        k.clone(),
+                        Object::Reference(deep_copy(doc, src, *id, cache)?),
+                    );
                 } else {
                     new_dict.set(k.clone(), deep_copy_value(doc, src, v, cache)?);
                 }
@@ -194,13 +198,20 @@ fn copy_page_safe(
 }
 
 /// 源页有效区域：优先 CropBox（发票内容常只在裁剪区内），否则 MediaBox。返回 (x0,y0,x1,y1)。
-fn src_page_box(src: &lopdf::Document, page_0based: u32) -> Result<(f32, f32, f32, f32), Box<dyn Error>> {
+fn src_page_box(
+    src: &lopdf::Document,
+    page_0based: u32,
+) -> Result<(f32, f32, f32, f32), Box<dyn Error>> {
     let id = *src
         .get_pages()
         .get(&(page_0based + 1))
         .ok_or("源 PDF 页面不存在")?;
     let dict = src.get_object(id)?.as_dict()?;
-    let key: &[u8] = if dict.get(b"CropBox").is_ok() { b"CropBox" } else { b"MediaBox" };
+    let key: &[u8] = if dict.get(b"CropBox").is_ok() {
+        b"CropBox"
+    } else {
+        b"MediaBox"
+    };
     let mb = dict.get(key)?.as_array()?;
     let (x0, y0, x1, y1) = (
         mb[0].as_float()?,
@@ -214,7 +225,10 @@ fn src_page_box(src: &lopdf::Document, page_0based: u32) -> Result<(f32, f32, f3
 /// 返回页面内容流对象 id 列表，跟随引用链并展开数组（含 /Contents 间接引用→数组 的写法）。
 /// 直接内联的 Stream 会作为新对象加入文档。
 /// 数组必须保持原顺序：栈展开时逆序压入，弹出顺序即原顺序。
-fn page_contents_ids(doc: &mut lopdf::Document, page_id: ObjectId) -> Result<Vec<ObjectId>, Box<dyn Error>> {
+fn page_contents_ids(
+    doc: &mut lopdf::Document,
+    page_id: ObjectId,
+) -> Result<Vec<ObjectId>, Box<dyn Error>> {
     let contents = {
         let page = doc.get_object(page_id)?.as_dict()?;
         page.get(b"Contents")?.clone()
@@ -369,7 +383,8 @@ fn place_page(
     // 若内容流含裁剪区外的元素（如滴滴发票底部隐藏的 "didi" 水印），会泄漏进导出页；
     // 这里在应用矩阵后按 src_box 裁剪（clip 与内容同坐标系，经矩阵映射到目标页），
     // 只保留发票可见内容。
-    let mut wrapped = format!("q\n{matrix} cm\n{} {} {} {} re W n\n", bx0, by0, bw, bh).into_bytes();
+    let mut wrapped =
+        format!("q\n{matrix} cm\n{} {} {} {} re W n\n", bx0, by0, bw, bh).into_bytes();
     wrapped.extend(rebalance_q(&body));
     wrapped.extend(b"\nQ\n");
     let new_contents = doc.add_object(Stream::new(Default::default(), wrapped));
@@ -483,7 +498,12 @@ fn register_font(
 
     // 规范化 /Font 为字典对象 id
     let font_dict_id: ObjectId = {
-        let font_obj = doc.get_object_mut(res_id)?.as_dict_mut()?.get(b"Font").ok().cloned();
+        let font_obj = doc
+            .get_object_mut(res_id)?
+            .as_dict_mut()?
+            .get(b"Font")
+            .ok()
+            .cloned();
         match font_obj {
             None => {
                 let new = doc.add_object(Object::Dictionary(lopdf::Dictionary::new()));
@@ -503,12 +523,10 @@ fn register_font(
             Some(other) => return Err(format!("非法 Font: {other:?}").into()),
         }
     };
-    doc.get_object_mut(font_dict_id)?
-        .as_dict_mut()?
-        .set(
-            cjk_font::FONT_KEY.as_bytes().to_vec(),
-            Object::Reference(font.font_id),
-        );
+    doc.get_object_mut(font_dict_id)?.as_dict_mut()?.set(
+        cjk_font::FONT_KEY.as_bytes().to_vec(),
+        Object::Reference(font.font_id),
+    );
     Ok(())
 }
 
@@ -613,7 +631,16 @@ fn draw_blank(
         true,
     )?;
     if !payment.is_empty() {
-        draw_text(doc, page_id, font, payment, 14.0, PAGE_W / 2.0, 6.0 * MM, true)?;
+        draw_text(
+            doc,
+            page_id,
+            font,
+            payment,
+            14.0,
+            PAGE_W / 2.0,
+            6.0 * MM,
+            true,
+        )?;
     }
     Ok(())
 }
@@ -636,35 +663,128 @@ fn draw_table(
     let h_margin = 5.0 * MM;
     let text_y = |bottom: f32| bottom + 2.5 * MM;
 
-    stroke_rect(doc, page_id, table_left, header_bot, table_left + total_w, header_top)?;
+    stroke_rect(
+        doc,
+        page_id,
+        table_left,
+        header_bot,
+        table_left + total_w,
+        header_top,
+    )?;
     for vx in [v1_x, v2_x] {
         stroke_line(doc, page_id, vx, header_bot, vx, header_top)?;
     }
-    draw_text(doc, page_id, font, "行程序号", 12.0, table_left + h_margin, text_y(header_bot), false)?;
-    draw_text(doc, page_id, font, "行程金额", 12.0, v1_x + h_margin, text_y(header_bot), false)?;
-    draw_text(doc, page_id, font, "支付单号", 12.0, v2_x + h_margin, text_y(header_bot), false)?;
+    draw_text(
+        doc,
+        page_id,
+        font,
+        "行程序号",
+        12.0,
+        table_left + h_margin,
+        text_y(header_bot),
+        false,
+    )?;
+    draw_text(
+        doc,
+        page_id,
+        font,
+        "行程金额",
+        12.0,
+        v1_x + h_margin,
+        text_y(header_bot),
+        false,
+    )?;
+    draw_text(
+        doc,
+        page_id,
+        font,
+        "支付单号",
+        12.0,
+        v2_x + h_margin,
+        text_y(header_bot),
+        false,
+    )?;
 
     for (i, (seq, amt, pay_id)) in rows.iter().enumerate() {
         let row_top = header_bot - row_h * i as f32;
         let row_bot = row_top - row_h;
-        stroke_rect(doc, page_id, table_left, row_bot, table_left + total_w, row_top)?;
+        stroke_rect(
+            doc,
+            page_id,
+            table_left,
+            row_bot,
+            table_left + total_w,
+            row_top,
+        )?;
         for vx in [v1_x, v2_x] {
             stroke_line(doc, page_id, vx, row_bot, vx, row_top)?;
         }
-        draw_text(doc, page_id, font, &seq.to_string(), 11.0, table_left + h_margin, text_y(row_bot), false)?;
-        draw_text(doc, page_id, font, &format!("{:.2}", amt), 11.0, v1_x + h_margin, text_y(row_bot), false)?;
-        draw_text(doc, page_id, font, pay_id, 11.0, v2_x + h_margin, text_y(row_bot), false)?;
+        draw_text(
+            doc,
+            page_id,
+            font,
+            &seq.to_string(),
+            11.0,
+            table_left + h_margin,
+            text_y(row_bot),
+            false,
+        )?;
+        draw_text(
+            doc,
+            page_id,
+            font,
+            &format!("{:.2}", amt),
+            11.0,
+            v1_x + h_margin,
+            text_y(row_bot),
+            false,
+        )?;
+        draw_text(
+            doc,
+            page_id,
+            font,
+            pay_id,
+            11.0,
+            v2_x + h_margin,
+            text_y(row_bot),
+            false,
+        )?;
     }
     if let Some(total) = total {
         let i = rows.len() as f32;
         let row_top = header_bot - row_h * i;
         let row_bot = row_top - row_h;
-        stroke_rect(doc, page_id, table_left, row_bot, table_left + total_w, row_top)?;
+        stroke_rect(
+            doc,
+            page_id,
+            table_left,
+            row_bot,
+            table_left + total_w,
+            row_top,
+        )?;
         for vx in [v1_x, v2_x] {
             stroke_line(doc, page_id, vx, row_bot, vx, row_top)?;
         }
-        draw_text(doc, page_id, font, "合计", 11.0, table_left + h_margin, text_y(row_bot), false)?;
-        draw_text(doc, page_id, font, &format!("{:.2}", total), 11.0, v1_x + h_margin, text_y(row_bot), false)?;
+        draw_text(
+            doc,
+            page_id,
+            font,
+            "合计",
+            11.0,
+            table_left + h_margin,
+            text_y(row_bot),
+            false,
+        )?;
+        draw_text(
+            doc,
+            page_id,
+            font,
+            &format!("{:.2}", total),
+            11.0,
+            v1_x + h_margin,
+            text_y(row_bot),
+            false,
+        )?;
     }
     Ok(())
 }
@@ -677,9 +797,7 @@ pub fn generate_comparison_image_pdf(
 ) -> Result<(), Box<dyn Error>> {
     let mut specs: Vec<PageSpec> = Vec::new();
     let mut chars: BTreeSet<char> = BTreeSet::new();
-    chars.extend(
-        "微信支付宝单号：，。发票金额实报（此处粘贴纸质票据）行程序号支付、合计".chars(),
-    );
+    chars.extend("微信支付宝单号：，。发票金额实报（此处粘贴纸质票据）行程序号支付、合计".chars());
     chars.extend('0'..='9');
 
     for result in match_results {
@@ -751,7 +869,11 @@ pub fn generate_comparison_image_pdf(
                 for (i, chunk) in chunks.iter().enumerate() {
                     specs.push(PageSpec::Table {
                         rows: chunk.to_vec(),
-                        total: if i == chunks.len() - 1 { Some(total) } else { None },
+                        total: if i == chunks.len() - 1 {
+                            Some(total)
+                        } else {
+                            None
+                        },
                     });
                 }
             }

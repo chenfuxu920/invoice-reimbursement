@@ -57,6 +57,31 @@
         />
       </div>
 
+      <!-- 报销人信息（自动持久化，导出时填入报销材料） -->
+      <div v-if="matchStore.trips.length"
+           class="card p-5 mb-6 animate-fade-in-up"
+           style="animation-delay: 120ms">
+        <div class="flex items-center gap-2 mb-1">
+          <ClipboardList :size="16" class="text-primary-600" />
+          <h3 class="font-display text-sm font-bold text-slate-800">报销人信息</h3>
+        </div>
+        <p class="text-xs text-slate-400 mb-4">姓名、部门与同行人数将自动填入导出的报销材料</p>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-1.5">姓名</label>
+            <input v-model="profile.name" class="input" placeholder="请输入姓名" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-1.5">部门</label>
+            <input v-model="profile.department" class="input" placeholder="请输入部门" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-1.5">同行人数</label>
+            <input v-model.number="profile.companions" type="number" min="0" class="input" />
+          </div>
+        </div>
+      </div>
+
       <!-- 分趟封面档案卡列表 -->
       <div class="space-y-6 mb-6">
         <TripCard
@@ -117,7 +142,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { CheckCircle2, AlertTriangle, Package, FileDown, Plus } from 'lucide-vue-next'
+import { CheckCircle2, AlertTriangle, Package, FileDown, Plus, ClipboardList } from 'lucide-vue-next'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
 import TripCard from '../components/TripCard.vue'
@@ -126,12 +151,15 @@ import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import AppButton from '../components/ui/AppButton.vue'
 import AppEmpty from '../components/ui/AppEmpty.vue'
 import { toast } from '../composables/toast'
+import { useProfile } from '../composables/profile'
 import type { Invoice, MatchResult, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 
 const matchStore = useMatchStore()
 const invoiceStore = useInvoiceStore()
+
+const { profile } = useProfile()
 
 const originInput = ref('')
 const detailVisible = ref(false)
@@ -157,12 +185,12 @@ const batchFormInfo = computed(() => {
   const starts = trips.map(t => t.travelStart).filter(Boolean).sort()
   const ends = trips.map(t => t.travelEnd).filter(Boolean).sort()
   return {
-    name: '',
-    department: '',
+    name: profile.value.name,
+    department: profile.value.department,
     destination: trips.map(t => t.destination).filter(Boolean).join('、') || '未设置',
     travelStart: starts[0] || '',
     travelEnd: ends[ends.length - 1] || '',
-    companions: 0,
+    companions: profile.value.companions,
     hotelLevel: '',
   }
 })

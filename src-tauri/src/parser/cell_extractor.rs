@@ -92,7 +92,7 @@ pub fn extract_fields_from_tables(
 }
 
 #[cfg(feature = "pdfplumber")]
-use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+use crate::pdf::text_extractor::{TableCellInfo, TableInfo};
 
 #[cfg(feature = "pdfplumber")]
 fn extract_fields_from_table(table: &TableInfo, fields: &mut CellInvoiceFields) {
@@ -187,7 +187,9 @@ fn extract_seller_value(text: &str) -> Option<String> {
         if name.chars().count() >= 3
             && !is_tax_id(name)
             && name.chars().any(is_cjk)
-            && !name.starts_with("项目") && !name.starts_with("货物") && !name.starts_with("密码")
+            && !name.starts_with("项目")
+            && !name.starts_with("货物")
+            && !name.starts_with("密码")
         {
             return Some(name.to_string());
         }
@@ -209,7 +211,9 @@ fn extract_seller_value(text: &str) -> Option<String> {
     let re_interspersed = Regex::new(r"名(.+?)称[：:](.+)").ok()?;
     if let Some(caps) = re_interspersed.captures(text) {
         let part1 = caps[1].trim();
-        let part2: String = caps[2].trim().chars()
+        let part2: String = caps[2]
+            .trim()
+            .chars()
             .take_while(|c| !c.is_ascii_digit() && !c.is_whitespace())
             .collect();
         let name = format!("{}{}", part1, part2);
@@ -270,7 +274,11 @@ fn extract_item_from_row(row: &[TableCellInfo]) -> Option<(String, (f64, f64, f6
         let name = try_cell_texts(cell, ORDER_ITEM, &|text| {
             let caps = re.captures(text)?;
             let name = caps[1].to_string();
-            if name.chars().any(|c| is_cjk(c)) { Some(name) } else { None }
+            if name.chars().any(|c| is_cjk(c)) {
+                Some(name)
+            } else {
+                None
+            }
         });
         if let Some(name) = name {
             let bbox = (cell.x0, cell.top, cell.x1, cell.bottom);
@@ -309,7 +317,10 @@ mod tests {
     fn cell(text: &str) -> TableCellInfo {
         TableCellInfo {
             text: text.to_string(),
-            x0: 0.0, top: 0.0, x1: 100.0, bottom: 20.0,
+            x0: 0.0,
+            top: 0.0,
+            x1: 100.0,
+            bottom: 20.0,
             words: vec![],
             line_text: text.to_string(),
             merged_text: text.chars().filter(|c| !c.is_whitespace()).collect(),
@@ -323,7 +334,11 @@ mod tests {
         let mut c = cell("名称： 甲公司");
         c.merged_text = "名称：甲公司".to_string();
         let got = try_cell_texts(&c, ORDER_VALUE, &|t| {
-            if t.contains("甲公司") { Some("hit") } else { None }
+            if t.contains("甲公司") {
+                Some("hit")
+            } else {
+                None
+            }
         });
         assert_eq!(got, Some("hit"));
     }
@@ -333,7 +348,11 @@ mod tests {
     fn try_cell_texts_falls_through() {
         let c = cell("no value here");
         let got = try_cell_texts(&c, ORDER_VALUE, &|t| {
-            if t.contains("税号") { Some(t.to_string()) } else { None }
+            if t.contains("税号") {
+                Some(t.to_string())
+            } else {
+                None
+            }
         });
         assert_eq!(got, None);
     }

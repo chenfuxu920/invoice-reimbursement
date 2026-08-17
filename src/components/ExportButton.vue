@@ -39,7 +39,10 @@ import AppButton from './ui/AppButton.vue'
 import AppIcon from './ui/AppIcon.vue'
 import LoadingOverlay from './LoadingOverlay.vue'
 import { toast } from '../composables/toast'
+import { useProfile } from '../composables/profile'
 import type { MatchResult, Trip } from '../types'
+
+const { profile } = useProfile()
 
 const props = defineProps<{
   matchResults: MatchResult[]
@@ -104,7 +107,15 @@ async function exportEachTrip(
     for (const trip of props.trips) {
       await fn(trip, dir)
     }
-    toast(`已导出 ${props.trips.length} 个文件到：${dir}`, 'success')
+    toast(`已导出 ${props.trips.length} 个文件到：${dir}`, 'success', {
+      label: '打开文件夹',
+      onClick: () => {
+        invoke('open_file_with_system', { filePath: dir }).catch(e => {
+          console.error('打开文件夹失败:', e)
+          toast('打开文件夹失败: ' + e, 'error')
+        })
+      },
+    })
   } catch (e) {
     console.error('生成失败:', e)
     toast('生成失败: ' + e, 'error')
@@ -116,12 +127,12 @@ async function exportEachTrip(
 function formArgs(trip: Trip) {
   return {
     matchResults: trip.matches,
-    name: '',
-    department: '',
+    name: profile.value.name,
+    department: profile.value.department,
     destination: trip.destination,
     travelStart: trip.travelStart,
     travelEnd: trip.travelEnd,
-    companions: 0,
+    companions: profile.value.companions,
     hotelLevel: trip.hotelLevel,
   }
 }

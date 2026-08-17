@@ -1,6 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
 use chrono::NaiveDate;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 use crate::models::invoice::{Invoice, InvoiceCategory};
 use crate::models::match_result::MatchResult;
@@ -231,10 +231,8 @@ fn assign_by_date(
         .collect();
 
     // 每趟有效城市 = 票据链上所有出发/到达城市（如 长沙→武汉→北京→长沙 → {长沙,武汉,北京}）
-    let ticket_by_id: HashMap<&str, &Ticket> = tickets
-        .iter()
-        .map(|t| (t.invoice_id.as_str(), t))
-        .collect();
+    let ticket_by_id: HashMap<&str, &Ticket> =
+        tickets.iter().map(|t| (t.invoice_id.as_str(), t)).collect();
     let trip_cities: Vec<HashSet<String>> = trips
         .iter()
         .map(|trip| {
@@ -298,7 +296,10 @@ pub fn segment_trips(match_results: &[MatchResult], origin: Option<&str>) -> Seg
         None => segment_auto(&tickets),
     };
     assign_by_date(match_results, &tickets, &mut trips, &mut unassigned);
-    SegmentResult { trips, unassigned_ids: unassigned }
+    SegmentResult {
+        trips,
+        unassigned_ids: unassigned,
+    }
 }
 
 #[cfg(test)]
@@ -389,7 +390,10 @@ mod tests {
         assert_eq!(t.destination, "北京");
         assert_eq!(t.travel_start, "2026-05-20");
         assert_eq!(t.travel_end, "2026-05-23");
-        assert_eq!(t.ticket_ids, vec!["t1".to_string(), "t2".to_string(), "t3".to_string()]);
+        assert_eq!(
+            t.ticket_ids,
+            vec!["t1".to_string(), "t2".to_string(), "t3".to_string()]
+        );
         assert!(seg.unassigned_ids.is_empty());
     }
 
@@ -448,7 +452,15 @@ mod tests {
         assert_eq!(seg.trips.len(), 1);
         let mut ids = seg.trips[0].invoice_ids.clone();
         ids.sort();
-        assert_eq!(ids, vec!["h1".to_string(), "m1".to_string(), "t1".to_string(), "t2".to_string()]);
+        assert_eq!(
+            ids,
+            vec![
+                "h1".to_string(),
+                "m1".to_string(),
+                "t1".to_string(),
+                "t2".to_string()
+            ]
+        );
         assert!(seg.unassigned_ids.is_empty());
     }
 
@@ -492,7 +504,10 @@ mod tests {
         let seg = segment_trips(&results, Some("长沙"));
         assert_eq!(seg.trips.len(), 1);
         assert_eq!(seg.trips[0].destination, "北京");
-        assert_eq!(seg.trips[0].ticket_ids, vec!["t1".to_string(), "t2".to_string(), "t3".to_string()]);
+        assert_eq!(
+            seg.trips[0].ticket_ids,
+            vec!["t1".to_string(), "t2".to_string(), "t3".to_string()]
+        );
     }
 
     #[test]
@@ -515,7 +530,10 @@ mod tests {
         ];
         let seg = segment_trips(&results, Some("长沙"));
         assert_eq!(seg.trips.len(), 1);
-        assert_eq!(seg.trips[0].ticket_ids, vec!["t2".to_string(), "t3".to_string()]);
+        assert_eq!(
+            seg.trips[0].ticket_ids,
+            vec!["t2".to_string(), "t3".to_string()]
+        );
         assert_eq!(seg.unassigned_ids, vec!["t1".to_string()]);
     }
 
@@ -528,14 +546,18 @@ mod tests {
         ];
         let seg = segment_trips(&results, Some("长沙"));
         assert_eq!(seg.trips.len(), 1);
-        assert_eq!(seg.trips[0].ticket_ids, vec!["t1".to_string(), "t3".to_string()]);
+        assert_eq!(
+            seg.trips[0].ticket_ids,
+            vec!["t1".to_string(), "t3".to_string()]
+        );
         assert_eq!(seg.unassigned_ids, vec!["t2".to_string()]);
     }
 
     #[test]
     fn test_auto_city_transport_uses_itinerary_date() {
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-05-21");
-        ct.itineraries = vec![crate::models::invoice::Itinerary { city: String::new(),
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            city: String::new(),
             date_time: "2026-05-20 08:30".to_string(),
             provider: "滴滴".to_string(),
             pickup: "长沙站".to_string(),
@@ -561,7 +583,8 @@ mod tests {
         let year = chrono::Local::now().year();
         let y = year.to_string();
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
-        ct.itineraries = vec![crate::models::invoice::Itinerary { city: String::new(),
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            city: String::new(),
             date_time: "04-25 08:48".to_string(),
             provider: "滴滴".to_string(),
             pickup: "长沙站".to_string(),
@@ -586,7 +609,8 @@ mod tests {
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
         ct.seller_name = "滴滴出行".to_string();
         ct.itineraries = vec![
-            crate::models::invoice::Itinerary { city: String::new(),
+            crate::models::invoice::Itinerary {
+                city: String::new(),
                 date_time: "2026-06-01 08:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "杭州站".to_string(),
@@ -594,7 +618,8 @@ mod tests {
                 amount: 30.0,
                 incomplete_fields: vec![],
             },
-            crate::models::invoice::Itinerary { city: String::new(),
+            crate::models::invoice::Itinerary {
+                city: String::new(),
                 date_time: "2026-05-21 09:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "上海站".to_string(),
@@ -618,7 +643,8 @@ mod tests {
     #[test]
     fn test_auto_city_transport_outside_windows_unassigned() {
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
-        ct.itineraries = vec![crate::models::invoice::Itinerary { city: String::new(),
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            city: String::new(),
             date_time: "2026-06-10 08:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "A".to_string(),
@@ -642,7 +668,8 @@ mod tests {
     fn test_auto_city_transport_wrong_city_unassigned() {
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
         ct.seller_name = "滴滴出行".to_string();
-        ct.itineraries = vec![crate::models::invoice::Itinerary { city: String::new(),
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            city: String::new(),
             date_time: "2026-05-21 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "武汉站".to_string(),
@@ -665,7 +692,8 @@ mod tests {
     fn test_auto_city_transport_matching_city_assigned() {
         let mut ct = inv("c1", InvoiceCategory::CityTransport, "2026-06-10");
         ct.seller_name = "滴滴出行".to_string();
-        ct.itineraries = vec![crate::models::invoice::Itinerary { city: String::new(),
+        ct.itineraries = vec![crate::models::invoice::Itinerary {
+            city: String::new(),
             date_time: "2026-05-21 09:00".to_string(),
             provider: "滴滴".to_string(),
             pickup: "上海虹桥站".to_string(),
@@ -801,8 +829,9 @@ mod tests {
     #[test]
     fn test_auto_toll_uses_travel_time() {
         let mut toll = inv("f1", InvoiceCategory::Toll, "2026-05-25");
-        toll.toll_travel_time =
-            Some(NaiveDateTime::parse_from_str("2026-05-21 10:06:04", "%Y-%m-%d %H:%M:%S").unwrap());
+        toll.toll_travel_time = Some(
+            NaiveDateTime::parse_from_str("2026-05-21 10:06:04", "%Y-%m-%d %H:%M:%S").unwrap(),
+        );
         let results = vec![
             mr(ticket("t1", "长沙", "上海", "2026-05-20")),
             mr(ticket("t2", "上海", "长沙", "2026-05-22")),

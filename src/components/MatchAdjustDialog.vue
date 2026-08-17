@@ -132,7 +132,7 @@
             <div v-if="getSelectedPayment(idx)" class="text-xs mt-1 flex items-center gap-3 flex-wrap">
               <span class="text-slate-500 break-all">{{ getSelectedPayment(idx)!.merchant_name }}</span>
               <span class="text-gray-300">|</span>
-              <span :class="itineraryAmountDiff(idx) <= 1 ? 'text-green-500' : 'text-orange-500'">
+              <span :class="amountDiffClass(itineraryAmountDiff(idx))">
                 金额差异 ¥{{ itineraryAmountDiff(idx).toFixed(2) }}
               </span>
               <span class="text-gray-300">|</span>
@@ -170,7 +170,7 @@
                 <span class="text-gray-300">|</span>
                 <span class="text-slate-400">{{ formatTime(p.transaction_time) }}</span>
                 <span v-if="invoice" class="text-gray-300">|</span>
-                <span v-if="invoice" class="text-orange-400" :title="'与发票金额的差异'">
+                <span v-if="invoice" :class="amountDiffClass(amountDiff(p))" :title="'与发票金额的差异'">
                   差异 ¥{{ amountDiff(p).toFixed(2) }}
                 </span>
               </div>
@@ -194,6 +194,7 @@ import { ref, computed, watch, onUnmounted } from 'vue'
 import type { Invoice, PaymentRecord, ItineraryPaymentPair } from '../types'
 import AppButton from './ui/AppButton.vue'
 import AppIcon from './ui/AppIcon.vue'
+import { amountDiffClass } from '../utils/amountDiff'
 
 type SortKey = 'time-desc' | 'time-asc' | 'amount-desc' | 'amount-asc' | 'diff-asc' | 'time-diff-asc'
 type RefundFilter = 'all' | 'refund' | 'discount' | 'none'

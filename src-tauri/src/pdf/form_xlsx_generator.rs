@@ -5,6 +5,8 @@ use crate::models::reimbursement::ReimbursementForm;
 use rust_xlsxwriter::*;
 use std::error::Error;
 
+use super::xlsx_autofit::{autofit_sheet, autofit_sheet_with_min};
+
 /// Generates an Excel (.xlsx) file containing two sheets:
 ///   1. "差旅费报销单" — the main reimbursement form
 ///   2. "发票明细"     — invoice detail table
@@ -38,18 +40,23 @@ fn build_reimbursement_sheet(
     form: &ReimbursementForm,
 ) -> Result<(), Box<dyn Error>> {
     // ── Column widths (12 cols: A–L) ──
-    ws.set_column_width(0, 8.0)?; // A  — rowspan / category label
-    ws.set_column_width(1, 12.0)?; // B  — label / count / level
-    ws.set_column_width(2, 10.0)?; // C  — 单据张数 / 人数
-    ws.set_column_width(3, 12.0)?; // D  — 申报金额
-    ws.set_column_width(4, 10.0)?; // E  — 核准金额
-    ws.set_column_width(5, 3.0)?; // F  — spacer column
-    ws.set_column_width(6, 8.0)?; // G  — hotel rowspan / category label
-    ws.set_column_width(7, 6.0)?; // H  — 人数
-    ws.set_column_width(8, 6.0)?; // I  — 天数
-    ws.set_column_width(9, 8.0)?; // J  — 标准
-    ws.set_column_width(10, 12.0)?; // K — 申报金额
-    ws.set_column_width(11, 10.0)?; // L — 核准金额
+    let col_widths: [(u16, f64); 12] = [
+        (0, 8.0),   // A  — rowspan / category label
+        (1, 12.0),  // B  — label / count / level
+        (2, 10.0),  // C  — 单据张数 / 人数
+        (3, 12.0),  // D  — 申报金额
+        (4, 10.0),  // E  — 核准金额
+        (5, 3.0),   // F  — spacer column
+        (6, 8.0),   // G  — hotel rowspan / category label
+        (7, 6.0),   // H  — 人数
+        (8, 6.0),   // I  — 天数
+        (9, 8.0),   // J  — 标准
+        (10, 12.0), // K — 申报金额
+        (11, 10.0), // L — 核准金额
+    ];
+    for (col, width) in col_widths {
+        ws.set_column_width(col, width)?;
+    }
 
     // ── Reusable formats ──
     let thin = Format::new().set_border(FormatBorder::Thin);
@@ -58,17 +65,20 @@ fn build_reimbursement_sheet(
         .set_bold()
         .set_font_size(16)
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let header_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let label_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let cell_fmt = Format::new()
         .set_border(FormatBorder::Thin)
@@ -77,7 +87,8 @@ fn build_reimbursement_sheet(
 
     let cell_center_fmt = Format::new()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let _cell_left_fmt = Format::new()
         .set_border(FormatBorder::Thin)
@@ -92,50 +103,73 @@ fn build_reimbursement_sheet(
         .set_border(FormatBorder::Thin)
         .set_bold()
         .set_text_wrap()
-        .set_align(FormatAlign::Center)
-        .set_rotation(90);
+        .set_align(FormatAlign::Center);
 
     let sum_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
+
+    // Track text cells for column/row autofit.
+    let mut cell_texts: Vec<(u32, u16, String)> = Vec::new();
+    // Track horizontally merged cells with text; these affect row height but
+    // must not stretch a single column.
+    let mut merged_texts: Vec<(u32, u16, u16, String)> = Vec::new();
 
     // ════════════════════════════════════════════
     //  Row 0 — Title (merged A1:L1)
     // ════════════════════════════════════════════
     ws.merge_range(0, 0, 0, 11, "差旅费报销单", &title_fmt)?;
+    merged_texts.push((0, 0, 11, "差旅费报销单".to_string()));
     ws.set_row_height(0, 40)?;
 
     // ════════════════════════════════════════════
     //  Row 1 — 姓名 / 部职别 / 同行人数
     // ════════════════════════════════════════════
     ws.write_string_with_format(1, 0, "姓名", &label_fmt)?;
+    cell_texts.push((1, 0, "姓名".to_string()));
     ws.write_string_with_format(1, 1, &form.name, &cell_fmt)?;
+    cell_texts.push((1, 1, form.name.clone()));
 
     ws.write_string_with_format(1, 2, "部职别", &label_fmt)?;
+    cell_texts.push((1, 2, "部职别".to_string()));
     ws.merge_range(1, 3, 1, 4, &form.department, &cell_fmt)?;
+    merged_texts.push((1, 3, 4, form.department.clone()));
 
     ws.write_string_with_format(1, 5, "同行人数", &label_fmt)?;
+    cell_texts.push((1, 5, "同行人数".to_string()));
     let companions_str = if form.companions > 0 {
         form.companions.to_string()
     } else {
         String::new()
     };
     ws.merge_range(1, 6, 1, 11, &companions_str, &cell_center_fmt)?;
+    if !companions_str.is_empty() {
+        merged_texts.push((1, 6, 11, companions_str));
+    }
 
     // ════════════════════════════════════════════
     //  Row 2 — 到达地点 / 出差日期
     // ════════════════════════════════════════════
     ws.write_string_with_format(2, 0, "到达地点", &label_fmt)?;
+    cell_texts.push((2, 0, "到达地点".to_string()));
     ws.merge_range(2, 1, 2, 2, &form.destination, &cell_fmt)?;
+    merged_texts.push((2, 1, 2, form.destination.clone()));
 
     ws.write_string_with_format(2, 3, "出差日期", &label_fmt)?;
+    cell_texts.push((2, 3, "出差日期".to_string()));
     ws.write_string_with_format(2, 4, &form.travel_start, &cell_center_fmt)?;
+    cell_texts.push((2, 4, form.travel_start.clone()));
     ws.write_string_with_format(2, 5, "至", &cell_center_fmt)?;
+    cell_texts.push((2, 5, "至".to_string()));
     ws.write_string_with_format(2, 6, &form.travel_end, &cell_center_fmt)?;
+    cell_texts.push((2, 6, form.travel_end.clone()));
 
     ws.write_string_with_format(2, 7, &form.travel_days.to_string(), &cell_center_fmt)?;
+    cell_texts.push((2, 7, form.travel_days.to_string()));
     ws.write_string_with_format(2, 8, "天", &cell_center_fmt)?;
+    cell_texts.push((2, 8, "天".to_string()));
     ws.merge_range(2, 9, 2, 11, "", &cell_center_fmt)?;
 
     // ════════════════════════════════════════════
@@ -143,53 +177,71 @@ fn build_reimbursement_sheet(
     // ════════════════════════════════════════════
     // Left: A-B:类别 | C:单据张数 | D:申报金额 | E:核准金额
     ws.merge_range(3, 0, 3, 1, "类  别", &header_fmt)?;
+    merged_texts.push((3, 0, 1, "类  别".to_string()));
     ws.write_string_with_format(3, 2, "单据张数", &header_fmt)?;
+    cell_texts.push((3, 2, "单据张数".to_string()));
     ws.write_string_with_format(3, 3, "申报金额", &header_fmt)?;
+    cell_texts.push((3, 3, "申报金额".to_string()));
     ws.write_string_with_format(3, 4, "核准金额", &header_fmt)?;
+    cell_texts.push((3, 4, "核准金额".to_string()));
 
     // Right: F-G:类别 | H:人数 | I:天数 | J:标准 | K:申报金额 | L:核准金额
     ws.merge_range(3, 5, 3, 6, "类  别", &header_fmt)?;
+    merged_texts.push((3, 5, 6, "类  别".to_string()));
     ws.write_string_with_format(3, 7, "人数", &header_fmt)?;
+    cell_texts.push((3, 7, "人数".to_string()));
     ws.write_string_with_format(3, 8, "天数", &header_fmt)?;
+    cell_texts.push((3, 8, "天数".to_string()));
     ws.write_string_with_format(3, 9, "标准", &header_fmt)?;
+    cell_texts.push((3, 9, "标准".to_string()));
     ws.write_string_with_format(3, 10, "申报金额", &header_fmt)?;
+    cell_texts.push((3, 10, "申报金额".to_string()));
     ws.write_string_with_format(3, 11, "核准金额", &header_fmt)?;
+    cell_texts.push((3, 11, "核准金额".to_string()));
+
+    // Rows 4-8 are the tall category-label cells. Give them enough height so
+    // the wrap-text vertical labels ("城市间交通费"/"住宿费") are not clipped.
+    for r in 4..=8 {
+        ws.set_row_height(r, 18)?;
+    }
 
     // ════════════════════════════════════════════
     //  Rows 4–9 — Transport (left) + Hotel (right)
     // ════════════════════════════════════════════
-    write_transport_hotel_section(ws, form, &cell_center_fmt, &cell_fmt, &amt_fmt, &sec_fmt)?;
+    write_transport_hotel_section(
+        ws,
+        form,
+        &cell_center_fmt,
+        &cell_fmt,
+        &amt_fmt,
+        &sec_fmt,
+        &mut cell_texts,
+        &mut merged_texts,
+    )?;
 
     // ════════════════════════════════════════════
     //  Row 10 — 行李托运费 (left) / 凭据报销伙食费 (right)
     // ════════════════════════════════════════════
     ws.merge_range(10, 0, 10, 1, "行李托运费", &label_fmt)?;
+    merged_texts.push((10, 0, 1, "行李托运费".to_string()));
     ws.write_blank(10, 2, &thin)?;
     ws.write_blank(10, 3, &thin)?;
     ws.write_blank(10, 4, &thin)?;
 
     ws.merge_range(10, 5, 10, 6, "凭据报销伙食费", &label_fmt)?;
-    ws.merge_range(
-        10,
-        7,
-        10,
-        11,
-        &format!("¥: {:.2}", form.meal_reimbursement),
-        &cell_center_fmt,
-    )?;
+    merged_texts.push((10, 5, 6, "凭据报销伙食费".to_string()));
+    let meal_reimbursement_str = format!("¥: {:.2}", form.meal_reimbursement);
+    ws.merge_range(10, 7, 10, 11, &meal_reimbursement_str, &cell_center_fmt)?;
+    merged_texts.push((10, 7, 11, meal_reimbursement_str));
 
     // ════════════════════════════════════════════
     //  Row 11 — 申报金额
     // ════════════════════════════════════════════
     ws.merge_range(11, 0, 11, 1, "申报金额", &label_fmt)?;
-    ws.merge_range(
-        11,
-        2,
-        11,
-        11,
-        &format!("(¥: {:.2})", form.total_amount),
-        &sum_fmt,
-    )?;
+    merged_texts.push((11, 0, 1, "申报金额".to_string()));
+    let total_amount_str = format!("(¥: {:.2})", form.total_amount);
+    ws.merge_range(11, 2, 11, 11, &total_amount_str, &sum_fmt)?;
+    merged_texts.push((11, 2, 11, total_amount_str));
     ws.set_row_height(11, 30)?;
 
     // ════════════════════════════════════════════
@@ -197,7 +249,10 @@ fn build_reimbursement_sheet(
     // ════════════════════════════════════════════
     let total_chinese = amount_to_chinese(form.total_amount);
     ws.merge_range(12, 0, 12, 1, "核准金额", &label_fmt)?;
-    ws.merge_range(12, 2, 12, 11, &format!("{} (¥: )", total_chinese), &sum_fmt)?;
+    merged_texts.push((12, 0, 1, "核准金额".to_string()));
+    let approved_str = format!("{} (¥: )", total_chinese);
+    ws.merge_range(12, 2, 12, 11, &approved_str, &sum_fmt)?;
+    merged_texts.push((12, 2, 11, approved_str));
     ws.set_row_height(12, 30)?;
 
     // ════════════════════════════════════════════
@@ -211,15 +266,30 @@ fn build_reimbursement_sheet(
     let sig_fmt = Format::new()
         .set_font_size(11)
         .set_align(FormatAlign::VerticalCenter);
-    ws.merge_range(
-        14,
-        0,
-        14,
-        11,
-        "出差人签字:________    部门领导签字:________    日期:________",
-        &sig_fmt,
-    )?;
+    let signature_str = "出差人签字:________    部门领导签字:________    日期:________";
+    ws.merge_range(14, 0, 14, 11, signature_str, &sig_fmt)?;
+    merged_texts.push((14, 0, 11, signature_str.to_string()));
     ws.set_row_height(14, 28)?;
+
+    // 自动调整列宽和行高（限制最大宽度，避免长文本把列拉得过宽；超长内容由自动换行展示）
+    autofit_sheet_with_min(
+        ws,
+        &cell_texts,
+        &merged_texts,
+        &col_widths,
+        300,
+        &[
+            (0, 40.0),
+            (4, 18.0),
+            (5, 18.0),
+            (6, 18.0),
+            (7, 18.0),
+            (8, 18.0),
+            (11, 30.0),
+            (12, 30.0),
+            (14, 28.0),
+        ],
+    )?;
 
     Ok(())
 }
@@ -244,6 +314,8 @@ fn write_transport_hotel_section(
     _cell_fmt: &Format,
     amt_fmt: &Format,
     sec_fmt: &Format,
+    cell_texts: &mut Vec<(u32, u16, String)>,
+    merged_texts: &mut Vec<(u32, u16, u16, String)>,
 ) -> Result<(), Box<dyn Error>> {
     let transport_labels = ["车、船票", "飞机票", "保险费", "订（退、改签）票"];
     let hotel_level_names = ["战区级以上", "军级", "师级", "其他人员"];
@@ -265,8 +337,8 @@ fn write_transport_hotel_section(
     let thin = Format::new().set_border(FormatBorder::Thin);
 
     // Rowspan merges
-    ws.merge_range(4, 0, 8, 0, "城市间\n交通费", sec_fmt)?;  // rows 4-8 = 5 rows
-    ws.merge_range(4, 5, 8, 5, "住\n宿\n费", sec_fmt)?;      // rows 4-8 = 5 rows
+    ws.merge_range(4, 0, 8, 0, "城\n市\n间\n交\n通\n费", sec_fmt)?; // rows 4-8 = 5 rows
+    ws.merge_range(4, 5, 8, 5, "住\n宿\n费", sec_fmt)?; // rows 4-8 = 5 rows
 
     for row_idx in 0..total_rows {
         let xlsx_row = 4 + row_idx as u32;
@@ -277,11 +349,15 @@ fn write_transport_hotel_section(
             let label = transport_labels[row_idx];
             if let Some(detail) = &details[row_idx] {
                 ws.write_string_with_format(xlsx_row, 1, label, center_fmt)?;
-                ws.write_string_with_format(xlsx_row, 2, &detail.count.to_string(), center_fmt)?;
+                cell_texts.push((xlsx_row, 1, label.to_string()));
+                let count_str = detail.count.to_string();
+                ws.write_string_with_format(xlsx_row, 2, &count_str, center_fmt)?;
+                cell_texts.push((xlsx_row, 2, count_str));
                 ws.write_number_with_format(xlsx_row, 3, detail.amount, amt_fmt)?;
                 ws.write_blank(xlsx_row, 4, &thin)?;
             } else {
                 ws.write_string_with_format(xlsx_row, 1, label, center_fmt)?;
+                cell_texts.push((xlsx_row, 1, label.to_string()));
                 ws.write_blank(xlsx_row, 2, &thin)?;
                 ws.write_blank(xlsx_row, 3, &thin)?;
                 ws.write_blank(xlsx_row, 4, &thin)?;
@@ -289,12 +365,14 @@ fn write_transport_hotel_section(
         } else if row_idx == 4 {
             // Transport subtotal
             ws.write_string_with_format(xlsx_row, 1, "小  计", center_fmt)?;
+            cell_texts.push((xlsx_row, 1, "小  计".to_string()));
             ws.write_blank(xlsx_row, 2, &thin)?;
             ws.write_number_with_format(xlsx_row, 3, form.transport_subtotal, amt_fmt)?;
             ws.write_blank(xlsx_row, 4, &thin)?;
         } else {
             // row_idx == 5: 市内交通费（横跨 A+B）
             ws.merge_range(xlsx_row, 0, xlsx_row, 1, "市内交通费", center_fmt)?;
+            merged_texts.push((xlsx_row, 0, 1, "市内交通费".to_string()));
             ws.write_number_with_format(xlsx_row, 2, form.city_transport_count as f64, center_fmt)?;
             ws.write_number_with_format(xlsx_row, 3, form.city_transport_actual_amount, amt_fmt)?;
             ws.write_number_with_format(xlsx_row, 4, form.city_transport_amount, amt_fmt)?;
@@ -305,14 +383,15 @@ fn write_transport_hotel_section(
             let level_name = hotel_level_names[row_idx];
             let detail = form.hotel_levels.iter().find(|h| h.level == level_name);
             if let Some(d) = detail {
-                ws.write_string_with_format(xlsx_row, 6, level_name, center_fmt)?;
+                ws.write_blank(xlsx_row, 6, &thin)?;
                 ws.write_number_with_format(xlsx_row, 7, d.persons as f64, center_fmt)?;
                 ws.write_number_with_format(xlsx_row, 8, d.days as f64, center_fmt)?;
                 ws.write_number_with_format(xlsx_row, 9, d.daily_rate, amt_fmt)?;
+                cell_texts.push((xlsx_row, 9, format!("{:.2}", d.daily_rate)));
                 ws.write_number_with_format(xlsx_row, 10, d.actual_amount, amt_fmt)?;
                 ws.write_number_with_format(xlsx_row, 11, d.amount, amt_fmt)?;
             } else {
-                ws.write_string_with_format(xlsx_row, 6, level_name, center_fmt)?;
+                ws.write_blank(xlsx_row, 6, &thin)?;
                 ws.write_blank(xlsx_row, 7, &thin)?;
                 ws.write_blank(xlsx_row, 8, &thin)?;
                 ws.write_blank(xlsx_row, 9, &thin)?;
@@ -323,6 +402,7 @@ fn write_transport_hotel_section(
             // row_idx == 4: Hotel subtotal
             let hotel_actual_total: f64 = form.hotel_levels.iter().map(|h| h.actual_amount).sum();
             ws.write_string_with_format(xlsx_row, 6, "小  计", center_fmt)?;
+            cell_texts.push((xlsx_row, 6, "小  计".to_string()));
             ws.write_blank(xlsx_row, 7, &thin)?;
             ws.write_blank(xlsx_row, 8, &thin)?;
             ws.write_blank(xlsx_row, 9, &thin)?;
@@ -331,9 +411,11 @@ fn write_transport_hotel_section(
         } else {
             // row_idx == 5: 计发伙食补助费（上移至此行右侧）
             ws.write_string_with_format(xlsx_row, 6, "计发伙食补助费", center_fmt)?;
+            cell_texts.push((xlsx_row, 6, "计发伙食补助费".to_string()));
             ws.write_number_with_format(xlsx_row, 7, form.meal_subsidy.persons as f64, center_fmt)?;
             ws.write_number_with_format(xlsx_row, 8, form.meal_subsidy.days as f64, center_fmt)?;
             ws.write_number_with_format(xlsx_row, 9, form.meal_subsidy.daily_rate, amt_fmt)?;
+            cell_texts.push((xlsx_row, 9, format!("{:.2}", form.meal_subsidy.daily_rate)));
             ws.write_number_with_format(xlsx_row, 10, form.meal_subsidy.amount, amt_fmt)?;
             ws.write_blank(xlsx_row, 11, &thin)?;
         }
@@ -351,21 +433,27 @@ fn build_invoice_detail_sheet(
     match_results: &[MatchResult],
 ) -> Result<(), Box<dyn Error>> {
     // ── Column widths (9 cols) ──
-    ws.set_column_width(0, 6.0)?; // A — 序号
-    ws.set_column_width(1, 16.0)?; // B — 发票号码
-    ws.set_column_width(2, 14.0)?; // C — 发票类别
-    ws.set_column_width(3, 30.0)?; // D — 发票备注
-    ws.set_column_width(4, 12.0)?; // E — 发票金额
-    ws.set_column_width(5, 10.0)?; // F — 支付渠道
-    ws.set_column_width(6, 20.0)?; // G — 支付单号
-    ws.set_column_width(7, 12.0)?; // H — 支付金额
-    ws.set_column_width(8, 10.0)?; // I — 优惠金额
+    let col_widths: [(u16, f64); 9] = [
+        (0, 6.0),  // A — 序号
+        (1, 16.0), // B — 发票号码
+        (2, 14.0), // C — 发票类别
+        (3, 30.0), // D — 发票备注
+        (4, 12.0), // E — 发票金额
+        (5, 10.0), // F — 支付渠道
+        (6, 20.0), // G — 支付单号
+        (7, 12.0), // H — 支付金额
+        (8, 10.0), // I — 优惠金额
+    ];
+    for (col, width) in col_widths {
+        ws.set_column_width(col, width)?;
+    }
 
     // ── Formats ──
     let thin = Format::new().set_border(FormatBorder::Thin);
     let thin_center = Format::new()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
     let thin_left = Format::new()
         .set_border(FormatBorder::Thin)
         .set_text_wrap()
@@ -374,11 +462,13 @@ fn build_invoice_detail_sheet(
         .set_bold()
         .set_font_size(14)
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
     let header_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
     let num_fmt = Format::new()
         .set_border(FormatBorder::Thin)
         .set_num_format("0.00")
@@ -386,12 +476,16 @@ fn build_invoice_detail_sheet(
     let total_label_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
     let total_num_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
         .set_num_format("0.00")
         .set_align(FormatAlign::VerticalCenter);
+
+    // Track text cells for column/row autofit.
+    let mut cell_texts: Vec<(u32, u16, String)> = Vec::new();
 
     // ════════════════════════════════════════════
     //  Row 0 — Title
@@ -442,23 +536,22 @@ fn build_invoice_detail_sheet(
                 // 发票号码 (first row only)
                 if i == 0 {
                     ws.write_string_with_format(r, 1, &invoice.invoice_number, &thin_center)?;
+                    cell_texts.push((r, 1, invoice.invoice_number.clone()));
                 } else {
                     ws.write_blank(r, 1, &thin)?;
                 }
 
                 // 发票类别
                 ws.write_string_with_format(r, 2, category_label(&invoice.category), &thin_center)?;
+                cell_texts.push((r, 2, category_label(&invoice.category).to_string()));
 
                 // 发票备注 — itinerary detail
-                ws.write_string_with_format(
-                    r,
-                    3,
-                    &format!(
-                        "{}  {} → {}",
-                        itinerary.date_time, itinerary.pickup, itinerary.dropoff
-                    ),
-                    &thin_left,
-                )?;
+                let remark = format!(
+                    "{}  {} → {}",
+                    itinerary.date_time, itinerary.pickup, itinerary.dropoff
+                );
+                ws.write_string_with_format(r, 3, &remark, &thin_left)?;
+                cell_texts.push((r, 3, remark));
 
                 // 发票金额 (first row only)
                 if i == 0 {
@@ -474,6 +567,7 @@ fn build_invoice_detail_sheet(
                         .map(|p| payment_source_label(&p.source))
                         .unwrap_or("");
                     ws.write_string_with_format(r, 5, source_label, &thin_center)?;
+                    cell_texts.push((r, 5, source_label.to_string()));
                 } else {
                     ws.write_blank(r, 5, &thin)?;
                 }
@@ -482,6 +576,7 @@ fn build_invoice_detail_sheet(
                 if i == 0 {
                     let payment_ids = result.payment_ids.join(", ");
                     ws.write_string_with_format(r, 6, &payment_ids, &thin_center)?;
+                    cell_texts.push((r, 6, payment_ids));
                 } else {
                     ws.write_blank(r, 6, &thin)?;
                 }
@@ -509,9 +604,11 @@ fn build_invoice_detail_sheet(
 
             // 发票号码
             ws.write_string_with_format(r, 1, &invoice.invoice_number, &thin_center)?;
+            cell_texts.push((r, 1, invoice.invoice_number.clone()));
 
             // 发票类别
             ws.write_string_with_format(r, 2, category_label(&invoice.category), &thin_center)?;
+            cell_texts.push((r, 2, category_label(&invoice.category).to_string()));
 
             // 发票备注 — seller_name for hotels, remarks for others
             let remark = if matches!(invoice.category, InvoiceCategory::Hotel) {
@@ -520,6 +617,7 @@ fn build_invoice_detail_sheet(
                 &invoice.remarks
             };
             ws.write_string_with_format(r, 3, remark, &thin_left)?;
+            cell_texts.push((r, 3, remark.clone()));
 
             // 发票金额
             ws.write_number_with_format(r, 4, invoice.amount, &num_fmt)?;
@@ -531,10 +629,12 @@ fn build_invoice_detail_sheet(
                 .map(|p| payment_source_label(&p.source))
                 .unwrap_or("");
             ws.write_string_with_format(r, 5, source_label, &thin_center)?;
+            cell_texts.push((r, 5, source_label.to_string()));
 
             // 支付单号
             let payment_ids = result.payment_ids.join(", ");
             ws.write_string_with_format(r, 6, &payment_ids, &thin_center)?;
+            cell_texts.push((r, 6, payment_ids));
 
             // 支付金额
             let total_payment: f64 = result.payments.iter().map(|p| p.amount).sum();
@@ -575,6 +675,9 @@ fn build_invoice_detail_sheet(
     ws.write_blank(row_index, 6, &thin)?;
     ws.write_number_with_format(row_index, 7, total_payment, &total_num_fmt)?;
     ws.write_number_with_format(row_index, 8, total_discount, &total_num_fmt)?;
+
+    // 自动调整列宽和行高（限制最大宽度，避免长文本把列拉得过宽；超长内容由自动换行展示）
+    autofit_sheet(ws, &cell_texts, &col_widths, 300)?;
 
     Ok(())
 }
@@ -758,7 +861,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-train".to_string()],
                 payments: vec![PaymentRecord {
@@ -788,7 +891,8 @@ mod tests {
                     category: InvoiceCategory::CityTransport,
                     source: InvoiceSource::Photo("didi.jpg".to_string()),
                     itineraries: vec![
-                        Itinerary { city: String::new(),
+                        Itinerary {
+                            city: String::new(),
                             date_time: "08-05 09:15".to_string(),
                             provider: "滴滴".to_string(),
                             pickup: "北京站".to_string(),
@@ -796,7 +900,8 @@ mod tests {
                             amount: 35.0,
                             incomplete_fields: vec![],
                         },
-                        Itinerary { city: String::new(),
+                        Itinerary {
+                            city: String::new(),
                             date_time: "08-05 18:30".to_string(),
                             provider: "滴滴".to_string(),
                             pickup: "国贸".to_string(),
@@ -810,7 +915,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-didi".to_string()],
                 payments: vec![PaymentRecord {
@@ -845,7 +950,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-hotel".to_string()],
                 payments: vec![PaymentRecord {

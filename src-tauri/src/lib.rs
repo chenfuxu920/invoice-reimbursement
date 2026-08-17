@@ -6,27 +6,29 @@ pub mod parser;
 pub mod pdf;
 pub mod updater_portable;
 
-use ocr::OcrEngine;
-use parser::itinerary_parser::{parse_itinerary_text, parse_itinerary_with_coords, compute_incomplete_fields};
-use parser::wechat_parser;
-use parser::alipay_parser;
-use models::invoice::{Invoice, Itinerary};
-use models::payment::PaymentRecord;
-use models::match_result::{MatchResult, ItineraryPaymentPair};
 use crate::models::reimbursement_config::{self, ReimbursementConfig};
-use matching::batch;
-use matching::manual;
-use crate::pdf::form_generator;
-use crate::pdf::comparison_html_generator;
 use crate::pdf::comparison_generator;
+use crate::pdf::comparison_html_generator;
 use crate::pdf::comparison_image_pdf_generator;
+use crate::pdf::comparison_xlsx_generator;
 use crate::pdf::form_builder;
+use crate::pdf::form_generator;
 use crate::pdf::form_html_generator;
 use crate::pdf::form_xlsx_generator;
-use crate::pdf::comparison_xlsx_generator;
 use crate::pdf::invoice_pipeline::{self, ParseResult};
-use tokio::sync::Mutex as AsyncMutex;
+use matching::batch;
+use matching::manual;
+use models::invoice::{Invoice, Itinerary};
+use models::match_result::{ItineraryPaymentPair, MatchResult};
+use models::payment::PaymentRecord;
+use ocr::OcrEngine;
+use parser::alipay_parser;
+use parser::itinerary_parser::{
+    compute_incomplete_fields, parse_itinerary_text, parse_itinerary_with_coords,
+};
+use parser::wechat_parser;
 use tauri::{Emitter, Manager};
+use tokio::sync::Mutex as AsyncMutex;
 
 // 应用状态
 pub struct AppState {
@@ -70,8 +72,8 @@ async fn download_ocr_models(
 ) -> Result<(), String> {
     let models_dir = ocr::model_downloader::download_models(&app).await?;
     let dir_str = models_dir.to_string_lossy().to_string();
-    let engine = OcrEngine::new(&dir_str)
-        .map_err(|e| format!("模型下载完成但初始化失败: {}", e))?;
+    let engine =
+        OcrEngine::new(&dir_str).map_err(|e| format!("模型下载完成但初始化失败: {}", e))?;
     *state.ocr_engine.lock().await = engine;
     // 引擎已热替换，此时发出完成事件，前端健康检查可读到新引擎
     let _ = app.emit("ocr-download-complete", ());
@@ -80,18 +82,13 @@ async fn download_ocr_models(
 
 // 获取 OCR 模型下载配置
 #[tauri::command]
-async fn get_ocr_model_config(
-    app: tauri::AppHandle,
-) -> Result<ocr::OcrModelConfig, String> {
+async fn get_ocr_model_config(app: tauri::AppHandle) -> Result<ocr::OcrModelConfig, String> {
     Ok(ocr::model_downloader::load_config(&app))
 }
 
 // 设置 OCR 模型下载地址
 #[tauri::command]
-async fn set_ocr_model_config(
-    app: tauri::AppHandle,
-    model_base_url: String,
-) -> Result<(), String> {
+async fn set_ocr_model_config(app: tauri::AppHandle, model_base_url: String) -> Result<(), String> {
     let config = ocr::OcrModelConfig { model_base_url };
     ocr::model_downloader::save_config(&app, &config)
 }
@@ -104,13 +101,17 @@ async fn get_reimbursement_config(app: tauri::AppHandle) -> Result<Reimbursement
 
 // 获取当前生效的内置住宿标准（省份→城市层级，供设置页展示默认标准）
 #[tauri::command]
-async fn get_builtin_hotel_standards() -> Result<Vec<crate::models::reimbursement_config::ProvinceStandard>, String> {
+async fn get_builtin_hotel_standards(
+) -> Result<Vec<crate::models::reimbursement_config::ProvinceStandard>, String> {
     Ok(crate::models::hotel_standard::get_builtin_hotel_standards())
 }
 
 // 设置报销标准配置
 #[tauri::command]
-async fn set_reimbursement_config(app: tauri::AppHandle, config: ReimbursementConfig) -> Result<(), String> {
+async fn set_reimbursement_config(
+    app: tauri::AppHandle,
+    config: ReimbursementConfig,
+) -> Result<(), String> {
     let cfg = reimbursement_config::sanitize(config);
     reimbursement_config::save_config(&app, &cfg)?;
     reimbursement_config::apply_config(&cfg);
@@ -135,11 +136,23 @@ async fn recognize_invoice(
 // 批量识别文件（发票+行程单），自动匹配行程单到发票
 #[tauri::command]
 async fn batch_recognize(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
     file_paths: Vec<String>,
 ) -> Result<ParseResult, String> {
     let mut engine = state.ocr_engine.lock().await;
-    Ok(invoice_pipeline::parse_all_from_files(&file_paths, &mut engine, &Default::default()))
+    let app2 = app.clone();
+    Ok(invoice_pipeline::parse_all_from_files(
+        &file_paths,
+        &mut engine,
+        &Default::default(),
+        Some(&|i, t, name| {
+            let _ = app2.emit(
+                "recognize-progress",
+                serde_json::json!({ "index": i, "total": t, "fileName": name }),
+            );
+        }),
+    ))
 }
 
 // 行程单识别与解析命令
@@ -190,11 +203,23 @@ async fn import_bill(file_path: String) -> Result<Vec<PaymentRecord>, String> {
 // 自动批量匹配命令
 #[tauri::command]
 async fn auto_match(
+    app: tauri::AppHandle,
     invoices: Vec<Invoice>,
     payments: Vec<PaymentRecord>,
     tolerance: f64,
 ) -> Result<serde_json::Value, String> {
-    let result = batch::batch_match(&invoices, &payments, tolerance);
+    let result = batch::batch_match_with_progress(
+        &invoices,
+        &payments,
+        tolerance,
+        Some(&|i, t| {
+            // batch_match_with_progress 的 i 是已处理数量（1-based），前端统一按 0-based index 展示
+            let _ = app.emit(
+                "match-progress",
+                serde_json::json!({ "index": i.saturating_sub(1), "total": t }),
+            );
+        }),
+    );
     Ok(serde_json::to_value(result).map_err(|e| e.to_string())?)
 }
 
@@ -205,7 +230,11 @@ async fn manual_match(
     payments: Vec<PaymentRecord>,
     itinerary_payment_pairs: Vec<ItineraryPaymentPair>,
 ) -> Result<MatchResult, String> {
-    Ok(manual::create_manual_match(invoice, payments, itinerary_payment_pairs))
+    Ok(manual::create_manual_match(
+        invoice,
+        payments,
+        itinerary_payment_pairs,
+    ))
 }
 
 // 生成报销表 PDF 命令
@@ -284,7 +313,9 @@ async fn render_reimbursement_html(
         companions as usize,
         &hotel_level,
     );
-    Ok(form_html_generator::generate_reimbursement_html_string(&form))
+    Ok(form_html_generator::generate_reimbursement_html_string(
+        &form,
+    ))
 }
 
 // 预览报销表单（返回结构化数据，供前端实时显示可报销金额）
@@ -377,7 +408,8 @@ fn collect_files(paths: Vec<String>, extensions: Option<Vec<String>>) -> Vec<Str
         let p = std::path::Path::new(raw);
         if p.is_dir() {
             for f in collect_files_recursive(p) {
-                let ext = f.extension()
+                let ext = f
+                    .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
@@ -386,7 +418,8 @@ fn collect_files(paths: Vec<String>, extensions: Option<Vec<String>>) -> Vec<Str
                 }
             }
         } else if p.is_file() {
-            let ext = p.extension()
+            let ext = p
+                .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
                 .to_lowercase();
@@ -402,26 +435,47 @@ fn collect_files(paths: Vec<String>, extensions: Option<Vec<String>>) -> Vec<Str
 // 全局导入命令：选择文件夹后递归处理所有文件
 #[tauri::command]
 async fn batch_global_import(
+    app: tauri::AppHandle,
     state: tauri::State<'_, AppState>,
-    dir_path: String,
+    dir_paths: Vec<String>,
 ) -> Result<GlobalImportResult, String> {
-    let dir = std::path::Path::new(&dir_path);
-    if !dir.is_dir() {
-        return Err(format!("路径不是有效目录: {}", dir_path));
+    let mut all_files = Vec::new();
+    for dir_path in &dir_paths {
+        let dir = std::path::Path::new(dir_path);
+        if !dir.is_dir() {
+            return Err(format!("路径不是有效目录: {}", dir_path));
+        }
+        all_files.extend(collect_files_recursive(dir));
     }
 
-    let all_files = collect_files_recursive(dir);
+    let total = all_files
+        .iter()
+        .filter(|p| {
+            let ext = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            matches!(
+                ext.as_str(),
+                "pdf" | "jpg" | "jpeg" | "png" | "xlsx" | "xls" | "csv"
+            )
+        })
+        .count();
     let mut invoices = Vec::new();
     let mut payments = Vec::new();
     let mut errors = Vec::new();
 
     let mut engine = state.ocr_engine.lock().await;
 
-    let mut pdf_files = Vec::new();
+    // PDF 延后到最后一并解析；进度用已处理计数器保证只增不减
+    let mut pdf_files: Vec<String> = Vec::new();
+    let mut processed = 0usize;
 
     for path in &all_files {
         let path_str = path.to_string_lossy().to_string();
-        let ext = path.extension()
+        let ext = path
+            .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
             .to_lowercase();
@@ -431,25 +485,52 @@ async fn batch_global_import(
                 pdf_files.push(path_str);
             }
             "jpg" | "jpeg" | "png" => {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let _ = app.emit(
+                    "recognize-progress",
+                    serde_json::json!({ "index": processed, "total": total, "fileName": name }),
+                );
                 match invoice_pipeline::parse_invoice_from_image(&path_str, &mut engine) {
                     Ok(inv) => invoices.push(inv),
                     Err(e) => errors.push([name, e]),
                 }
+                processed += 1;
             }
             "xlsx" | "xls" => {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let _ = app.emit(
+                    "recognize-progress",
+                    serde_json::json!({ "index": processed, "total": total, "fileName": name }),
+                );
                 match parser::wechat_parser::parse_wechat_bill(&path_str) {
                     Ok(records) => payments.extend(records),
                     Err(e) => errors.push([name, e]),
                 }
+                processed += 1;
             }
             "csv" => {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                let _ = app.emit(
+                    "recognize-progress",
+                    serde_json::json!({ "index": processed, "total": total, "fileName": name }),
+                );
                 match parser::alipay_parser::parse_alipay_bill(&path_str) {
                     Ok(records) => payments.extend(records),
                     Err(e) => errors.push([name, e]),
                 }
+                processed += 1;
             }
             _ => {}
         }
@@ -458,7 +539,18 @@ async fn batch_global_import(
     // PDF 复用已有的 batch 解析逻辑（含发票→行程单→配对）
     let mut pdf_duplicates = Vec::new();
     if !pdf_files.is_empty() {
-        let result = invoice_pipeline::parse_all_from_files(&pdf_files, &mut engine, &Default::default());
+        let app2 = app.clone();
+        let result = invoice_pipeline::parse_all_from_files(
+            &pdf_files,
+            &mut engine,
+            &Default::default(),
+            Some(&move |i, _t, name| {
+                let _ = app2.emit(
+                    "recognize-progress",
+                    serde_json::json!({ "index": processed + i, "total": total, "fileName": name }),
+                );
+            }),
+        );
         invoices.extend(result.invoices);
         pdf_duplicates = result.duplicates;
         for (name, err) in result.errors {
@@ -471,7 +563,12 @@ async fn batch_global_import(
     let mut duplicates = pdf_duplicates;
     duplicates.extend(parser::dedup::deduplicate_invoices(&mut invoices));
 
-    Ok(GlobalImportResult { invoices, payments, errors, duplicates })
+    Ok(GlobalImportResult {
+        invoices,
+        payments,
+        errors,
+        duplicates,
+    })
 }
 
 // 生成对照单 HTML 命令
@@ -528,27 +625,35 @@ async fn render_pdf_preview(file_path: String) -> Result<Vec<String>, String> {
         .to_lowercase();
 
     if matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "bmp" | "tiff") {
-        let mut file = std::fs::File::open(&file_path).map_err(|e| format!("无法打开文件: {}", e))?;
+        let mut file =
+            std::fs::File::open(&file_path).map_err(|e| format!("无法打开文件: {}", e))?;
         let mut buf = Vec::new();
-        file.read_to_end(&mut buf).map_err(|e| format!("读取文件失败: {}", e))?;
+        file.read_to_end(&mut buf)
+            .map_err(|e| format!("读取文件失败: {}", e))?;
         use base64::Engine;
         let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
-        let mime = if ext == "png" { "image/png" } else { "image/jpeg" };
+        let mime = if ext == "png" {
+            "image/png"
+        } else {
+            "image/jpeg"
+        };
         return Ok(vec![format!("data:{};base64,{}", mime, b64)]);
     }
 
     if ext == "pdf" {
-        let tmp_dir = std::env::temp_dir()
-            .join(format!("invoice_preview_{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&tmp_dir)
-            .map_err(|e| format!("无法创建临时目录: {}", e))?;
+        let tmp_dir =
+            std::env::temp_dir().join(format!("invoice_preview_{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("无法创建临时目录: {}", e))?;
         let tmp = tmp_dir.to_string_lossy().to_string();
-        let paths = crate::pdf::image_embedder::render_pdf_all_pages_to_pngs(&file_path, &tmp, 150)?;
+        let paths =
+            crate::pdf::image_embedder::render_pdf_all_pages_to_pngs(&file_path, &tmp, 150)?;
         let mut results = Vec::new();
         for p in &paths {
-            let mut file = std::fs::File::open(p).map_err(|e| format!("无法打开临时文件: {}", e))?;
+            let mut file =
+                std::fs::File::open(p).map_err(|e| format!("无法打开临时文件: {}", e))?;
             let mut buf = Vec::new();
-            file.read_to_end(&mut buf).map_err(|e| format!("读取临时文件失败: {}", e))?;
+            file.read_to_end(&mut buf)
+                .map_err(|e| format!("读取临时文件失败: {}", e))?;
             use base64::Engine;
             let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
             results.push(format!("data:image/png;base64,{}", b64));
@@ -663,7 +768,10 @@ fn segment_trips(
     match_results: Vec<MatchResult>,
     origin: Option<String>,
 ) -> Result<matching::segment::SegmentResult, String> {
-    Ok(matching::segment::segment_trips(&match_results, origin.as_deref()))
+    Ok(matching::segment::segment_trips(
+        &match_results,
+        origin.as_deref(),
+    ))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -713,7 +821,6 @@ pub fn run() {
             updater_portable::portable_check_update,
             updater_portable::portable_download_update,
             updater_portable::portable_install,
-
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

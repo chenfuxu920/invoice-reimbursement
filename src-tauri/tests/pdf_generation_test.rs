@@ -1,12 +1,16 @@
+use chrono::NaiveDate;
 /// PDF 生成集成测试
 /// 测试报销表单 PDF 和发票-支付对照 PDF 的实际生成
-use invoice_reimbursement_lib::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
-use invoice_reimbursement_lib::models::payment::{PaymentRecord, PaymentSource};
+use invoice_reimbursement_lib::models::invoice::{
+    Invoice, InvoiceCategory, InvoiceSource, Itinerary,
+};
 use invoice_reimbursement_lib::models::match_result::{MatchResult, MatchType};
-use invoice_reimbursement_lib::models::reimbursement::{ReimbursementForm, CategorySummary, TransportDetail, MealSubsidyDetail};
-use invoice_reimbursement_lib::pdf::form_generator::generate_reimbursement_pdf;
+use invoice_reimbursement_lib::models::payment::{PaymentRecord, PaymentSource};
+use invoice_reimbursement_lib::models::reimbursement::{
+    CategorySummary, MealSubsidyDetail, ReimbursementForm, TransportDetail,
+};
 use invoice_reimbursement_lib::pdf::comparison_generator::generate_comparison_pdf;
-use chrono::NaiveDate;
+use invoice_reimbursement_lib::pdf::form_generator::generate_reimbursement_pdf;
 use std::path::Path;
 
 fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
@@ -26,7 +30,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
-                    toll_travel_time: None,
+        toll_travel_time: None,
     }
 }
 
@@ -57,8 +61,16 @@ fn test_generate_reimbursement_pdf() {
         travel_days: 6,
         companions: 1,
         transport_details: vec![
-            TransportDetail { label: "车、船票".to_string(), count: 2, amount: 1106.0 },
-            TransportDetail { label: "飞机票".to_string(), count: 1, amount: 1200.0 },
+            TransportDetail {
+                label: "车、船票".to_string(),
+                count: 2,
+                amount: 1106.0,
+            },
+            TransportDetail {
+                label: "飞机票".to_string(),
+                count: 1,
+                amount: 1200.0,
+            },
         ],
         transport_subtotal: 2306.0,
         city_transport_count: 5,
@@ -66,7 +78,12 @@ fn test_generate_reimbursement_pdf() {
         city_transport_actual_amount: 200.0,
         hotel_levels: vec![],
         hotel_subtotal: 1500.0,
-        meal_subsidy: MealSubsidyDetail { persons: 1, days: 6, daily_rate: 100.0, amount: 600.0 },
+        meal_subsidy: MealSubsidyDetail {
+            persons: 1,
+            days: 6,
+            daily_rate: 100.0,
+            amount: 600.0,
+        },
         baggage_amount: 0.0,
         meal_reimbursement: 0.0,
         summaries: vec![
@@ -96,14 +113,17 @@ fn test_generate_reimbursement_pdf() {
 
     let output_path = "/tmp/test_reimbursement_form.pdf";
     let result = generate_reimbursement_pdf(&form, output_path);
-    
+
     assert!(result.is_ok(), "PDF generation failed: {:?}", result.err());
     assert!(Path::new(output_path).exists(), "PDF file should exist");
-    
+
     let metadata = std::fs::metadata(output_path).unwrap();
     assert!(metadata.len() > 0, "PDF file should not be empty");
-    assert!(metadata.len() > 1000, "PDF file should have reasonable size (>1KB)");
-    
+    assert!(
+        metadata.len() > 1000,
+        "PDF file should have reasonable size (>1KB)"
+    );
+
     // 清理
     std::fs::remove_file(output_path).ok();
 }
@@ -144,13 +164,23 @@ fn test_generate_comparison_pdf() {
         &["pay3".to_string()], // 未匹配支付
         output_path,
     );
-    
-    assert!(result.is_ok(), "Comparison PDF generation failed: {:?}", result.err());
-    assert!(Path::new(output_path).exists(), "Comparison PDF file should exist");
-    
+
+    assert!(
+        result.is_ok(),
+        "Comparison PDF generation failed: {:?}",
+        result.err()
+    );
+    assert!(
+        Path::new(output_path).exists(),
+        "Comparison PDF file should exist"
+    );
+
     let metadata = std::fs::metadata(output_path).unwrap();
-    assert!(metadata.len() > 0, "Comparison PDF file should not be empty");
-    
+    assert!(
+        metadata.len() > 0,
+        "Comparison PDF file should not be empty"
+    );
+
     // 清理
     std::fs::remove_file(output_path).ok();
 }
@@ -172,7 +202,12 @@ fn test_generate_empty_reimbursement_pdf() {
         city_transport_actual_amount: 0.0,
         hotel_levels: vec![],
         hotel_subtotal: 0.0,
-        meal_subsidy: MealSubsidyDetail { persons: 0, days: 0, daily_rate: 100.0, amount: 0.0 },
+        meal_subsidy: MealSubsidyDetail {
+            persons: 0,
+            days: 0,
+            daily_rate: 100.0,
+            amount: 0.0,
+        },
         baggage_amount: 0.0,
         meal_reimbursement: 0.0,
         summaries: vec![],
@@ -181,10 +216,17 @@ fn test_generate_empty_reimbursement_pdf() {
 
     let output_path = "/tmp/test_empty_reimbursement.pdf";
     let result = generate_reimbursement_pdf(&form, output_path);
-    
-    assert!(result.is_ok(), "Empty PDF generation failed: {:?}", result.err());
-    assert!(Path::new(output_path).exists(), "Empty PDF file should exist");
-    
+
+    assert!(
+        result.is_ok(),
+        "Empty PDF generation failed: {:?}",
+        result.err()
+    );
+    assert!(
+        Path::new(output_path).exists(),
+        "Empty PDF file should exist"
+    );
+
     // 清理
     std::fs::remove_file(output_path).ok();
 }

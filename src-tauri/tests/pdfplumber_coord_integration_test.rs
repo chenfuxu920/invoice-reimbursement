@@ -1,7 +1,7 @@
 #![cfg(feature = "pdfplumber")]
 
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
-use invoice_reimbursement_lib::ocr::{OcrTextItem, bbox_to_json};
+use invoice_reimbursement_lib::ocr::{bbox_to_json, OcrTextItem};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::parser::itinerary_parser::parse_itinerary_with_coords;
 use invoice_reimbursement_lib::pdf::text_extractor::extract_text_with_coords_flat;
@@ -196,7 +196,9 @@ fn test_pdfplumber_coords_flow_through_itinerary_parser() {
     println!("  Number of itineraries: {}", itineraries.len());
 
     if itineraries.is_empty() {
-        eprintln!("NOTE: No itineraries parsed — coords-based parsing may need tuning for this PDF");
+        eprintln!(
+            "NOTE: No itineraries parsed — coords-based parsing may need tuning for this PDF"
+        );
     } else {
         let first = &itineraries[0];
         println!(

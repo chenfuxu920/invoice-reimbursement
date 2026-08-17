@@ -5,7 +5,6 @@
 /// - 住宿标准数据来源：data/住宿标准.xlsx
 ///
 /// 匹配逻辑：先匹配市，匹配不到再匹配省。
-
 use calamine::{open_workbook, Reader, Xlsx};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -45,7 +44,8 @@ fn city_province_map() -> &'static HashMap<String, String> {
         let provinces_json = include_str!("../../../data/参考数据/provinces.json");
         let cities_json = include_str!("../../../data/参考数据/cities.json");
 
-        let provinces: Vec<ProvinceEntry> = serde_json::from_str(provinces_json).unwrap_or_default();
+        let provinces: Vec<ProvinceEntry> =
+            serde_json::from_str(provinces_json).unwrap_or_default();
         let cities: Vec<CityEntry> = serde_json::from_str(cities_json).unwrap_or_default();
 
         // 构建 code → 省名 映射
@@ -59,7 +59,11 @@ fn city_province_map() -> &'static HashMap<String, String> {
             if let Some(province_name) = province_map.get(city.province_code.as_str()) {
                 // 存储完整城市名（如 "成都市"）和短名（如 "成都"）
                 m.insert(city.name.clone(), province_name.to_string());
-                let short_name = city.name.trim_end_matches('市').trim_end_matches('区').trim_end_matches('县');
+                let short_name = city
+                    .name
+                    .trim_end_matches('市')
+                    .trim_end_matches('区')
+                    .trim_end_matches('县');
                 if short_name.len() >= 2 && short_name != city.name {
                     m.insert(short_name.to_string(), province_name.to_string());
                 }
@@ -142,22 +146,101 @@ fn parse_standards_xlsx(path: &str) -> Result<Vec<HotelStandardRule>, Box<dyn st
 
 fn default_standards() -> Vec<HotelStandardRule> {
     vec![
-        HotelStandardRule { regions: vec!["北京市".to_string()], standard: 500.0 },
-        HotelStandardRule { regions: vec!["上海市".to_string()], standard: 500.0 },
-        HotelStandardRule { regions: vec!["广东省".to_string(), "深圳市".to_string()], standard: 450.0 },
-        HotelStandardRule { regions: vec!["浙江省".to_string(), "厦门市".to_string()], standard: 400.0 },
-        HotelStandardRule { regions: vec!["江苏省".to_string()], standard: 380.0 },
-        HotelStandardRule { regions: vec!["福建省".to_string(), "河南省".to_string(), "云南省".to_string()], standard: 380.0 },
-        HotelStandardRule { regions: vec!["四川省".to_string()], standard: 370.0 },
-        HotelStandardRule { regions: vec!["重庆市".to_string()], standard: 370.0 },
-        HotelStandardRule { regions: vec!["贵州省".to_string()], standard: 370.0 },
-        HotelStandardRule { regions: vec!["山东省".to_string(), "天津市".to_string(), "青岛市".to_string()], standard: 380.0 },
-        HotelStandardRule { regions: vec!["青海省".to_string(), "海南省".to_string(), "西藏自治区".to_string()], standard: 350.0 },
-        HotelStandardRule { regions: vec!["大连市".to_string()], standard: 350.0 },
-        HotelStandardRule { regions: vec!["山西省".to_string(), "湖北省".to_string(), "辽宁省".to_string(), "新疆维吾尔自治区".to_string()], standard: 350.0 },
-        HotelStandardRule { regions: vec!["江西省".to_string(), "甘肃省".to_string(), "广西壮族自治区".to_string(), "宁夏回族自治区".to_string()], standard: 350.0 },
-        HotelStandardRule { regions: vec!["安徽省".to_string(), "陕西省".to_string(), "内蒙古自治区".to_string()], standard: 350.0 },
-        HotelStandardRule { regions: vec!["河北省".to_string(), "吉林省".to_string(), "湖南省".to_string(), "黑龙江省".to_string()], standard: 350.0 },
+        HotelStandardRule {
+            regions: vec!["北京市".to_string()],
+            standard: 500.0,
+        },
+        HotelStandardRule {
+            regions: vec!["上海市".to_string()],
+            standard: 500.0,
+        },
+        HotelStandardRule {
+            regions: vec!["广东省".to_string(), "深圳市".to_string()],
+            standard: 450.0,
+        },
+        HotelStandardRule {
+            regions: vec!["浙江省".to_string(), "厦门市".to_string()],
+            standard: 400.0,
+        },
+        HotelStandardRule {
+            regions: vec!["江苏省".to_string()],
+            standard: 380.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "福建省".to_string(),
+                "河南省".to_string(),
+                "云南省".to_string(),
+            ],
+            standard: 380.0,
+        },
+        HotelStandardRule {
+            regions: vec!["四川省".to_string()],
+            standard: 370.0,
+        },
+        HotelStandardRule {
+            regions: vec!["重庆市".to_string()],
+            standard: 370.0,
+        },
+        HotelStandardRule {
+            regions: vec!["贵州省".to_string()],
+            standard: 370.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "山东省".to_string(),
+                "天津市".to_string(),
+                "青岛市".to_string(),
+            ],
+            standard: 380.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "青海省".to_string(),
+                "海南省".to_string(),
+                "西藏自治区".to_string(),
+            ],
+            standard: 350.0,
+        },
+        HotelStandardRule {
+            regions: vec!["大连市".to_string()],
+            standard: 350.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "山西省".to_string(),
+                "湖北省".to_string(),
+                "辽宁省".to_string(),
+                "新疆维吾尔自治区".to_string(),
+            ],
+            standard: 350.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "江西省".to_string(),
+                "甘肃省".to_string(),
+                "广西壮族自治区".to_string(),
+                "宁夏回族自治区".to_string(),
+            ],
+            standard: 350.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "安徽省".to_string(),
+                "陕西省".to_string(),
+                "内蒙古自治区".to_string(),
+            ],
+            standard: 350.0,
+        },
+        HotelStandardRule {
+            regions: vec![
+                "河北省".to_string(),
+                "吉林省".to_string(),
+                "湖南省".to_string(),
+                "黑龙江省".to_string(),
+            ],
+            standard: 350.0,
+        },
     ]
 }
 
@@ -213,10 +296,14 @@ pub fn get_builtin_hotel_standards() -> Vec<crate::models::reimbursement_config:
 fn builtin_flat_entries() -> Vec<crate::models::reimbursement_config::HotelStandardEntry> {
     load_standards()
         .iter()
-        .flat_map(|r| r.regions.iter().map(|region| crate::models::reimbursement_config::HotelStandardEntry {
-            region: region.clone(),
-            standard: r.standard,
-        }))
+        .flat_map(|r| {
+            r.regions.iter().map(
+                |region| crate::models::reimbursement_config::HotelStandardEntry {
+                    region: region.clone(),
+                    standard: r.standard,
+                },
+            )
+        })
         .collect()
 }
 
@@ -247,19 +334,26 @@ pub fn build_province_structure(
                 .default_standard = e.standard;
         } else if let Some(province) = map.get(&region) {
             // 城市 → 挂到其省份下
-            let node = nodes.entry(province.clone()).or_insert_with(|| ProvinceStandard {
-                name: province.clone(),
-                default_standard: 350.0,
-                cities: vec![],
+            let node = nodes
+                .entry(province.clone())
+                .or_insert_with(|| ProvinceStandard {
+                    name: province.clone(),
+                    default_standard: 350.0,
+                    cities: vec![],
+                });
+            node.cities.push(CityStandard {
+                name: region,
+                standard: e.standard,
             });
-            node.cities.push(CityStandard { name: region, standard: e.standard });
         } else {
             // 未知地区 → 自成一省节点（不丢数据）
-            nodes.entry(region.clone()).or_insert_with(|| ProvinceStandard {
-                name: region.clone(),
-                default_standard: e.standard,
-                cities: vec![],
-            });
+            nodes
+                .entry(region.clone())
+                .or_insert_with(|| ProvinceStandard {
+                    name: region.clone(),
+                    default_standard: e.standard,
+                    cities: vec![],
+                });
         }
     }
     let mut list: Vec<ProvinceStandard> = nodes.into_values().collect();
@@ -293,7 +387,9 @@ pub fn get_hotel_nightly_rate_std(destination: &str) -> f64 {
         let keywords = extract_city_keyword(dest);
         for kw in &keywords {
             if let Some(province) = city_map.get(kw) {
-                if let Some(std) = crate::models::reimbursement_config::find_entry(&entries, province) {
+                if let Some(std) =
+                    crate::models::reimbursement_config::find_entry(&entries, province)
+                {
                     return std;
                 }
             }
@@ -361,13 +457,13 @@ mod tests {
     #[test]
     fn test_comprehensive_city_coverage() {
         // 测试更多城市，验证开源数据覆盖
-        assert_eq!(get_hotel_nightly_rate_std("拉萨市"), 350.0);   // 西藏自治区
-        assert_eq!(get_hotel_nightly_rate_std("银川市"), 350.0);   // 宁夏回族自治区
+        assert_eq!(get_hotel_nightly_rate_std("拉萨市"), 350.0); // 西藏自治区
+        assert_eq!(get_hotel_nightly_rate_std("银川市"), 350.0); // 宁夏回族自治区
         assert_eq!(get_hotel_nightly_rate_std("乌鲁木齐市"), 350.0); // 新疆维吾尔自治区
-        assert_eq!(get_hotel_nightly_rate_std("兰州市"), 350.0);   // 甘肃省
-        assert_eq!(get_hotel_nightly_rate_std("南宁市"), 350.0);   // 广西壮族自治区
-        assert_eq!(get_hotel_nightly_rate_std("海口市"), 350.0);   // 海南省
-        assert_eq!(get_hotel_nightly_rate_std("西宁市"), 350.0);   // 青海省
+        assert_eq!(get_hotel_nightly_rate_std("兰州市"), 350.0); // 甘肃省
+        assert_eq!(get_hotel_nightly_rate_std("南宁市"), 350.0); // 广西壮族自治区
+        assert_eq!(get_hotel_nightly_rate_std("海口市"), 350.0); // 海南省
+        assert_eq!(get_hotel_nightly_rate_std("西宁市"), 350.0); // 青海省
     }
 
     #[test]

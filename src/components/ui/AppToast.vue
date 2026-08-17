@@ -9,6 +9,9 @@
             <component :is="iconFor(t.type)" :size="16" />
           </span>
           <p class="text-sm text-slate-700 flex-1 break-words whitespace-pre-line leading-relaxed pt-1">{{ t.message }}</p>
+          <button v-if="t.action" class="text-primary-600 font-medium hover:underline text-xs shrink-0 mt-1 transition-colors" @click="handleAction(t)">
+            {{ t.action.label }}
+          </button>
           <button class="text-slate-400 hover:text-slate-600 shrink-0 mt-1 transition-colors" :aria-label="'关闭提示'" @click="removeToast(t.id)">
             <X :size="14" />
           </button>
@@ -24,6 +27,11 @@ import { useToast } from '../../composables/toast'
 import type { ToastItem } from '../../composables/toast'
 
 const { toasts, removeToast } = useToast()
+
+function handleAction(t: ToastItem) {
+  t.action?.onClick()
+  removeToast(t.id)
+}
 
 function borderClass(type: ToastItem['type']) {
   return { success: 'border-emerald-200/80', error: 'border-rose-200/80', info: 'border-primary-200/80' }[type]

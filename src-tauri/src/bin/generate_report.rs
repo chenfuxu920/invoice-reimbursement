@@ -2,9 +2,9 @@ use invoice_reimbursement_lib::matching::batch::batch_match;
 use invoice_reimbursement_lib::ocr::OcrEngine;
 use invoice_reimbursement_lib::parser::alipay_parser;
 use invoice_reimbursement_lib::parser::wechat_parser;
+use invoice_reimbursement_lib::pdf::comparison_image_pdf_generator;
 use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
 use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
-use invoice_reimbursement_lib::pdf::comparison_image_pdf_generator;
 use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_all_from_dir, ExtractionConfig};
 use std::path::Path;
 
@@ -42,8 +42,15 @@ fn main() {
     let invoices = result.invoices;
     println!("  成功: {}, 失败: {}", invoices.len(), result.errors.len());
     for inv in &invoices {
-        let has_itinerary = if inv.itineraries.is_empty() { "" } else { " [已关联行程单]" };
-        println!("  ✓ {} 类别={:?} 金额={:.2}{}", inv.invoice_number, inv.category, inv.amount, has_itinerary);
+        let has_itinerary = if inv.itineraries.is_empty() {
+            ""
+        } else {
+            " [已关联行程单]"
+        };
+        println!(
+            "  ✓ {} 类别={:?} 金额={:.2}{}",
+            inv.invoice_number, inv.category, inv.amount, has_itinerary
+        );
     }
     for (name, err) in &result.errors {
         println!("  ✗ {} - {}", name, err);
@@ -62,7 +69,11 @@ fn main() {
     if let Ok(entries) = std::fs::read_dir(bill_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            let ext = path.extension().unwrap_or_default().to_str().unwrap_or_default();
+            let ext = path
+                .extension()
+                .unwrap_or_default()
+                .to_str()
+                .unwrap_or_default();
             match ext {
                 "xlsx" => {
                     println!("  导入: {}", path.file_name().unwrap().to_str().unwrap());
@@ -98,10 +109,16 @@ fn main() {
     println!("  未匹配支付: {} 条", match_result.unmatched_payments.len());
 
     for m in &match_result.matched {
-        println!("  ✓ {} ({}) → {:.2}", m.invoice.seller_name, m.invoice.invoice_number, m.invoice.amount);
+        println!(
+            "  ✓ {} ({}) → {:.2}",
+            m.invoice.seller_name, m.invoice.invoice_number, m.invoice.amount
+        );
     }
     for inv in &match_result.unmatched_invoices {
-        println!("  ✗ 未匹配发票: {} - {:.2} - {:?}", inv.invoice_number, inv.amount, inv.category);
+        println!(
+            "  ✗ 未匹配发票: {} - {:.2} - {:?}",
+            inv.invoice_number, inv.amount, inv.category
+        );
     }
 
     // 5. 构建报销单
@@ -120,12 +137,20 @@ fn main() {
     println!("  姓名: {}", form.name);
     println!("  出差天数: {}", form.travel_days);
     println!("  城市间交通费: {:.2}", form.transport_subtotal);
-    println!("  市内交通费: {:.2} ({}张)", form.city_transport_amount, form.city_transport_count);
+    println!(
+        "  市内交通费: {:.2} ({}张)",
+        form.city_transport_amount, form.city_transport_count
+    );
     for h in &form.hotel_levels {
-        println!("  住宿费: {}晚 标准{:.2}/晚 可报销{:.2} 实际{:.2}",
-                 h.days, h.daily_rate, h.amount, h.actual_amount);
+        println!(
+            "  住宿费: {}晚 标准{:.2}/晚 可报销{:.2} 实际{:.2}",
+            h.days, h.daily_rate, h.amount, h.actual_amount
+        );
     }
-    println!("  伙食补助: {:.2} ({}天×{:.2})", form.meal_subsidy.amount, form.meal_subsidy.days, form.meal_subsidy.daily_rate);
+    println!(
+        "  伙食补助: {:.2} ({}天×{:.2})",
+        form.meal_subsidy.amount, form.meal_subsidy.days, form.meal_subsidy.daily_rate
+    );
     println!("  总额: {:.2}", form.total_amount);
 
     // 6. 生成输出文件

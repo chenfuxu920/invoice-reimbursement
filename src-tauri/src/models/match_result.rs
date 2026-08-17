@@ -1,13 +1,13 @@
-use serde::{Deserialize, Serialize};
 use super::invoice::Invoice;
 use super::payment::PaymentRecord;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MatchType {
-    OneToOne,            // 1张发票 → 1笔支付
-    OneToMany,           // 1张发票 → 多笔支付（打车）
-    Unmatched,           // 未匹配
-    ManualConfirmed,     // 手动确认
+    OneToOne,        // 1张发票 → 1笔支付
+    OneToMany,       // 1张发票 → 多笔支付（打车）
+    Unmatched,       // 未匹配
+    ManualConfirmed, // 手动确认
 }
 
 /// 行程条目与支付记录的显式配对关系。
@@ -27,8 +27,8 @@ pub struct MatchResult {
     pub payment_ids: Vec<String>,
     pub payments: Vec<PaymentRecord>,
     pub match_type: MatchType,
-    pub confidence: f64,             // 匹配置信度 0-1
-    pub amount_diff: f64,            // 金额差异
+    pub confidence: f64,  // 匹配置信度 0-1
+    pub amount_diff: f64, // 金额差异
     /// 行程-支付显式配对。非行程场景或旧数据为空，导出层回退按 payments 索引对应。
     #[serde(default)]
     pub itinerary_payment_pairs: Vec<ItineraryPaymentPair>,
@@ -77,7 +77,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -118,8 +118,14 @@ mod tests {
         let result = make_result(
             vec![make_payment("p1"), make_payment("p2")],
             vec![
-                ItineraryPaymentPair { itinerary_index: 0, payment_id: "p2".to_string() },
-                ItineraryPaymentPair { itinerary_index: 1, payment_id: "p1".to_string() },
+                ItineraryPaymentPair {
+                    itinerary_index: 0,
+                    payment_id: "p2".to_string(),
+                },
+                ItineraryPaymentPair {
+                    itinerary_index: 1,
+                    payment_id: "p1".to_string(),
+                },
             ],
         );
         assert_eq!(result.payment_for_itinerary(0).unwrap().id, "p2");

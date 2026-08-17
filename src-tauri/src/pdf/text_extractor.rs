@@ -2,11 +2,11 @@ use crate::ocr::OcrTextItem;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "pdfplumber")]
-use pdfplumber::{Pdf, WordOptions, Word, BBox, TableSettings};
-#[cfg(feature = "pdfplumber")]
 use crate::ocr::engine::bbox_to_json;
 #[cfg(feature = "pdfplumber")]
 use crate::ocr::OcrPageResult;
+#[cfg(feature = "pdfplumber")]
+use pdfplumber::{BBox, Pdf, TableSettings, Word, WordOptions};
 // Column-aware merging: import column detection + per-column merge from layout_extractor.
 // These are the correct primitives for multi-column Chinese invoices —
 // merge_words_into_lines alone mixes buyer/seller columns when Y coordinates align.
@@ -264,9 +264,7 @@ pub fn merge_words_into_lines(words: Vec<Word>) -> Vec<(String, BBox)> {
 pub fn extract_text_with_coords(file_path: &str) -> Result<Vec<OcrPageResult>, String> {
     // Wrap pdfplumber in catch_unwind — it may panic on non-standard PDFs
     // (CID font parsing, encrypted PDFs, etc.).
-    let result = std::panic::catch_unwind(|| {
-        extract_text_with_coords_inner(file_path)
-    });
+    let result = std::panic::catch_unwind(|| extract_text_with_coords_inner(file_path));
     match result {
         Ok(inner) => inner,
         Err(panic_msg) => {
@@ -523,7 +521,11 @@ fn enrich_cells_with_words(tables: &mut [TableInfo], words: &[Word]) {
                 // Type 2: 按行组装
                 cell.line_text = build_line_text_from_words(&cell_words);
                 // Type 3: 去除所有空白
-                cell.merged_text = cell.line_text.chars().filter(|c| !c.is_whitespace()).collect();
+                cell.merged_text = cell
+                    .line_text
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
                 // Type 4: 按列聚合
                 cell.column_text = build_column_text_from_words(&cell_words);
             }
@@ -538,11 +540,23 @@ fn build_line_text_from_words(words: &[&Word]) -> String {
         return String::new();
     }
     let mut sorted: Vec<&Word> = words.iter().copied().collect();
-    let avg_h = sorted.iter().map(|w| w.bbox.bottom - w.bbox.top).sum::<f64>() / sorted.len() as f64;
+    let avg_h = sorted
+        .iter()
+        .map(|w| w.bbox.bottom - w.bbox.top)
+        .sum::<f64>()
+        / sorted.len() as f64;
     let y_tol = (avg_h * 0.5).max(2.0);
     sorted.sort_by(|a, b| {
-        a.bbox.top.partial_cmp(&b.bbox.top).unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(std::cmp::Ordering::Equal))
+        a.bbox
+            .top
+            .partial_cmp(&b.bbox.top)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a.bbox
+                    .x0
+                    .partial_cmp(&b.bbox.x0)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
     let mut lines: Vec<Vec<&Word>> = Vec::new();
     for w in sorted {
@@ -558,7 +572,12 @@ fn build_line_text_from_words(words: &[&Word]) -> String {
     }
     lines
         .iter()
-        .map(|line| line.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" "))
+        .map(|line| {
+            line.iter()
+                .map(|w| w.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -574,8 +593,16 @@ fn build_column_text_from_words(words: &[&Word]) -> String {
     let avg_w = sorted.iter().map(|w| w.bbox.x1 - w.bbox.x0).sum::<f64>() / sorted.len() as f64;
     let x_tol = (avg_w * 0.5).max(2.0);
     sorted.sort_by(|a, b| {
-        a.bbox.x0.partial_cmp(&b.bbox.x0).unwrap_or(std::cmp::Ordering::Equal)
-            .then(a.bbox.top.partial_cmp(&b.bbox.top).unwrap_or(std::cmp::Ordering::Equal))
+        a.bbox
+            .x0
+            .partial_cmp(&b.bbox.x0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                a.bbox
+                    .top
+                    .partial_cmp(&b.bbox.top)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
     });
     let mut cols: Vec<Vec<&Word>> = Vec::new();
     for w in sorted {
@@ -590,7 +617,12 @@ fn build_column_text_from_words(words: &[&Word]) -> String {
         cols.push(vec![w]);
     }
     cols.iter()
-        .map(|col| col.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(""))
+        .map(|col| {
+            col.iter()
+                .map(|w| w.text.as_str())
+                .collect::<Vec<_>>()
+                .join("")
+        })
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -651,8 +683,15 @@ fn column_aware_merge(words: Vec<Word>) -> Vec<(String, BBox)> {
 
 /// 对指定 bbox 内的 words 做列感知合并，返回合并后的完整文本（用于从商品详情格提取商家自定义名称）
 #[cfg(feature = "pdfplumber")]
-pub fn column_aware_merge_in_bbox(words: &[pdfplumber::Word], x0: f64, top: f64, x1: f64, bottom: f64) -> String {
-    let within: Vec<pdfplumber::Word> = words.iter()
+pub fn column_aware_merge_in_bbox(
+    words: &[pdfplumber::Word],
+    x0: f64,
+    top: f64,
+    x1: f64,
+    bottom: f64,
+) -> String {
+    let within: Vec<pdfplumber::Word> = words
+        .iter()
         .filter(|w| {
             let cx = (w.bbox.x0 + w.bbox.x1) / 2.0;
             let cy = (w.bbox.top + w.bbox.bottom) / 2.0;
@@ -661,7 +700,8 @@ pub fn column_aware_merge_in_bbox(words: &[pdfplumber::Word], x0: f64, top: f64,
         .cloned()
         .collect();
     let lines = column_aware_merge(within);
-    lines.into_iter()
+    lines
+        .into_iter()
         .map(|(text, _)| text)
         .collect::<Vec<_>>()
         .join(" ")
@@ -756,12 +796,24 @@ fn extract_pdfplumber_column_aware(
             all_tables.push(table_infos);
 
             // word 级文本项（未合并，保留独立坐标，供行程单表格解析）
-            let word_texts: Vec<OcrTextItem> = words.iter().map(|w| OcrTextItem {
-                text: w.text.clone(),
-                confidence: 1.0,
-                box_coords: Some(bbox_to_json(w.bbox.x0, w.bbox.top, w.bbox.x1, w.bbox.bottom, 1.0)),
-            }).collect();
-            word_pages.push(OcrPageResult { page: page_number, texts: word_texts });
+            let word_texts: Vec<OcrTextItem> = words
+                .iter()
+                .map(|w| OcrTextItem {
+                    text: w.text.clone(),
+                    confidence: 1.0,
+                    box_coords: Some(bbox_to_json(
+                        w.bbox.x0,
+                        w.bbox.top,
+                        w.bbox.x1,
+                        w.bbox.bottom,
+                        1.0,
+                    )),
+                })
+                .collect();
+            word_pages.push(OcrPageResult {
+                page: page_number,
+                texts: word_texts,
+            });
 
             // 列感知合并
             let lines = column_aware_merge(words);
@@ -771,9 +823,7 @@ fn extract_pdfplumber_column_aware(
                 .map(|(text, bbox)| OcrTextItem {
                     text,
                     confidence: 1.0,
-                    box_coords: Some(bbox_to_json(
-                        bbox.x0, bbox.top, bbox.x1, bbox.bottom, 1.0,
-                    )),
+                    box_coords: Some(bbox_to_json(bbox.x0, bbox.top, bbox.x1, bbox.bottom, 1.0)),
                 })
                 .collect();
 
@@ -828,7 +878,8 @@ pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
     use pdfplumber::Char;
 
     // 收集所有 chars (text, x0, y0)
-    let mut chars: Vec<(&Char, f64, f64)> = words.iter()
+    let mut chars: Vec<(&Char, f64, f64)> = words
+        .iter()
         .flat_map(|w| w.chars.iter())
         .map(|c| (c, c.bbox.x0, c.bbox.top))
         .collect();
@@ -837,7 +888,8 @@ pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
     }
 
     // 计算平均 char 宽度（用于间距过滤阈值）
-    let widths: Vec<f64> = chars.iter()
+    let widths: Vec<f64> = chars
+        .iter()
         .map(|(c, _, _)| c.bbox.x1 - c.bbox.x0)
         .filter(|w| *w > 0.0)
         .collect();
@@ -849,7 +901,8 @@ pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
     let gap_threshold = avg_width * 0.5; // 间距 < 半个 char 宽 = 噪声
 
     // 计算平均行高用于 Y 分行
-    let heights: Vec<f64> = chars.iter()
+    let heights: Vec<f64> = chars
+        .iter()
         .map(|(c, _, _)| c.bbox.height())
         .filter(|h| *h > 0.0)
         .collect();
@@ -861,8 +914,11 @@ pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
     let y_tol = avg_height.max(6.0) * 0.5;
 
     // 按 Y 分行
-    chars.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal)
-        .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)));
+    chars.sort_by(|a, b| {
+        a.2.partial_cmp(&b.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+    });
     let mut lines: Vec<Vec<(&Char, f64, f64)>> = vec![];
     for (c, x, y) in chars {
         if let Some(last) = lines.last_mut() {
@@ -876,45 +932,49 @@ pub fn reconstruct_lines_from_chars(words: &[Word]) -> Vec<String> {
     }
 
     // 每行内按 X 排序 + 间距过滤 + 拼接
-    lines.iter().map(|line| {
-        let mut sorted = line.to_vec();
-        sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    lines
+        .iter()
+        .map(|line| {
+            let mut sorted = line.to_vec();
+            sorted.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        // 间距过滤：间距 < gap_threshold 的 char 视为重叠噪声，跳过
-        // 但收集被跳过的 char，用于后续时间信息恢复
-        let mut filtered: Vec<&Char> = vec![];
-        let mut skipped: Vec<&Char> = vec![];
-        for (c, x, _y) in sorted {
-            if let Some(last_x) = filtered.last().map(|lc| lc.bbox.x0) {
-                if x - last_x < gap_threshold {
-                    // 间距过小，跳过此 char（视为重叠噪声）
-                    skipped.push(c);
-                    continue;
+            // 间距过滤：间距 < gap_threshold 的 char 视为重叠噪声，跳过
+            // 但收集被跳过的 char，用于后续时间信息恢复
+            let mut filtered: Vec<&Char> = vec![];
+            let mut skipped: Vec<&Char> = vec![];
+            for (c, x, _y) in sorted {
+                if let Some(last_x) = filtered.last().map(|lc| lc.bbox.x0) {
+                    if x - last_x < gap_threshold {
+                        // 间距过小，跳过此 char（视为重叠噪声）
+                        skipped.push(c);
+                        continue;
+                    }
+                }
+                filtered.push(c);
+            }
+            let mut text: String = filtered.iter().map(|c| c.text.as_str()).collect();
+
+            // 时间信息恢复：从被跳过的 char 里找"数字+冒号"模式
+            // 火车票 PDF 渲染顺序问题：小时 char（如"15"的"1"和"5"）可能与 day char
+            // 在 X 上重叠被间距过滤跳过。如果 filtered text 的 "日" 后缺冒号，
+            // 把被跳过的时间 char（数字+冒号）插到 "日" 后。
+            let time_chars: String = skipped
+                .iter()
+                .filter(|c| c.text.chars().all(|ch| ch.is_ascii_digit() || ch == ':'))
+                .map(|c| c.text.as_str())
+                .collect();
+            if !time_chars.is_empty() && text.contains('日') {
+                let ri_pos = text.find('日').unwrap();
+                let ri_end = ri_pos + '日'.len_utf8(); // "日" 是 3 字节 UTF-8 char
+                let after_ri = &text[ri_end..];
+                // "日" 后没有冒号 → 缺时间前缀，插回
+                if !after_ri.contains(':') {
+                    text.insert_str(ri_end, &time_chars);
                 }
             }
-            filtered.push(c);
-        }
-        let mut text: String = filtered.iter().map(|c| c.text.as_str()).collect();
-
-        // 时间信息恢复：从被跳过的 char 里找"数字+冒号"模式
-        // 火车票 PDF 渲染顺序问题：小时 char（如"15"的"1"和"5"）可能与 day char
-        // 在 X 上重叠被间距过滤跳过。如果 filtered text 的 "日" 后缺冒号，
-        // 把被跳过的时间 char（数字+冒号）插到 "日" 后。
-        let time_chars: String = skipped.iter()
-            .filter(|c| c.text.chars().all(|ch| ch.is_ascii_digit() || ch == ':'))
-            .map(|c| c.text.as_str())
-            .collect();
-        if !time_chars.is_empty() && text.contains('日') {
-            let ri_pos = text.find('日').unwrap();
-            let ri_end = ri_pos + '日'.len_utf8(); // "日" 是 3 字节 UTF-8 char
-            let after_ri = &text[ri_end..];
-            // "日" 后没有冒号 → 缺时间前缀，插回
-            if !after_ri.contains(':') {
-                text.insert_str(ri_end, &time_chars);
-            }
-        }
-        text
-    }).collect()
+            text
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -969,8 +1029,16 @@ mod tests {
     #[test]
     fn test_classify_invoice() {
         let items = vec![
-            OcrTextItem { text: "增值税电子普通发票".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "发票号码：12345678".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "增值税电子普通发票".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "发票号码：12345678".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         assert_eq!(classify_pdf_document_type(&items), PdfDocumentType::Invoice);
     }
@@ -978,26 +1046,56 @@ mod tests {
     #[test]
     fn test_classify_itinerary() {
         let items = vec![
-            OcrTextItem { text: "滴滴出行行程单".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "出发时间：2025-01-01".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "滴滴出行行程单".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "出发时间：2025-01-01".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
-        assert_eq!(classify_pdf_document_type(&items), PdfDocumentType::Itinerary);
+        assert_eq!(
+            classify_pdf_document_type(&items),
+            PdfDocumentType::Itinerary
+        );
     }
 
     #[test]
     fn test_classify_itinerary_transit() {
         let items = vec![
-            OcrTextItem { text: "天府通电子行程单".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "地铁消费".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "天府通电子行程单".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "地铁消费".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
-        assert_eq!(classify_pdf_document_type(&items), PdfDocumentType::Itinerary);
+        assert_eq!(
+            classify_pdf_document_type(&items),
+            PdfDocumentType::Itinerary
+        );
     }
 
     #[test]
     fn test_classify_bill() {
         let items = vec![
-            OcrTextItem { text: "成都九眼桥美居酒店结账单".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "住宿费".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "成都九眼桥美居酒店结账单".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "住宿费".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         assert_eq!(classify_pdf_document_type(&items), PdfDocumentType::Bill);
     }
@@ -1005,8 +1103,16 @@ mod tests {
     #[test]
     fn test_classify_unknown() {
         let items = vec![
-            OcrTextItem { text: "普通收据".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "金额：50元".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "普通收据".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "金额：50元".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         assert_eq!(classify_pdf_document_type(&items), PdfDocumentType::Unknown);
     }
@@ -1044,10 +1150,14 @@ mod tests {
                 doctop: 134.6,
                 direction: TextDirection::Ltr,
                 chars: vec![
-                    mk_char("2", 25.5, 134.6), mk_char("0", 37.5, 134.6),
-                    mk_char("2", 49.5, 134.6), mk_char("5", 61.5, 134.6),
-                    mk_char("年", 73.5, 134.6), mk_char("1", 85.5, 134.6),
-                    mk_char("1", 97.5, 134.6), mk_char("月", 109.5, 134.6),
+                    mk_char("2", 25.5, 134.6),
+                    mk_char("0", 37.5, 134.6),
+                    mk_char("2", 49.5, 134.6),
+                    mk_char("5", 61.5, 134.6),
+                    mk_char("年", 73.5, 134.6),
+                    mk_char("1", 85.5, 134.6),
+                    mk_char("1", 97.5, 134.6),
+                    mk_char("月", 109.5, 134.6),
                     mk_char("1", 121.5, 134.6),
                 ],
                 fontname: "SimSun".to_string(),
@@ -1092,9 +1202,12 @@ mod tests {
                 doctop: 134.6,
                 direction: TextDirection::Ltr,
                 chars: vec![
-                    mk_char("5", 136.7, 134.6), mk_char("日", 145.5, 134.6),
-                    mk_char(":", 148.7, 134.6), mk_char("2", 160.7, 134.6),
-                    mk_char("2", 172.7, 134.6), mk_char("开", 184.7, 134.6),
+                    mk_char("5", 136.7, 134.6),
+                    mk_char("日", 145.5, 134.6),
+                    mk_char(":", 148.7, 134.6),
+                    mk_char("2", 160.7, 134.6),
+                    mk_char("2", 172.7, 134.6),
+                    mk_char("开", 184.7, 134.6),
                 ],
                 fontname: "SimSun".to_string(),
                 size: 12.0,
@@ -1319,15 +1432,21 @@ mod tests {
             // 买方税号（左栏，下一行）
             make_word("纳税人识别号：91110108A1100000M", 31.0, 120.0, 200.0, 129.0),
             // 卖方税号（右栏，同 Y 行）
-            make_word("纳税人识别号：91430100578607044B", 301.0, 120.0, 450.0, 129.0),
+            make_word(
+                "纳税人识别号：91430100578607044B",
+                301.0,
+                120.0,
+                450.0,
+                129.0,
+            ),
         ];
 
         let lines = column_aware_merge(words);
 
         // 关键断言：买方和卖方不应出现在同一行
-        let has_mixed = lines.iter().any(|(text, _)| {
-            text.contains("国防") && text.contains("滴滴")
-        });
+        let has_mixed = lines
+            .iter()
+            .any(|(text, _)| text.contains("国防") && text.contains("滴滴"));
         assert!(
             !has_mixed,
             "多栏合并不应将买方和卖方混合到同一行: {:?}",
@@ -1340,7 +1459,10 @@ mod tests {
             name_lines.len() >= 2,
             "应有至少2个名称行（买方+卖方），实际 {}: {:?}",
             name_lines.len(),
-            name_lines.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>()
+            name_lines
+                .iter()
+                .map(|(t, _)| t.as_str())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -1416,8 +1538,16 @@ mod tests {
     #[test]
     fn test_is_garbled_items_detects_garble() {
         let items = vec![
-            OcrTextItem { text: "랢튻 욱뗧ퟓ랢욱".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "맺볒쮰컱ퟜ뻖".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "랢튻 욱뗧ퟓ랢욱".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "맺볒쮰컱ퟜ뻖".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         assert!(is_garbled_items(&items, 0.3));
     }
@@ -1425,8 +1555,16 @@ mod tests {
     #[test]
     fn test_is_garbled_items_normal() {
         let items = vec![
-            OcrTextItem { text: "发票代码:043002200111".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "名称：成都滴滴优行科技有限公司".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "发票代码:043002200111".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "名称：成都滴滴优行科技有限公司".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         assert!(!is_garbled_items(&items, 0.3));
     }

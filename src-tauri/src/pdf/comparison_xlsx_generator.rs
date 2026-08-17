@@ -4,6 +4,8 @@ use crate::models::payment::{PaymentRecord, PaymentSource};
 use rust_xlsxwriter::*;
 use std::error::Error;
 
+use super::xlsx_autofit::autofit_sheet;
+
 /// Generates a comprehensive Excel comparison sheet containing all information
 /// from invoices, itineraries, and payments in one wide table.
 ///
@@ -76,17 +78,20 @@ fn build_comparison_sheet(
         .set_bold()
         .set_font_size(14)
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let header_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
         .set_align(FormatAlign::Center)
+        .set_text_wrap()
         .set_background_color(Color::RGB(0xE8E8E8));
 
     let text_center_fmt = Format::new()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let text_left_wrap_fmt = Format::new()
         .set_border(FormatBorder::Thin)
@@ -111,13 +116,17 @@ fn build_comparison_sheet(
     let footer_label_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
-        .set_align(FormatAlign::Center);
+        .set_align(FormatAlign::Center)
+        .set_text_wrap();
 
     let footer_num_fmt = Format::new()
         .set_bold()
         .set_border(FormatBorder::Thin)
         .set_num_format("0.00")
         .set_align(FormatAlign::VerticalCenter);
+
+    // Track text cells for column/row autofit.
+    let mut cell_texts: Vec<(u32, u16, String)> = Vec::new();
 
     // ═══════════════════════════════════════════════════════════════
     //  Row 0 — Title (merged A1:AD1)
@@ -188,23 +197,54 @@ fn build_comparison_sheet(
 
                 // Invoice fields — first row only
                 if i == 0 {
-                    write_invoice_fields(ws, r, invoice, &text_center_fmt, &num_fmt)?;
+                    write_invoice_fields(
+                        ws,
+                        r,
+                        invoice,
+                        &text_center_fmt,
+                        &num_fmt,
+                        &mut cell_texts,
+                    )?;
                 } else {
                     write_blank_range(ws, r, 1..=6, &thin)?;
                 }
 
                 // Payment fields — match by index (payment[i] → itinerary[i])
                 if let Some(payment) = result.payment_for_itinerary(i) {
-                    write_payment_fields(ws, r, payment, &text_center_fmt, &text_center_wrap_fmt, &num_fmt)?;
+                    write_payment_fields(
+                        ws,
+                        r,
+                        payment,
+                        &text_center_fmt,
+                        &text_center_wrap_fmt,
+                        &num_fmt,
+                        &mut cell_texts,
+                    )?;
                 } else {
                     write_blank_range(ws, r, 7..=15, &thin)?;
                 }
 
                 // Itinerary fields
                 ws.write_string_with_format(r, 16, &itinerary.date_time, &text_center_fmt)?;
+                cell_texts.push((r, 16, itinerary.date_time.clone()));
                 ws.write_string_with_format(r, 17, &itinerary.provider, &text_center_fmt)?;
-                write_string_or_blank(ws, r, 18, &itinerary.pickup, &text_left_wrap_fmt)?;
-                write_string_or_blank(ws, r, 19, &itinerary.dropoff, &text_left_wrap_fmt)?;
+                cell_texts.push((r, 17, itinerary.provider.clone()));
+                write_string_or_blank(
+                    ws,
+                    r,
+                    18,
+                    &itinerary.pickup,
+                    &text_left_wrap_fmt,
+                    &mut cell_texts,
+                )?;
+                write_string_or_blank(
+                    ws,
+                    r,
+                    19,
+                    &itinerary.dropoff,
+                    &text_left_wrap_fmt,
+                    &mut cell_texts,
+                )?;
                 ws.write_number_with_format(r, 20, itinerary.amount, &num_fmt)?;
 
                 // Hotel fields — blank (CityTransport has no hotel data)
@@ -212,14 +252,28 @@ fn build_comparison_sheet(
 
                 // 发票备注 — first row only
                 if i == 0 {
-                    write_string_or_blank(ws, r, 25, &invoice.remarks, &text_left_wrap_fmt)?;
+                    write_string_or_blank(
+                        ws,
+                        r,
+                        25,
+                        &invoice.remarks,
+                        &text_left_wrap_fmt,
+                        &mut cell_texts,
+                    )?;
                 } else {
                     ws.write_blank(r, 25, &thin)?;
                 }
 
                 // 匹配类型 / 金额差异 / 置信度 — first row only
                 if i == 0 {
-                    write_match_fields(ws, r, result, &text_center_fmt, &num_center_fmt)?;
+                    write_match_fields(
+                        ws,
+                        r,
+                        result,
+                        &text_center_fmt,
+                        &num_center_fmt,
+                        &mut cell_texts,
+                    )?;
                 } else {
                     write_blank_range(ws, r, 26..=28, &thin)?;
                 }
@@ -233,6 +287,7 @@ fn build_comparison_sheet(
                     };
                     if !time_diff.is_empty() {
                         ws.write_string_with_format(r, 29, &time_diff, &text_center_fmt)?;
+                        cell_texts.push((r, 29, time_diff));
                     } else {
                         ws.write_blank(r, 29, &thin)?;
                     }
@@ -248,19 +303,41 @@ fn build_comparison_sheet(
             seq += 1;
 
             // Invoice fields
-            write_invoice_fields(ws, r, invoice, &text_center_fmt, &num_fmt)?;
+            write_invoice_fields(ws, r, invoice, &text_center_fmt, &num_fmt, &mut cell_texts)?;
 
             // Payment fields
             if result.payments.is_empty() {
                 write_blank_range(ws, r, 7..=15, &thin)?;
             } else if result.payments.len() == 1 {
                 // Single payment: show directly
-                write_payment_fields(ws, r, &result.payments[0], &text_center_fmt, &text_center_wrap_fmt, &num_fmt)?;
+                write_payment_fields(
+                    ws,
+                    r,
+                    &result.payments[0],
+                    &text_center_fmt,
+                    &text_center_wrap_fmt,
+                    &num_fmt,
+                    &mut cell_texts,
+                )?;
             } else {
                 // Multiple payments: show first, join all transaction IDs
-                write_payment_fields(ws, r, &result.payments[0], &text_center_fmt, &text_center_wrap_fmt, &num_fmt)?;
-                let ids: Vec<&str> = result.payments.iter().map(|p| p.transaction_id.as_str()).collect();
-                ws.write_string_with_format(r, 8, &ids.join(", "), &text_center_wrap_fmt)?;
+                write_payment_fields(
+                    ws,
+                    r,
+                    &result.payments[0],
+                    &text_center_fmt,
+                    &text_center_wrap_fmt,
+                    &num_fmt,
+                    &mut cell_texts,
+                )?;
+                let ids: Vec<&str> = result
+                    .payments
+                    .iter()
+                    .map(|p| p.transaction_id.as_str())
+                    .collect();
+                let ids_joined = ids.join(", ");
+                ws.write_string_with_format(r, 8, &ids_joined, &text_center_wrap_fmt)?;
+                cell_texts.push((r, 8, ids_joined));
             }
 
             // Itinerary fields — blank (not CityTransport with itineraries)
@@ -268,16 +345,30 @@ fn build_comparison_sheet(
 
             // Hotel fields
             if let Some(hotel) = &invoice.hotel_detail {
-                write_hotel_fields(ws, r, hotel, &text_center_fmt, &num_fmt)?;
+                write_hotel_fields(ws, r, hotel, &text_center_fmt, &num_fmt, &mut cell_texts)?;
             } else {
                 write_blank_range(ws, r, 21..=24, &thin)?;
             }
 
             // 发票备注
-            write_string_or_blank(ws, r, 25, &invoice.remarks, &text_left_wrap_fmt)?;
+            write_string_or_blank(
+                ws,
+                r,
+                25,
+                &invoice.remarks,
+                &text_left_wrap_fmt,
+                &mut cell_texts,
+            )?;
 
             // 匹配类型 / 金额差异 / 置信度
-            write_match_fields(ws, r, result, &text_center_fmt, &num_center_fmt)?;
+            write_match_fields(
+                ws,
+                r,
+                result,
+                &text_center_fmt,
+                &num_center_fmt,
+                &mut cell_texts,
+            )?;
             ws.write_blank(r, 29, &thin)?;
         }
     }
@@ -354,6 +445,9 @@ fn build_comparison_sheet(
     // Cols 21–29: blank
     write_blank_range(ws, footer_row, 21..=LAST_COL, &thin)?;
 
+    // 自动调整列宽和行高（限制最大宽度，避免长文本把列拉得过宽；超长内容由自动换行展示）
+    autofit_sheet(ws, &cell_texts, &col_widths, 300)?;
+
     Ok(())
 }
 
@@ -368,14 +462,20 @@ fn write_invoice_fields(
     invoice: &Invoice,
     center_fmt: &Format,
     amt_fmt: &Format,
+    cell_texts: &mut Vec<(u32, u16, String)>,
 ) -> Result<(), Box<dyn Error>> {
     ws.write_string_with_format(row, 1, &invoice.invoice_number, center_fmt)?;
+    cell_texts.push((row, 1, invoice.invoice_number.clone()));
     ws.write_string_with_format(row, 2, category_label(&invoice.category), center_fmt)?;
+    cell_texts.push((row, 2, category_label(&invoice.category).to_string()));
     ws.write_number_with_format(row, 3, invoice.amount, amt_fmt)?;
     ws.write_string_with_format(row, 4, &invoice.seller_name, center_fmt)?;
+    cell_texts.push((row, 4, invoice.seller_name.clone()));
     ws.write_string_with_format(row, 5, &invoice.item_name, center_fmt)?;
+    cell_texts.push((row, 5, invoice.item_name.clone()));
     let date_str = invoice.date.format("%Y-%m-%d").to_string();
     ws.write_string_with_format(row, 6, &date_str, center_fmt)?;
+    cell_texts.push((row, 6, date_str));
     Ok(())
 }
 
@@ -388,16 +488,22 @@ fn write_payment_fields(
     center_fmt: &Format,
     id_fmt: &Format,
     amt_fmt: &Format,
+    cell_texts: &mut Vec<(u32, u16, String)>,
 ) -> Result<(), Box<dyn Error>> {
     ws.write_string_with_format(row, 7, payment_source_label(&payment.source), center_fmt)?;
+    cell_texts.push((row, 7, payment_source_label(&payment.source).to_string()));
     ws.write_string_with_format(row, 8, &payment.transaction_id, id_fmt)?;
+    cell_texts.push((row, 8, payment.transaction_id.clone()));
     ws.write_string_with_format(row, 9, &payment.transaction_time, center_fmt)?;
+    cell_texts.push((row, 9, payment.transaction_time.clone()));
     ws.write_number_with_format(row, 10, payment.amount, amt_fmt)?;
     ws.write_number_with_format(row, 11, payment.original_amount, amt_fmt)?;
     ws.write_number_with_format(row, 12, payment.refund_amount, amt_fmt)?;
     ws.write_number_with_format(row, 13, payment.discount, amt_fmt)?;
     ws.write_string_with_format(row, 14, &payment.merchant_name, center_fmt)?;
+    cell_texts.push((row, 14, payment.merchant_name.clone()));
     ws.write_string_with_format(row, 15, &payment.payment_method, center_fmt)?;
+    cell_texts.push((row, 15, payment.payment_method.clone()));
     Ok(())
 }
 
@@ -408,6 +514,7 @@ fn write_hotel_fields(
     hotel: &HotelDetail,
     center_fmt: &Format,
     amt_fmt: &Format,
+    cell_texts: &mut Vec<(u32, u16, String)>,
 ) -> Result<(), Box<dyn Error>> {
     let check_in = hotel
         .check_in
@@ -419,7 +526,9 @@ fn write_hotel_fields(
         .unwrap_or_default();
 
     ws.write_string_with_format(row, 21, &check_in, center_fmt)?;
+    cell_texts.push((row, 21, check_in));
     ws.write_string_with_format(row, 22, &check_out, center_fmt)?;
+    cell_texts.push((row, 22, check_out));
     ws.write_number_with_format(row, 23, hotel.nights as f64, center_fmt)?;
     ws.write_number_with_format(row, 24, hotel.nightly_rate, amt_fmt)?;
     Ok(())
@@ -432,8 +541,10 @@ fn write_match_fields(
     result: &MatchResult,
     center_fmt: &Format,
     num_fmt: &Format,
+    cell_texts: &mut Vec<(u32, u16, String)>,
 ) -> Result<(), Box<dyn Error>> {
     ws.write_string_with_format(row, 26, match_type_label(&result.match_type), center_fmt)?;
+    cell_texts.push((row, 26, match_type_label(&result.match_type).to_string()));
     ws.write_number_with_format(row, 27, result.amount_diff, num_fmt)?;
     ws.write_number_with_format(row, 28, result.confidence, center_fmt)?;
     Ok(())
@@ -450,11 +561,13 @@ fn write_string_or_blank(
     col: u16,
     text: &str,
     fmt: &Format,
+    cell_texts: &mut Vec<(u32, u16, String)>,
 ) -> Result<(), Box<dyn Error>> {
     if text.is_empty() {
         ws.write_blank(row, col, fmt)?;
     } else {
         ws.write_string_with_format(row, col, text, fmt)?;
+        cell_texts.push((row, col, text.to_string()));
     }
     Ok(())
 }
@@ -517,8 +630,9 @@ fn compute_time_diff(itinerary_time: &str, payment_time: &str) -> String {
     let pay_year = pay_dt.format("%Y").to_string();
 
     // 行程时间：无年份时用支付年份补全（跨年行程保持一致），否则直接解析
-    let itin_dt = crate::parser::datetime_util::parse_datetime(&format!("{}-{}", pay_year, itinerary_time))
-        .or_else(|| crate::parser::datetime_util::parse_datetime(itinerary_time));
+    let itin_dt =
+        crate::parser::datetime_util::parse_datetime(&format!("{}-{}", pay_year, itinerary_time))
+            .or_else(|| crate::parser::datetime_util::parse_datetime(itinerary_time));
     let itin_dt = match itin_dt {
         Some(dt) => dt,
         None => return String::new(),
@@ -572,7 +686,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-train".to_string()],
                 payments: vec![PaymentRecord {
@@ -609,7 +723,8 @@ mod tests {
                     category: InvoiceCategory::CityTransport,
                     source: InvoiceSource::Photo("didi.jpg".to_string()),
                     itineraries: vec![
-                        Itinerary { city: String::new(),
+                        Itinerary {
+                            city: String::new(),
                             date_time: "08-05 09:15".to_string(),
                             provider: "滴滴".to_string(),
                             pickup: "北京站".to_string(),
@@ -617,7 +732,8 @@ mod tests {
                             amount: 35.0,
                             incomplete_fields: vec![],
                         },
-                        Itinerary { city: String::new(),
+                        Itinerary {
+                            city: String::new(),
                             date_time: "08-05 18:30".to_string(),
                             provider: "滴滴".to_string(),
                             pickup: "国贸".to_string(),
@@ -631,7 +747,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-didi".to_string()],
                 payments: vec![PaymentRecord {
@@ -678,7 +794,7 @@ mod tests {
                     }),
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec!["pay-hotel".to_string()],
                 payments: vec![PaymentRecord {
@@ -720,7 +836,7 @@ mod tests {
                     hotel_detail: None,
                     departure_city: None,
                     arrival_city: None,
-                                toll_travel_time: None,
+                    toll_travel_time: None,
                 },
                 payment_ids: vec![],
                 payments: vec![],
@@ -742,11 +858,7 @@ mod tests {
         let output_str = output_path.to_str().unwrap();
 
         let result = generate_comparison_xlsx(&results, output_str);
-        assert!(
-            result.is_ok(),
-            "XLSX generation failed: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok(), "XLSX generation failed: {:?}", result.err());
 
         // File should exist and be non-empty
         assert!(output_path.exists(), "Output file does not exist");
@@ -779,12 +891,18 @@ mod tests {
     fn test_category_label() {
         assert_eq!(category_label(&InvoiceCategory::Train), "车、船票");
         assert_eq!(category_label(&InvoiceCategory::Flight), "飞机票");
-        assert_eq!(category_label(&InvoiceCategory::Insurance), "保险费 (含交通险)");
+        assert_eq!(
+            category_label(&InvoiceCategory::Insurance),
+            "保险费 (含交通险)"
+        );
         assert_eq!(
             category_label(&InvoiceCategory::TicketChange),
             "订（退、改签）票"
         );
-        assert_eq!(category_label(&InvoiceCategory::CityTransport), "市内交通费");
+        assert_eq!(
+            category_label(&InvoiceCategory::CityTransport),
+            "市内交通费"
+        );
         assert_eq!(category_label(&InvoiceCategory::Hotel), "住宿费");
         assert_eq!(category_label(&InvoiceCategory::Meal), "餐补/伙食补助");
         assert_eq!(category_label(&InvoiceCategory::Other), "其他");

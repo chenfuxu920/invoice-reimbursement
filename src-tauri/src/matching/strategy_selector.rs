@@ -95,9 +95,15 @@ mod tests {
     use crate::models::payment::PaymentSource;
     use chrono::NaiveDate;
 
-    fn make_invoice(id: &str, category: InvoiceCategory, seller: &str, has_itineraries: bool) -> Invoice {
+    fn make_invoice(
+        id: &str,
+        category: InvoiceCategory,
+        seller: &str,
+        has_itineraries: bool,
+    ) -> Invoice {
         let itineraries = if has_itineraries {
-            vec![Itinerary { city: String::new(),
+            vec![Itinerary {
+                city: String::new(),
                 date_time: "2025-01-15 10:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),
@@ -125,7 +131,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -188,48 +194,32 @@ mod tests {
     #[test]
     fn test_select_with_context_one_to_many() {
         let invoice = make_invoice("inv1", InvoiceCategory::CityTransport, "滴滴", true);
-        let strategy = StrategySelector::select_with_context(
-            &invoice,
-            100,
-            true,
-            TimeAccuracy::Precise,
-        );
+        let strategy =
+            StrategySelector::select_with_context(&invoice, 100, true, TimeAccuracy::Precise);
         assert_eq!(strategy, MatchingStrategy::OneToMany);
     }
 
     #[test]
     fn test_select_with_context_amount_with_time() {
         let invoice = make_invoice("inv1", InvoiceCategory::Train, "", false);
-        let strategy = StrategySelector::select_with_context(
-            &invoice,
-            100,
-            false,
-            TimeAccuracy::Precise,
-        );
+        let strategy =
+            StrategySelector::select_with_context(&invoice, 100, false, TimeAccuracy::Precise);
         assert_eq!(strategy, MatchingStrategy::AmountWithTime);
     }
 
     #[test]
     fn test_select_with_context_strict_amount_only() {
         let invoice = make_invoice("inv1", InvoiceCategory::Other, "", false);
-        let strategy = StrategySelector::select_with_context(
-            &invoice,
-            15,
-            false,
-            TimeAccuracy::Unknown,
-        );
+        let strategy =
+            StrategySelector::select_with_context(&invoice, 15, false, TimeAccuracy::Unknown);
         assert_eq!(strategy, MatchingStrategy::StrictAmountOnly);
     }
 
     #[test]
     fn test_select_with_context_fuzzy_matching() {
         let invoice = make_invoice("inv1", InvoiceCategory::Other, "", false);
-        let strategy = StrategySelector::select_with_context(
-            &invoice,
-            300,
-            false,
-            TimeAccuracy::Unknown,
-        );
+        let strategy =
+            StrategySelector::select_with_context(&invoice, 300, false, TimeAccuracy::Unknown);
         assert_eq!(strategy, MatchingStrategy::FuzzyMatching);
     }
 

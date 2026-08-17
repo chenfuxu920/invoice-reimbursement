@@ -4,9 +4,7 @@
 //! -> cells -> tables) and prints where it breaks, plus a tolerance sweep.
 //! Run: cargo test --features pdfplumber --test pdfplumber_cell_debug_test -- --nocapture --ignored
 
-use pdfplumber::{
-    EdgeSource, Orientation, Pdf, TableFinder, TableSettings, WordOptions,
-};
+use pdfplumber::{EdgeSource, Orientation, Pdf, TableFinder, TableSettings, WordOptions};
 use std::path::Path;
 
 const DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../data");
@@ -32,8 +30,14 @@ fn source_name(s: EdgeSource) -> &'static str {
 /// Manual intersection count at a given tolerance (independent of the library
 /// function, so we can see whether tolerance is the culprit).
 fn manual_cross_count(edges: &[pdfplumber::Edge], x_tol: f64, y_tol: f64) -> usize {
-    let hs: Vec<_> = edges.iter().filter(|e| e.orientation == Orientation::Horizontal).collect();
-    let vs: Vec<_> = edges.iter().filter(|e| e.orientation == Orientation::Vertical).collect();
+    let hs: Vec<_> = edges
+        .iter()
+        .filter(|e| e.orientation == Orientation::Horizontal)
+        .collect();
+    let vs: Vec<_> = edges
+        .iter()
+        .filter(|e| e.orientation == Orientation::Vertical)
+        .collect();
     let mut n = 0;
     for h in &hs {
         let y = h.top;
@@ -103,11 +107,17 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
     );
     eprintln!("  H-bars (y, x0..x1):");
     for (y, x0, x1) in h_bars.iter().take(30) {
-        eprintln!("    y={y:>8.2}  x:[{x0:>8.2} .. {x1:>8.2}]  len={:.2}", x1 - x0);
+        eprintln!(
+            "    y={y:>8.2}  x:[{x0:>8.2} .. {x1:>8.2}]  len={:.2}",
+            x1 - x0
+        );
     }
     eprintln!("  V-bars (x, y0..y1):");
     for (x, y0, y1) in v_bars.iter().take(30) {
-        eprintln!("    x={x:>8.2}  y:[{y0:>8.2} .. {y1:>8.2}]  len={:.2}", y1 - y0);
+        eprintln!(
+            "    x={x:>8.2}  y:[{y0:>8.2} .. {y1:>8.2}]  len={:.2}",
+            y1 - y0
+        );
     }
 
     // Raw edges (derive_edges from lines+rects+curves)
@@ -141,8 +151,14 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
     }
 
     // Sample horizontal & vertical edges (after derive, before pipeline)
-    let hs: Vec<_> = raw_edges.iter().filter(|e| e.orientation == Orientation::Horizontal).collect();
-    let vs: Vec<_> = raw_edges.iter().filter(|e| e.orientation == Orientation::Vertical).collect();
+    let hs: Vec<_> = raw_edges
+        .iter()
+        .filter(|e| e.orientation == Orientation::Horizontal)
+        .collect();
+    let vs: Vec<_> = raw_edges
+        .iter()
+        .filter(|e| e.orientation == Orientation::Vertical)
+        .collect();
     eprintln!("--- sample H edges (x0, top=y, x1, bottom) ---");
     for e in hs.iter().take(12) {
         eprintln!(
@@ -186,19 +202,43 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
         ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
         xs.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
         ys.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
-        eprintln!("  intersection grid: {} unique x, {} unique y", xs.len(), ys.len());
+        eprintln!(
+            "  intersection grid: {} unique x, {} unique y",
+            xs.len(),
+            ys.len()
+        );
         eprintln!("    xs: {:?}", xs);
         eprintln!("    ys: {:?}", ys);
         // Dump post-pipeline H and V edges (these are what actually cross)
-        let ph: Vec<_> = debug.edges.iter().filter(|e| e.orientation == Orientation::Horizontal).collect();
-        let pv: Vec<_> = debug.edges.iter().filter(|e| e.orientation == Orientation::Vertical).collect();
+        let ph: Vec<_> = debug
+            .edges
+            .iter()
+            .filter(|e| e.orientation == Orientation::Horizontal)
+            .collect();
+        let pv: Vec<_> = debug
+            .edges
+            .iter()
+            .filter(|e| e.orientation == Orientation::Vertical)
+            .collect();
         eprintln!("  post-pipeline H edges ({}):", ph.len());
         for e in ph.iter().take(20) {
-            eprintln!("    H y={:.2} x:[{:.2}..{:.2}] src={}", e.top, e.x0, e.x1, source_name(e.source));
+            eprintln!(
+                "    H y={:.2} x:[{:.2}..{:.2}] src={}",
+                e.top,
+                e.x0,
+                e.x1,
+                source_name(e.source)
+            );
         }
         eprintln!("  post-pipeline V edges ({}):", pv.len());
         for e in pv.iter().take(20) {
-            eprintln!("    V x={:.2} y:[{:.2}..{:.2}] src={}", e.x0, e.top, e.bottom, source_name(e.source));
+            eprintln!(
+                "    V x={:.2} y:[{:.2}..{:.2}] src={}",
+                e.x0,
+                e.top,
+                e.bottom,
+                source_name(e.source)
+            );
         }
     }
 
@@ -219,7 +259,9 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
             );
         }
     } else if !debug.intersections.is_empty() && debug.cells.is_empty() {
-        eprintln!("!! BREAK at intersections_to_cells: intersections exist but 0 cells (missing corners)");
+        eprintln!(
+            "!! BREAK at intersections_to_cells: intersections exist but 0 cells (missing corners)"
+        );
         eprintln!("   unique x/y in intersections:");
         let mut xs: Vec<f64> = debug.intersections.iter().map(|i| i.x).collect();
         let mut ys: Vec<f64> = debug.intersections.iter().map(|i| i.y).collect();
@@ -232,11 +274,19 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
     } else if !debug.cells.is_empty() && debug.tables.is_empty() {
         eprintln!("!! BREAK at cells_to_tables: cells exist but 0 tables");
     } else if !debug.tables.is_empty() {
-        eprintln!("OK: tables detected ({}). dumping ALL tables:", debug.tables.len());
+        eprintln!(
+            "OK: tables detected ({}). dumping ALL tables:",
+            debug.tables.len()
+        );
         for (ti, t) in debug.tables.iter().enumerate() {
             eprintln!(
                 "  TABLE {ti}: bbox=({:.1},{:.1},{:.1},{:.1}) cells={} rows={}",
-                t.bbox.x0, t.bbox.top, t.bbox.x1, t.bbox.bottom, t.cells.len(), t.rows.len()
+                t.bbox.x0,
+                t.bbox.top,
+                t.bbox.x1,
+                t.bbox.bottom,
+                t.cells.len(),
+                t.rows.len()
             );
             for (ri, row) in t.rows.iter().take(8).enumerate() {
                 let texts: Vec<String> = row
@@ -258,14 +308,77 @@ fn diagnose_page(page: &pdfplumber::Page, pn: usize) {
     let base = TableSettings::default();
     let configs: Vec<(&str, TableSettings)> = vec![
         ("default", base.clone()),
-        ("snap=0", TableSettings { snap_tolerance: 0.0, snap_x_tolerance: 0.0, snap_y_tolerance: 0.0, ..base.clone() }),
-        ("intersect=6", TableSettings { intersection_tolerance: 6.0, intersection_x_tolerance: 6.0, intersection_y_tolerance: 6.0, ..base.clone() }),
-        ("intersect=12", TableSettings { intersection_tolerance: 12.0, intersection_x_tolerance: 12.0, intersection_y_tolerance: 12.0, ..base.clone() }),
-        ("intersect=24", TableSettings { intersection_tolerance: 24.0, intersection_x_tolerance: 24.0, intersection_y_tolerance: 24.0, ..base.clone() }),
-        ("join=12", TableSettings { join_tolerance: 12.0, join_x_tolerance: 12.0, join_y_tolerance: 12.0, ..base.clone() }),
-        ("minlen=0", TableSettings { edge_min_length: 0.0, ..base.clone() }),
-        ("snap=0+intersect=12", TableSettings { snap_tolerance: 0.0, snap_x_tolerance: 0.0, snap_y_tolerance: 0.0, intersection_tolerance: 12.0, intersection_x_tolerance: 12.0, intersection_y_tolerance: 12.0, ..base.clone() }),
-        ("strict(lines only)", TableSettings { strategy: pdfplumber::Strategy::LatticeStrict, ..base.clone() }),
+        (
+            "snap=0",
+            TableSettings {
+                snap_tolerance: 0.0,
+                snap_x_tolerance: 0.0,
+                snap_y_tolerance: 0.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "intersect=6",
+            TableSettings {
+                intersection_tolerance: 6.0,
+                intersection_x_tolerance: 6.0,
+                intersection_y_tolerance: 6.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "intersect=12",
+            TableSettings {
+                intersection_tolerance: 12.0,
+                intersection_x_tolerance: 12.0,
+                intersection_y_tolerance: 12.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "intersect=24",
+            TableSettings {
+                intersection_tolerance: 24.0,
+                intersection_x_tolerance: 24.0,
+                intersection_y_tolerance: 24.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "join=12",
+            TableSettings {
+                join_tolerance: 12.0,
+                join_x_tolerance: 12.0,
+                join_y_tolerance: 12.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "minlen=0",
+            TableSettings {
+                edge_min_length: 0.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "snap=0+intersect=12",
+            TableSettings {
+                snap_tolerance: 0.0,
+                snap_x_tolerance: 0.0,
+                snap_y_tolerance: 0.0,
+                intersection_tolerance: 12.0,
+                intersection_x_tolerance: 12.0,
+                intersection_y_tolerance: 12.0,
+                ..base.clone()
+            },
+        ),
+        (
+            "strict(lines only)",
+            TableSettings {
+                strategy: pdfplumber::Strategy::LatticeStrict,
+                ..base.clone()
+            },
+        ),
     ];
     for (name, cfg) in &configs {
         let words = page.extract_words(&WordOptions::default());
@@ -344,7 +457,10 @@ fn verify_find_tables_text_population() {
             }
         }
     }
-    assert!(found_7col, "expected at least one >=6-column row in 天府通 table");
+    assert!(
+        found_7col,
+        "expected at least one >=6-column row in 天府通 table"
+    );
 }
 
 #[test]

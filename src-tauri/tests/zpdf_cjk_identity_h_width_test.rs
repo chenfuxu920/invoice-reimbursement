@@ -37,7 +37,9 @@ fn extract_spans(pdf_path: &Path) -> Result<Vec<zpdf::TextSpan>, String> {
     for i in 0..doc.page_count() {
         let page = doc.page(i).map_err(|e| format!("page {i}: {e:?}"))?;
         let mut fonts = doc.load_page_fonts(&page);
-        let content = doc.page_content_bytes(&page).map_err(|e| format!("content: {e:?}"))?;
+        let content = doc
+            .page_content_bytes(&page)
+            .map_err(|e| format!("content: {e:?}"))?;
         let annotations = doc.page_annotations(&page);
         let mut img_cache = zpdf::ImageCache::new();
         let mut spans: Vec<zpdf::TextSpan> = Vec::new();
@@ -118,7 +120,10 @@ fn zpdf_cjk_identity_h_full_width_across_all_pdfs() {
         return;
     }
 
-    println!("\n========== zpdf CJK 全角宽度审计（{} 个 PDF）==========", pdfs.len());
+    println!(
+        "\n========== zpdf CJK 全角宽度审计（{} 个 PDF）==========",
+        pdfs.len()
+    );
 
     let mut total_checked = 0usize;
     let mut total_failures = 0usize;
@@ -148,7 +153,11 @@ fn zpdf_cjk_identity_h_full_width_across_all_pdfs() {
         } else {
             format!("FAIL({})", failures.len())
         };
-        println!("  [{status:>10}] {rel}: spans={} cjk_checked={checked} fails={}", spans.len(), failures.len());
+        println!(
+            "  [{status:>10}] {rel}: spans={} cjk_checked={checked} fails={}",
+            spans.len(),
+            failures.len()
+        );
         if !failures.is_empty() && failures.len() <= 5 {
             for f in &failures {
                 println!("      - {f}");

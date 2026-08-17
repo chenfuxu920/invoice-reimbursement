@@ -7,7 +7,8 @@ use reqwest::Client;
 
 pub async fn fetch_invoice_from_link(url: &str) -> Result<String, String> {
     let client = Client::new();
-    let resp = client.get(url)
+    let resp = client
+        .get(url)
         .send()
         .await
         .map_err(|e| format!("请求失败: {}", e))?;

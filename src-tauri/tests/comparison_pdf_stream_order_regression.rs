@@ -18,7 +18,8 @@ use lopdf::Object;
 use std::path::Path;
 
 const DZFP: &str = r"C:\Projects\rust-projects\invoice-reimbursement\data\住宿\13_【华住酒店集团】桔子成都省体育馆玉林路酒店发票已开具，感谢您_20260517_223242_dzfp_26512000002038107556_中国人民解放军国防科技大学系统工程学院_20260517223239.pdf";
-const DIDI: &str = r"C:\Projects\rust-projects\invoice-reimbursement\data\市内交通\滴滴电子发票A.pdf";
+const DIDI: &str =
+    r"C:\Projects\rust-projects\invoice-reimbursement\data\市内交通\滴滴电子发票A.pdf";
 
 fn make_match(pdf: &str, invoice_number: &str, category: InvoiceCategory) -> MatchResult {
     let invoice = Invoice {
@@ -141,7 +142,11 @@ fn comparison_pdf_keeps_source_visible_area() {
         return;
     }
     comparison_image_pdf_generator::generate_comparison_image_pdf(
-        &[make_match(DIDI, "26517000000358455168", InvoiceCategory::CityTransport)],
+        &[make_match(
+            DIDI,
+            "26517000000358455168",
+            InvoiceCategory::CityTransport,
+        )],
         "",
         &out_s,
         None,
@@ -155,8 +160,16 @@ fn comparison_pdf_keeps_source_visible_area() {
     //    clip 必须在 cm 之后（clip 与正文同坐标系，经矩阵映射到目标页）。
     let cm_pos = body.windows(2).position(|w| w == b"cm");
     let clip_pos = body.windows(7).position(|w| w == b"re W n\n");
-    assert!(cm_pos.is_some(), "内容流应包含变换矩阵 cm:\n{}", &text[..text.len().min(300)]);
-    assert!(clip_pos.is_some(), "内容流应包含裁剪 `re W n`（复刻源页可见区域）:\n{}", &text[..text.len().min(300)]);
+    assert!(
+        cm_pos.is_some(),
+        "内容流应包含变换矩阵 cm:\n{}",
+        &text[..text.len().min(300)]
+    );
+    assert!(
+        clip_pos.is_some(),
+        "内容流应包含裁剪 `re W n`（复刻源页可见区域）:\n{}",
+        &text[..text.len().min(300)]
+    );
     assert!(
         cm_pos.unwrap() < clip_pos.unwrap(),
         "裁剪必须在矩阵 cm 之后（cm 位于 {cm_pos:?}, clip 位于 {clip_pos:?}），否则裁剪坐标系错误导致整页被裁掉"
@@ -186,7 +199,11 @@ fn comparison_pdf_keeps_contents_stream_order() {
         return;
     }
     comparison_image_pdf_generator::generate_comparison_image_pdf(
-        &[make_match(DZFP, "26512000002038107556", InvoiceCategory::Hotel)],
+        &[make_match(
+            DZFP,
+            "26512000002038107556",
+            InvoiceCategory::Hotel,
+        )],
         "",
         &out_s,
         None,
@@ -204,10 +221,7 @@ fn comparison_pdf_keeps_contents_stream_order() {
         "输出内容流应包含白色背景填充 `1 1 1 scn`，实际:\n{}",
         &text[..text.len().min(400)]
     );
-    assert!(
-        text_start.is_some(),
-        "输出内容流应包含正文文字 `BT`"
-    );
+    assert!(text_start.is_some(), "输出内容流应包含正文文字 `BT`");
     assert!(
         white_fill_pos.unwrap() < text_start.unwrap(),
         "白色背景填充 (pos {}) 必须在正文文字 (pos {}) 之前，否则黑色字体被白底盖掉",

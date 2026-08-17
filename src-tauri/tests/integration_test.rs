@@ -1,5 +1,7 @@
 use invoice_reimbursement_lib::{
-    ocr::structured_output::{BoundingBox, OcrStructuredOutput, OcrTextBlock, PageLayout, TextBlockType},
+    ocr::structured_output::{
+        BoundingBox, OcrStructuredOutput, OcrTextBlock, PageLayout, TextBlockType,
+    },
     parser::invoice_type_detector::{InvoiceType, InvoiceTypeDetector},
 };
 
@@ -61,11 +63,8 @@ fn test_invoice_type_detection_flight() {
 
 #[test]
 fn test_invoice_type_detection_didi_invoice() {
-    let ocr = create_ocr_output_from_texts(vec![
-        "滴滴出行电子发票",
-        "网约车服务费",
-        "金额：¥35.00",
-    ]);
+    let ocr =
+        create_ocr_output_from_texts(vec!["滴滴出行电子发票", "网约车服务费", "金额：¥35.00"]);
 
     let invoice_type = InvoiceTypeDetector::detect(&ocr);
     assert!(matches!(invoice_type, InvoiceType::RideHailingInvoice));

@@ -1,9 +1,11 @@
+use chrono::NaiveDate;
 use invoice_reimbursement_lib::matching::batch::batch_match;
 use invoice_reimbursement_lib::matching::manual::create_manual_match_shared;
-use invoice_reimbursement_lib::models::invoice::{Invoice, InvoiceCategory, InvoiceSource, Itinerary};
+use invoice_reimbursement_lib::models::invoice::{
+    Invoice, InvoiceCategory, InvoiceSource, Itinerary,
+};
 use invoice_reimbursement_lib::models::match_result::MatchType;
 use invoice_reimbursement_lib::models::payment::{PaymentRecord, PaymentSource};
-use chrono::NaiveDate;
 
 fn make_trip_invoice(id: &str, amount: f64, itin_time: &str, itin_amount: f64) -> Invoice {
     Invoice {
@@ -51,9 +53,8 @@ fn make_toll_invoice(id: &str, amount: f64, travel_time: &str) -> Invoice {
         hotel_detail: None,
         departure_city: None,
         arrival_city: None,
-        toll_travel_time: chrono::NaiveDateTime::parse_from_str(
-            travel_time, "%Y-%m-%d %H:%M:%S"
-        ).ok(),
+        toll_travel_time: chrono::NaiveDateTime::parse_from_str(travel_time, "%Y-%m-%d %H:%M:%S")
+            .ok(),
     }
 }
 
@@ -85,8 +86,11 @@ fn test_e2e_toll_shared_payment() {
     assert_eq!(result.unmatched_invoices.len(), 0);
     assert_eq!(result.unmatched_payments.len(), 0);
 
-    let toll_match = result.matched.iter()
-        .find(|m| m.invoice.category == InvoiceCategory::Toll).unwrap();
+    let toll_match = result
+        .matched
+        .iter()
+        .find(|m| m.invoice.category == InvoiceCategory::Toll)
+        .unwrap();
     assert_eq!(toll_match.shared_from_invoice_id, Some("inv1".to_string()));
     assert_eq!(toll_match.payments[0].id, "p1");
 }
@@ -96,12 +100,8 @@ fn test_e2e_toll_manual_shared_match() {
     let toll = make_toll_invoice("toll1", 10.0, "2025-01-15 09:30:00");
     let payment = make_payment("p1", 60.0, "2025-01-15 09:35");
 
-    let result = create_manual_match_shared(
-        toll,
-        vec![payment],
-        vec![],
-        Some("inv_trip".to_string()),
-    );
+    let result =
+        create_manual_match_shared(toll, vec![payment], vec![], Some("inv_trip".to_string()));
 
     assert!(matches!(result.match_type, MatchType::ManualConfirmed));
     assert_eq!(result.shared_from_invoice_id, Some("inv_trip".to_string()));

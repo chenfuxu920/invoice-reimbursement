@@ -2,8 +2,7 @@ use crate::models::payment::{PaymentRecord, PaymentSource};
 use uuid::Uuid;
 
 pub fn parse_alipay_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> {
-    let bytes = std::fs::read(file_path)
-        .map_err(|e| format!("读取支付宝账单文件失败: {}", e))?;
+    let bytes = std::fs::read(file_path).map_err(|e| format!("读取支付宝账单文件失败: {}", e))?;
 
     let (content, _encoding, _had_errors) = encoding_rs::GBK.decode(&bytes);
     let content = content.into_owned();
@@ -46,7 +45,10 @@ pub fn parse_alipay_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> 
         let merchant_name = fields[2].trim().to_string();
         let direction = fields[5].trim();
         let amount_str = fields[6].trim();
-        let payment_method = fields.get(7).map(|s| s.trim().to_string()).unwrap_or_default();
+        let payment_method = fields
+            .get(7)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default();
 
         let amount: f64 = amount_str
             .replace("¥", "")
@@ -90,13 +92,17 @@ pub fn parse_alipay_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> 
     }
 
     // 第二遍：处理退款关联，按交易单号前缀匹配
-    let mut refund_map: std::collections::HashMap<String, Vec<f64>> = std::collections::HashMap::new();
+    let mut refund_map: std::collections::HashMap<String, Vec<f64>> =
+        std::collections::HashMap::new();
     for rec in &raw_records {
         if rec.is_refund {
             // 退款记录的交易单号格式：原始单号*后缀
             if let Some(pos) = rec.transaction_id.find('*') {
                 let prefix = &rec.transaction_id[..pos];
-                refund_map.entry(prefix.to_string()).or_default().push(rec.amount.abs());
+                refund_map
+                    .entry(prefix.to_string())
+                    .or_default()
+                    .push(rec.amount.abs());
             }
         }
     }
@@ -110,7 +116,8 @@ pub fn parse_alipay_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> 
         }
 
         // 检查是否有对应的退款
-        let refund_total: f64 = refund_map.get(&rec.transaction_id)
+        let refund_total: f64 = refund_map
+            .get(&rec.transaction_id)
             .map(|v| v.iter().sum())
             .unwrap_or(0.0);
 

@@ -47,9 +47,7 @@ fn test_standard_sets_process_wide() {
     assert_eq!(reimbursement_config::meal_subsidy_daily(), 120.0);
 
     // 4. 伙食补助：2025-01-01 → 2025-01-06 = 6 天 × 120 = 720
-    let form = build_reimbursement_form(
-        &[], "", "", "", "2025-01-01", "2025-01-06", 0, "其他人员",
-    );
+    let form = build_reimbursement_form(&[], "", "", "", "2025-01-01", "2025-01-06", 0, "其他人员");
     assert_eq!(form.travel_days, 6);
     assert_eq!(form.meal_subsidy.daily_rate, 120.0);
     assert_eq!(form.meal_subsidy.amount, 720.0);

@@ -10,7 +10,7 @@
         <span class="chip border" :class="confidenceClass">
           <Gauge :size="12" /> {{ (match.confidence * 100).toFixed(0) }}%
         </span>
-        <span v-if="match.amount_diff > 0.01" class="chip bg-orange-50 text-orange-600 border-orange-200/70" :title="'发票与支付金额差异'">
+        <span v-if="match.amount_diff > 0.01" :class="['chip', amountDiffChipClass(match.amount_diff)]" :title="'发票与支付金额差异'">
           差 ¥{{ match.amount_diff.toFixed(2) }}
         </span>
       </div>
@@ -64,7 +64,7 @@
           <div class="flex-1 flex flex-col justify-between mt-2 rounded-xl bg-white/80 border border-slate-200/70 p-2.5">
             <div class="flex justify-between text-xs text-slate-500">
               <span>共 {{ match.payments.length }} 笔支付<template v-if="hasItineraries"> · {{ match.invoice.itineraries.length }} 条行程</template></span>
-              <span :class="Math.abs(totalDiff) > 0.01 ? 'text-orange-400 font-medium' : 'text-emerald-500 font-medium'">差额 ¥{{ Math.abs(totalDiff).toFixed(2) }}</span>
+              <span :class="`${amountDiffClass(totalDiff)} font-medium`">差额 ¥{{ Math.abs(totalDiff).toFixed(2) }}</span>
             </div>
             <p class="font-display text-base font-bold text-slate-800 tabular-nums">支付合计 ¥{{ paymentTotal.toFixed(2) }}</p>
             <div v-if="hasItineraries" class="flex justify-between text-xs text-slate-500">
@@ -90,7 +90,7 @@
               </div>
               <div class="flex items-center gap-1.5 text-xs mt-0.5 flex-wrap">
                 <span v-if="row.payment" class="text-slate-700 font-medium">¥{{ row.payment.amount.toFixed(2) }}</span>
-                <span v-if="row.payment" class="text-orange-400">差¥{{ Math.abs(row.payment.amount - row.itin.amount).toFixed(2) }}</span>
+                <span v-if="row.payment" :class="amountDiffClass(row.amountDiff)">差¥{{ row.amountDiff.toFixed(2) }}</span>
                 <template v-if="row.payment && row.timeDiffLabel">
                   <span class="text-slate-300">|</span>
                   <span class="text-orange-400">时差{{ row.timeDiffLabel }}</span>
@@ -101,7 +101,7 @@
                 </template>
               </div>
             </div>
-            <button v-if="row.payment" @click.stop="$emit('remove-payment', match.invoice_id, row.payment.id)"
+            <button v-if="row.payment" @click.stop="requestRemovePayment(row.payment)"
                     class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                     :aria-label="'移除此支付'" title="移除此支付">
               <X :size="13" />
@@ -123,6 +123,7 @@
               </div>
               <div class="flex items-center gap-1.5 text-xs mt-0.5 flex-wrap">
                 <span class="text-slate-700 font-medium">¥{{ p.amount.toFixed(2) }}</span>
+                <span v-if="match.match_type === 'OneToOne'" :class="amountDiffClass(Math.abs(p.amount - match.invoice.amount))">差¥{{ Math.abs(p.amount - match.invoice.amount).toFixed(2) }}</span>
                 <template v-if="p.refund_amount > 0 || p.discount > 0">
                   <span class="text-slate-300">|</span>
                   <span v-if="p.refund_amount > 0" class="text-rose-400">退款 ¥{{ p.refund_amount.toFixed(2) }}</span>
@@ -132,7 +133,7 @@
                 <span class="text-slate-400">{{ formatTime(p.transaction_time) }}</span>
               </div>
             </div>
-            <button @click.stop="$emit('remove-payment', match.invoice_id, p.id)"
+            <button @click.stop="requestRemovePayment(p)"
                     class="text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
                     :aria-label="'移除此支付'" title="移除此支付">
               <X :size="13" />
@@ -142,25 +143,46 @@
         </div>
       </div>
     </div>
+
+    <ConfirmDialog :visible="removeTarget !== null" title="移除支付" :message="removeMessage"
+                   confirm-text="移除" @confirm="confirmRemovePayment" @cancel="removeTarget = null" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { Receipt, Wallet, X, Gauge, SlidersHorizontal, Link2, Layers, HandCoins, UserCheck } from 'lucide-vue-next'
 import AppButton from './ui/AppButton.vue'
+import ConfirmDialog from './ui/ConfirmDialog.vue'
 import type { Invoice, MatchResult, InvoiceCategory, PaymentRecord } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
+import { amountDiffClass, amountDiffChipClass } from '../utils/amountDiff'
 
 const props = defineProps<{ match: MatchResult }>()
-defineEmits<{
+const emit = defineEmits<{
   (e: 'adjust', match: MatchResult): void
   (e: 'view-invoice', invoice: Invoice): void
   (e: 'view-payment', match: MatchResult, payment?: PaymentRecord): void
   (e: 'update-category', invoiceId: string, category: InvoiceCategory): void
   (e: 'remove-payment', invoiceId: string, paymentId: string): void
 }>()
+
+const removeTarget = ref<{ invoiceId: string; payment: PaymentRecord } | null>(null)
+const removeMessage = computed(() =>
+  removeTarget.value ? `确定将该笔 ¥${removeTarget.value.payment.amount.toFixed(2)} 支付移出匹配？移出后将回到未匹配列表。` : ''
+)
+
+function requestRemovePayment(payment: PaymentRecord) {
+  removeTarget.value = { invoiceId: props.match.invoice_id, payment }
+}
+
+function confirmRemovePayment() {
+  if (removeTarget.value) {
+    emit('remove-payment', removeTarget.value.invoiceId, removeTarget.value.payment.id)
+  }
+  removeTarget.value = null
+}
 
 const hasItineraries = computed(() => props.match.invoice.itineraries.length > 0)
 
@@ -178,7 +200,8 @@ const itineraryRows = computed(() => {
       ? props.match.payments.find(p => p.id === pair.payment_id)
       : props.match.payments[idx]
     const timeDiffLabel = payment ? itineraryTimeDiffLabel(itin.date_time, payment.transaction_time) : ''
-    return { itin, idx, payment, timeDiffLabel }
+    const amountDiff = payment ? Math.abs(payment.amount - itin.amount) : 0
+    return { itin, idx, payment, amountDiff, timeDiffLabel }
   })
 })
 

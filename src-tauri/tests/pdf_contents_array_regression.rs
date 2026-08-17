@@ -10,12 +10,13 @@
 #![cfg(feature = "pdfplumber")]
 
 use invoice_reimbursement_lib::pdf::text_extractor::{
-    extract_raw_words_debug, extract_text_with_coords_flat, extract_pdf_column_aware,
+    extract_pdf_column_aware, extract_raw_words_debug, extract_text_with_coords_flat,
 };
 use std::path::Path;
 
 const PDF1: &str = r"C:\Projects\rust-projects\invoice-reimbursement\data\未分类\dzfp_26512000001847622916_中国人民解放军国防科技大学系统工程学院_20260506074422.pdf";
-const PDF2: &str = r"C:\Projects\rust-projects\invoice-reimbursement\data\未分类\全电发票(全面数字化电子发票).pdf";
+const PDF2: &str =
+    r"C:\Projects\rust-projects\invoice-reimbursement\data\未分类\全电发票(全面数字化电子发票).pdf";
 
 fn check_extracts(label: &str, path: &str) {
     if !Path::new(path).exists() {
@@ -50,7 +51,11 @@ fn check_extracts(label: &str, path: &str) {
     );
 
     // 4. content sanity: known invoice text must appear
-    let all_text: String = raw.iter().map(|(t, ..)| t.as_str()).collect::<Vec<_>>().join("");
+    let all_text: String = raw
+        .iter()
+        .map(|(t, ..)| t.as_str())
+        .collect::<Vec<_>>()
+        .join("");
     assert!(
         all_text.contains("发票") || all_text.contains("电子"),
         "{label}: expected invoice keywords, got: {all_text}"

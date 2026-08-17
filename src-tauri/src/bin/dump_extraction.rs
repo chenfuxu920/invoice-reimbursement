@@ -5,17 +5,19 @@
 //! 构建: cargo run --release --bin dump_extraction -- <pdf_dir>   (默认启用 pdfplumber feature)
 
 use invoice_reimbursement_lib::models::invoice::{Invoice, InvoiceSource};
+use invoice_reimbursement_lib::ocr::OcrTextItem;
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
 use invoice_reimbursement_lib::pdf::text_extractor::{
     classify_pdf_document_type, has_sufficient_text, is_garbled_items, PdfDocumentType,
 };
-use invoice_reimbursement_lib::ocr::OcrTextItem;
 use std::path::Path;
 
 #[cfg(feature = "pdfplumber")]
-use invoice_reimbursement_lib::pdf::text_extractor::{extract_raw_words_debug, extract_text_with_coords_flat, extract_words_raw};
-#[cfg(feature = "pdfplumber")]
 use invoice_reimbursement_lib::parser::layout_extractor;
+#[cfg(feature = "pdfplumber")]
+use invoice_reimbursement_lib::pdf::text_extractor::{
+    extract_raw_words_debug, extract_text_with_coords_flat, extract_words_raw,
+};
 
 /// 从 box_coords (serde_json::Value) 中提取 (x0, top, x1, bottom) 概要
 fn coord_summary(box_coords: &Option<serde_json::Value>) -> String {
@@ -25,8 +27,14 @@ fn coord_summary(box_coords: &Option<serde_json::Value>) -> String {
                 Some(a) => a,
                 None => return "(-,-)".to_string(),
             };
-            let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|x| x.as_f64())).collect();
-            let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|y| y.as_f64())).collect();
+            let xs: Vec<f64> = pts
+                .iter()
+                .filter_map(|p| p.get("x").and_then(|x| x.as_f64()))
+                .collect();
+            let ys: Vec<f64> = pts
+                .iter()
+                .filter_map(|p| p.get("y").and_then(|y| y.as_f64()))
+                .collect();
             if xs.is_empty() || ys.is_empty() {
                 return "(-,-)".to_string();
             }
@@ -82,7 +90,10 @@ fn doc_type_str(t: &PdfDocumentType) -> &'static str {
 }
 
 fn process_pdf(path: &Path) {
-    let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
     let path_str = path.to_string_lossy().to_string();
     println!("\n================================================================");
     println!("FILE: {}", name);
@@ -95,11 +106,16 @@ fn process_pdf(path: &Path) {
         // 先打印原始 Word（未经 merge），验证分栏检测可行性
         match extract_raw_words_debug(&path_str) {
             Ok(raw_words) => {
-                println!("\n--- pdfplumber 原始 Word [{} 个，未合并] ---", raw_words.len());
+                println!(
+                    "\n--- pdfplumber 原始 Word [{} 个，未合并] ---",
+                    raw_words.len()
+                );
                 for (i, (text, x0, top, x1, bottom, pn)) in raw_words.iter().enumerate() {
                     let w = x1 - x0;
-                    println!("  [{}] p{} ({:.0},{:.0})-({:.0},{:.0}) w={:.0} {}",
-                        i, pn, x0, top, x1, bottom, w, text);
+                    println!(
+                        "  [{}] p{} ({:.0},{:.0})-({:.0},{:.0}) w={:.0} {}",
+                        i, pn, x0, top, x1, bottom, w, text
+                    );
                 }
             }
             Err(e) => println!("\n--- pdfplumber 原始 Word 失败: {} ---", e),
@@ -113,10 +129,22 @@ fn process_pdf(path: &Path) {
             }
         };
         print_items("pdfplumber (带坐标)", &pdfplumber_items);
-        println!("  pdfplumber 文本充足(>=20): {}", has_sufficient_text(&pdfplumber_items, 20));
-        println!("  pdfplumber 乱码检测: {}", is_garbled_items(&pdfplumber_items, 0.3));
-        println!("  分类(pdfplumber): {}", doc_type_str(&classify_pdf_document_type(&pdfplumber_items)));
-        print_invoice("解析(pdfplumber)", &parse_invoice_text(&pdfplumber_items, src));
+        println!(
+            "  pdfplumber 文本充足(>=20): {}",
+            has_sufficient_text(&pdfplumber_items, 20)
+        );
+        println!(
+            "  pdfplumber 乱码检测: {}",
+            is_garbled_items(&pdfplumber_items, 0.3)
+        );
+        println!(
+            "  分类(pdfplumber): {}",
+            doc_type_str(&classify_pdf_document_type(&pdfplumber_items))
+        );
+        print_invoice(
+            "解析(pdfplumber)",
+            &parse_invoice_text(&pdfplumber_items, src),
+        );
 
         // 坐标 seller 和 amount 提取（原始 Word，未经 merge）
         match extract_words_raw(&path_str) {
@@ -139,15 +167,24 @@ fn process_pdf(path: &Path) {
         println!("\n--- extract_pdf_column_aware ---");
         match invoice_reimbursement_lib::pdf::text_extractor::extract_pdf_column_aware(&path_str) {
             Ok(extraction) => {
-                let items: Vec<_> = extraction.pages.iter().flat_map(|p| p.texts.clone()).collect();
-                println!("  提取到 {} 个文本项, {} 个原始Word", items.len(), extraction.raw_words.len());
+                let items: Vec<_> = extraction
+                    .pages
+                    .iter()
+                    .flat_map(|p| p.texts.clone())
+                    .collect();
+                println!(
+                    "  提取到 {} 个文本项, {} 个原始Word",
+                    items.len(),
+                    extraction.raw_words.len()
+                );
                 println!("  文本充足(>=20): {}", has_sufficient_text(&items, 20));
                 let src2 = InvoiceSource::Pdf(path_str.clone());
                 print_invoice("解析(column_aware)", &parse_invoice_text(&items, src2));
 
                 // 坐标 seller 和 amount（用 column_aware 的 raw_words）
                 if !extraction.raw_words.is_empty() {
-                    let seller = layout_extractor::extract_seller_by_raw_coords(&extraction.raw_words);
+                    let seller =
+                        layout_extractor::extract_seller_by_raw_coords(&extraction.raw_words);
                     println!("  坐标seller: [{}]", seller);
                     let amount = layout_extractor::extract_amount_by_coords(&extraction.raw_words);
                     match amount {

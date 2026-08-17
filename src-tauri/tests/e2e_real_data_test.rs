@@ -3,10 +3,10 @@ use invoice_reimbursement_lib::matching::batch::batch_match;
 use invoice_reimbursement_lib::ocr::OcrEngine;
 use invoice_reimbursement_lib::parser::alipay_parser;
 use invoice_reimbursement_lib::parser::wechat_parser;
-use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
-use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
-use invoice_reimbursement_lib::pdf::form_generator::generate_reimbursement_pdf;
 use invoice_reimbursement_lib::pdf::comparison_generator::generate_comparison_pdf;
+use invoice_reimbursement_lib::pdf::form_builder::build_reimbursement_form;
+use invoice_reimbursement_lib::pdf::form_generator::generate_reimbursement_pdf;
+use invoice_reimbursement_lib::pdf::form_html_generator::generate_reimbursement_html_string;
 use invoice_reimbursement_lib::pdf::invoice_pipeline::{parse_all_from_dir, ExtractionConfig};
 use std::path::Path;
 
@@ -43,11 +43,21 @@ fn e2e_full_pipeline_from_real_files() {
     println!("\n=== 解析结果 ===");
     println!("  成功: {}, 失败: {}", invoices.len(), all_errors.len());
     for inv in &invoices {
-        let has_itinerary = if inv.itineraries.is_empty() { "" } else { " [已关联行程单]" };
-        println!("  ✓ {} 类别={:?} 金额={:.2}{}", inv.invoice_number, inv.category, inv.amount, has_itinerary);
+        let has_itinerary = if inv.itineraries.is_empty() {
+            ""
+        } else {
+            " [已关联行程单]"
+        };
+        println!(
+            "  ✓ {} 类别={:?} 金额={:.2}{}",
+            inv.invoice_number, inv.category, inv.amount, has_itinerary
+        );
         if !inv.itineraries.is_empty() {
             for it in &inv.itineraries {
-                println!("     行程: {} {} {:.2}元", it.date_time, it.provider, it.amount);
+                println!(
+                    "     行程: {} {} {:.2}元",
+                    it.date_time, it.provider, it.amount
+                );
             }
         }
     }
@@ -79,8 +89,12 @@ fn e2e_full_pipeline_from_real_files() {
 
     // 4. 匹配（带行程的 CityTransport 发票会按行程逐条匹配支付）
     let match_result = batch_match(&invoices, &payments, 5.0);
-    println!("\n=== 匹配: {} 组, 未匹配发票 {}, 未匹配支付 {} ===",
-        match_result.matched.len(), match_result.unmatched_invoices.len(), match_result.unmatched_payments.len());
+    println!(
+        "\n=== 匹配: {} 组, 未匹配发票 {}, 未匹配支付 {} ===",
+        match_result.matched.len(),
+        match_result.unmatched_invoices.len(),
+        match_result.unmatched_payments.len()
+    );
 
     // 5. 构建报销单
     let form = build_reimbursement_form(
@@ -105,14 +119,26 @@ fn e2e_full_pipeline_from_real_files() {
     let comparison_path = "../data/对照表_E2E真实数据.pdf";
     let _ = generate_comparison_pdf(
         &match_result.matched,
-        &match_result.unmatched_invoices.iter().map(|i| i.id.clone()).collect::<Vec<_>>(),
-        &match_result.unmatched_payments.iter().map(|p| p.id.clone()).collect::<Vec<_>>(),
+        &match_result
+            .unmatched_invoices
+            .iter()
+            .map(|i| i.id.clone())
+            .collect::<Vec<_>>(),
+        &match_result
+            .unmatched_payments
+            .iter()
+            .map(|p| p.id.clone())
+            .collect::<Vec<_>>(),
         comparison_path,
     );
 
     // 7. 验证结构完整性（计算逻辑由 form_builder 单元测试覆盖）
     assert!(!invoices.is_empty(), "至少应解析出一张发票");
-    assert!(match_result.matched.len() >= 8, "至少应匹配 8 组，实际 {}", match_result.matched.len());
+    assert!(
+        match_result.matched.len() >= 8,
+        "至少应匹配 8 组，实际 {}",
+        match_result.matched.len()
+    );
     assert!(form.total_amount > 0.0, "总额应大于 0");
     assert!(html.contains("差 旅 费 报 销 单"));
 
@@ -143,11 +169,15 @@ fn find_bill_file(dir: &str, prefix: &str, ext: &str) -> Option<std::path::PathB
     if !dir_path.is_dir() {
         return None;
     }
-    std::fs::read_dir(dir_path).ok()?
+    std::fs::read_dir(dir_path)
+        .ok()?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .find(|p| {
             p.extension().and_then(|x| x.to_str()) == Some(ext)
-                && p.file_name().and_then(|n| n.to_str()).map(|n| n.starts_with(prefix)).unwrap_or(false)
+                && p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(prefix))
+                    .unwrap_or(false)
         })
 }

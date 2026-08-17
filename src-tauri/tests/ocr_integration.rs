@@ -4,9 +4,15 @@ use invoice_reimbursement_lib::ocr::OcrEngine;
 #[test]
 fn test_ocr_engine_new_missing_models_dir() {
     let result = OcrEngine::new("/nonexistent/models/dir");
-    assert!(result.is_err(), "Should fail when models directory doesn't exist");
+    assert!(
+        result.is_err(),
+        "Should fail when models directory doesn't exist"
+    );
     if let Err(err_msg) = result {
-        assert!(err_msg.contains("OCR model file not found"), "Error message should mention missing model file");
+        assert!(
+            err_msg.contains("OCR model file not found"),
+            "Error message should mention missing model file"
+        );
     }
 }
 
@@ -14,14 +20,17 @@ fn test_ocr_engine_new_missing_models_dir() {
 #[test]
 fn test_ocr_engine_new_empty_models_dir() {
     use tempfile::TempDir;
-    
+
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let models_path = temp_dir.path().to_str().unwrap();
-    
+
     let result = OcrEngine::new(models_path);
     assert!(result.is_err(), "Should fail when model files are missing");
     if let Err(err_msg) = result {
-        assert!(err_msg.contains("OCR model file not found"), "Error message should mention missing model file");
+        assert!(
+            err_msg.contains("OCR model file not found"),
+            "Error message should mention missing model file"
+        );
     }
 }
 
@@ -42,23 +51,29 @@ fn test_ocr_engine_health() {
 fn test_ocr_recognize_image() {
     // This test requires ONNX models to be present in a directory
     // Set MODELS_DIR env var to point to the models directory
-    let models_dir = std::env::var("MODELS_DIR")
-        .unwrap_or_else(|_| "models".to_string());
-    
+    let models_dir = std::env::var("MODELS_DIR").unwrap_or_else(|_| "models".to_string());
+
     let mut engine = OcrEngine::new(&models_dir)
         .expect("Failed to create OcrEngine - ensure models are present");
-    
+
     // Test with a sample image
     let test_image = "tests/fixtures/test_invoice.png";
     if !std::path::Path::new(test_image).exists() {
         eprintln!("Skipping test - test image not found at {}", test_image);
         return;
     }
-    
+
     let result = engine.recognize_image(test_image);
-    assert!(result.is_ok(), "Image recognition should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Image recognition should succeed: {:?}",
+        result.err()
+    );
     let response = result.unwrap();
-    assert!(!response.texts.is_empty(), "OCR should return at least some text items");
+    assert!(
+        !response.texts.is_empty(),
+        "OCR should return at least some text items"
+    );
 }
 
 /// Test OCR PDF recognition (currently not supported in embedded mode).
@@ -67,20 +82,24 @@ fn test_ocr_recognize_image() {
 #[test]
 #[ignore]
 fn test_ocr_recognize_pdf() {
-    let models_dir = std::env::var("MODELS_DIR")
-        .unwrap_or_else(|_| "models".to_string());
-    
+    let models_dir = std::env::var("MODELS_DIR").unwrap_or_else(|_| "models".to_string());
+
     let mut engine = OcrEngine::new(&models_dir)
         .expect("Failed to create OcrEngine - ensure models are present");
-    
+
     let test_pdf = "tests/fixtures/test_invoice.pdf";
     let result = engine.recognize_pdf(test_pdf);
-    
+
     // PDF recognition is currently not supported in embedded mode
-    assert!(result.is_err(), "PDF recognition should return error in embedded mode");
+    assert!(
+        result.is_err(),
+        "PDF recognition should return error in embedded mode"
+    );
     let err_msg = result.unwrap_err();
-    assert!(err_msg.contains("PDF OCR not supported"), 
-        "Error message should mention PDF not supported");
+    assert!(
+        err_msg.contains("PDF OCR not supported"),
+        "Error message should mention PDF not supported"
+    );
 }
 
 /// Test OCR engine initialization with all required model files.
@@ -89,14 +108,17 @@ fn test_ocr_recognize_pdf() {
 #[test]
 #[ignore]
 fn test_ocr_engine_with_valid_models() {
-    let models_dir = std::env::var("MODELS_DIR")
-        .unwrap_or_else(|_| "models".to_string());
-    
+    let models_dir = std::env::var("MODELS_DIR").unwrap_or_else(|_| "models".to_string());
+
     let engine = OcrEngine::new(&models_dir);
-    assert!(engine.is_ok(), "Should succeed with valid models directory: {:?}", engine.err());
-    
+    assert!(
+        engine.is_ok(),
+        "Should succeed with valid models directory: {:?}",
+        engine.err()
+    );
+
     let engine = engine.unwrap();
-    
+
     // Test health check
     let health = engine.health();
     assert!(health.is_ok(), "Health check should succeed");

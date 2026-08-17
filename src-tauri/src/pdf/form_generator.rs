@@ -1,7 +1,7 @@
-use crate::models::reimbursement::ReimbursementForm;
 use crate::models::invoice::InvoiceCategory;
 use crate::models::match_result::MatchResult;
-use genpdf::{Document, elements, fonts};
+use crate::models::reimbursement::ReimbursementForm;
+use genpdf::{elements, fonts, Document};
 use std::error::Error;
 
 fn category_label(cat: &InvoiceCategory) -> &str {
@@ -22,13 +22,22 @@ fn load_chinese_fonts() -> Result<fonts::FontFamily<fonts::FontData>, Box<dyn Er
     let font_candidates: Vec<(&str, &str)> = if cfg!(target_os = "windows") {
         vec![
             ("C:/Windows/Fonts/simhei.ttf", "C:/Windows/Fonts/simhei.ttf"),
-            ("C:/Windows/Fonts/simfang.ttf", "C:/Windows/Fonts/simfang.ttf"),
+            (
+                "C:/Windows/Fonts/simfang.ttf",
+                "C:/Windows/Fonts/simfang.ttf",
+            ),
             ("C:/Windows/Fonts/simkai.ttf", "C:/Windows/Fonts/simkai.ttf"),
         ]
     } else {
         vec![
-            ("/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Regular.ttf", "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Bold.ttf"),
-            ("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"),
+            (
+                "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Regular.ttf",
+                "/usr/share/fonts/truetype/noto-cjk/NotoSansSC-Bold.ttf",
+            ),
+            (
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            ),
         ]
     };
 
@@ -62,54 +71,89 @@ pub fn generate_reimbursement_pdf(
     doc.push(elements::Paragraph::new("差旅费报销表").aligned(genpdf::Alignment::Center));
 
     doc.push(elements::Paragraph::new(format!(
-        "姓名：{}  部职别：{}", form.name, form.department
+        "姓名：{}  部职别：{}",
+        form.name, form.department
     )));
     doc.push(elements::Paragraph::new(format!(
-        "出差日期：{} 至 {}  同行人数：{}", form.travel_start, form.travel_end, form.companions
+        "出差日期：{} 至 {}  同行人数：{}",
+        form.travel_start, form.travel_end, form.companions
     )));
 
     doc.push(elements::Paragraph::new("城市间交通费"));
     for s in &form.summaries {
-        if matches!(s.category, InvoiceCategory::Train | InvoiceCategory::Flight | InvoiceCategory::Insurance | InvoiceCategory::TicketChange) {
+        if matches!(
+            s.category,
+            InvoiceCategory::Train
+                | InvoiceCategory::Flight
+                | InvoiceCategory::Insurance
+                | InvoiceCategory::TicketChange
+        ) {
             doc.push(elements::Paragraph::new(format!(
-                "  {}  单据张数：{}  申报金额：{:.2}", category_label(&s.category), s.count, s.total_amount
+                "  {}  单据张数：{}  申报金额：{:.2}",
+                category_label(&s.category),
+                s.count,
+                s.total_amount
             )));
         }
     }
 
     doc.push(elements::Paragraph::new("市内交通费"));
-    for s in form.summaries.iter().filter(|s| matches!(s.category, InvoiceCategory::CityTransport | InvoiceCategory::Toll)) {
+    for s in form.summaries.iter().filter(|s| {
+        matches!(
+            s.category,
+            InvoiceCategory::CityTransport | InvoiceCategory::Toll
+        )
+    }) {
         doc.push(elements::Paragraph::new(format!(
-            "  单据张数：{}  申报金额：{:.2}", s.count, s.total_amount
+            "  单据张数：{}  申报金额：{:.2}",
+            s.count, s.total_amount
         )));
     }
 
     doc.push(elements::Paragraph::new("住宿费"));
-    if let Some(s) = form.summaries.iter().find(|s| matches!(s.category, InvoiceCategory::Hotel)) {
+    if let Some(s) = form
+        .summaries
+        .iter()
+        .find(|s| matches!(s.category, InvoiceCategory::Hotel))
+    {
         doc.push(elements::Paragraph::new(format!(
-            "  单据张数：{}  申报金额：{:.2}", s.count, s.total_amount
+            "  单据张数：{}  申报金额：{:.2}",
+            s.count, s.total_amount
         )));
     }
 
     doc.push(elements::Paragraph::new("餐补/伙食补助"));
-    if let Some(s) = form.summaries.iter().find(|s| matches!(s.category, InvoiceCategory::Meal)) {
+    if let Some(s) = form
+        .summaries
+        .iter()
+        .find(|s| matches!(s.category, InvoiceCategory::Meal))
+    {
         doc.push(elements::Paragraph::new(format!(
-            "  申报金额：{:.2}", s.total_amount
+            "  申报金额：{:.2}",
+            s.total_amount
         )));
     }
 
-    if let Some(s) = form.summaries.iter().find(|s| matches!(s.category, InvoiceCategory::Other)) {
+    if let Some(s) = form
+        .summaries
+        .iter()
+        .find(|s| matches!(s.category, InvoiceCategory::Other))
+    {
         doc.push(elements::Paragraph::new("其他"));
         doc.push(elements::Paragraph::new(format!(
-            "  单据张数：{}  申报金额：{:.2}", s.count, s.total_amount
+            "  单据张数：{}  申报金额：{:.2}",
+            s.count, s.total_amount
         )));
     }
 
     doc.push(elements::Paragraph::new(format!(
-        "合计：{:.2} 元", form.total_amount
+        "合计：{:.2} 元",
+        form.total_amount
     )));
 
-    doc.push(elements::Paragraph::new("\n出差人签字：          部门领导签字：          日期："));
+    doc.push(elements::Paragraph::new(
+        "\n出差人签字：          部门领导签字：          日期：",
+    ));
 
     doc.render_to_file(output_path)?;
     Ok(())
@@ -173,7 +217,8 @@ pub fn generate_detail_table_pdf(
 
                 // 发票备注（行程信息）
                 row.push_element(elements::Paragraph::new(format!(
-                    "{} {} -> {}", itinerary.date_time, itinerary.pickup, itinerary.dropoff
+                    "{} {} -> {}",
+                    itinerary.date_time, itinerary.pickup, itinerary.dropoff
                 )));
 
                 // 发票金额（只在第一行显示）
@@ -185,7 +230,9 @@ pub fn generate_detail_table_pdf(
 
                 // 支付渠道（只在第一行显示）
                 if i == 0 {
-                    let payment_source = result.payments.first()
+                    let payment_source = result
+                        .payments
+                        .first()
                         .map(|p| format!("{:?}", p.source))
                         .unwrap_or_default();
                     row.push_element(elements::Paragraph::new(payment_source));
@@ -240,7 +287,9 @@ pub fn generate_detail_table_pdf(
             row.push_element(elements::Paragraph::new(format!("{:.2}", invoice.amount)));
 
             // 支付渠道
-            let payment_source = result.payments.first()
+            let payment_source = result
+                .payments
+                .first()
                 .map(|p| format!("{:?}", p.source))
                 .unwrap_or_default();
             row.push_element(elements::Paragraph::new(payment_source));
@@ -269,7 +318,8 @@ pub fn generate_detail_table_pdf(
 
     // 合计
     let total_invoice: f64 = match_results.iter().map(|r| r.invoice.amount).sum();
-    let total_payment: f64 = match_results.iter()
+    let total_payment: f64 = match_results
+        .iter()
         .map(|r| r.payments.iter().map(|p| p.amount).sum::<f64>())
         .sum();
     let total_discount = total_invoice - total_payment;

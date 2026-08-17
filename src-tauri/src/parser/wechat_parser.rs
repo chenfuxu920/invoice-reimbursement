@@ -12,7 +12,13 @@ fn excel_serial_to_datetime(serial: f64) -> String {
     let hours = total_secs / 3600;
     let minutes = (total_secs % 3600) / 60;
     let seconds = total_secs % 60;
-    format!("{} {:02}:{:02}:{:02}", date.format("%Y-%m-%d"), hours, minutes, seconds)
+    format!(
+        "{} {:02}:{:02}:{:02}",
+        date.format("%Y-%m-%d"),
+        hours,
+        minutes,
+        seconds
+    )
 }
 
 /// 读取单元格的值，将 DateTime 类型转为可读字符串
@@ -35,14 +41,10 @@ fn cell_to_string(cell: &Data) -> String {
 }
 
 pub fn parse_wechat_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> {
-    let mut workbook = open_workbook_auto(file_path)
-        .map_err(|e| format!("打开微信账单失败: {}", e))?;
+    let mut workbook =
+        open_workbook_auto(file_path).map_err(|e| format!("打开微信账单失败: {}", e))?;
 
-    let sheet = workbook
-        .sheet_names()
-        .get(0)
-        .ok_or("无工作表")?
-        .clone();
+    let sheet = workbook.sheet_names().get(0).ok_or("无工作表")?.clone();
 
     let range = workbook
         .worksheet_range(&sheet)
@@ -139,24 +141,28 @@ pub fn parse_wechat_bill(file_path: &str) -> Result<Vec<PaymentRecord>, String> 
 
 /// 调试用：打印账单中包含指定关键词的行
 pub fn debug_wechat_bill_filter(file_path: &str, keyword: &str) -> Result<(), String> {
-    let mut workbook = open_workbook_auto(file_path)
-        .map_err(|e| format!("打开微信账单失败: {}", e))?;
+    let mut workbook =
+        open_workbook_auto(file_path).map_err(|e| format!("打开微信账单失败: {}", e))?;
     let sheet = workbook.sheet_names().get(0).ok_or("无工作表")?.clone();
-    let range = workbook.worksheet_range(&sheet).map_err(|e| format!("读取工作表失败: {}", e))?;
+    let range = workbook
+        .worksheet_range(&sheet)
+        .map_err(|e| format!("读取工作表失败: {}", e))?;
 
     for row in range.rows() {
         let first_cell = row.get(0).map(|c| c.to_string()).unwrap_or_default();
-        if first_cell.contains("交易时间") || first_cell.is_empty() { continue; }
-        
+        if first_cell.contains("交易时间") || first_cell.is_empty() {
+            continue;
+        }
+
         let row_str: String = (0..row.len())
             .map(|i| row.get(i).map(|c| c.to_string()).unwrap_or_default())
             .collect::<Vec<_>>()
             .join(" | ");
-        
+
         if row_str.contains(keyword) {
-            let cols: Vec<String> = (0..row.len()).map(|i| {
-                row.get(i).map(|c| c.to_string()).unwrap_or_default()
-            }).collect();
+            let cols: Vec<String> = (0..row.len())
+                .map(|i| row.get(i).map(|c| c.to_string()).unwrap_or_default())
+                .collect();
             eprintln!("[Row] {:?}", cols);
         }
     }
@@ -202,11 +208,17 @@ mod tests {
         let records = parse_wechat_bill(path).unwrap();
         // 验证时间已正确解析（不含序列号小数点）
         for r in &records {
-            assert!(!r.transaction_time.contains('.'),
-                "时间仍是序列号: {} for {}", r.transaction_time, r.merchant_name);
+            assert!(
+                !r.transaction_time.contains('.'),
+                "时间仍是序列号: {} for {}",
+                r.transaction_time,
+                r.merchant_name
+            );
         }
         // 验证目标行
-        let target = records.iter().find(|r| r.merchant_name.contains("华住") && (r.amount - 1104.95).abs() < 1.0);
+        let target = records
+            .iter()
+            .find(|r| r.merchant_name.contains("华住") && (r.amount - 1104.95).abs() < 1.0);
         assert!(target.is_some(), "未找到华住 1104.95 行");
         let t = target.unwrap();
         assert_eq!(t.transaction_time, "2026-04-24 00:36:40");

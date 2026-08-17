@@ -271,11 +271,20 @@
       @confirm="confirmDeleteSet"
       @cancel="deleteTarget = null"
     />
+    <ConfirmDialog
+      :visible="leaveConfirmVisible"
+      title="未保存的修改"
+      message="有未保存的修改，确定离开？未保存的修改将丢失。"
+      confirm-text="离开"
+      @confirm="confirmLeave"
+      @cancel="cancelLeave"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { invoke } from '@tauri-apps/api/core'
 import {
   Car, Utensils, Layers, CopyPlus, Plus, CheckCircle2, Copy, Pencil,
@@ -462,6 +471,31 @@ function confirmDeleteSet() {
   if (editedSetId.value === t.id) editedSetId.value = 'builtin'
   collapsedProvinces.value = new Set()
   deleteTarget.value = null
+}
+
+// 未保存修改时切页拦截：guard 挂起导航，等弹窗确认/取消后放行或中止
+const leaveConfirmVisible = ref(false)
+let pendingLeave: ((allow: boolean) => void) | null = null
+
+onBeforeRouteLeave((_to, _from, next) => {
+  if (!dirty.value) {
+    next()
+    return
+  }
+  leaveConfirmVisible.value = true
+  pendingLeave = (allow: boolean) => (allow ? next() : next(false))
+})
+
+function confirmLeave() {
+  pendingLeave?.(true)
+  pendingLeave = null
+  leaveConfirmVisible.value = false
+}
+
+function cancelLeave() {
+  pendingLeave?.(false)
+  pendingLeave = null
+  leaveConfirmVisible.value = false
 }
 
 function addProvince(set: StandardSet) {

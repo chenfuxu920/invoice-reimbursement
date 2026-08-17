@@ -50,8 +50,8 @@ fn is_portable_exe() -> bool {
 
 /// 从 tauri.conf.json 读取 plugins.updater.pubkey（= base64(整段 .pub 文件文本)）
 fn read_pubkey_b64() -> Result<String, String> {
-    let conf: serde_json::Value = serde_json::from_str(TAURI_CONF)
-        .map_err(|e| format!("tauri.conf.json 解析失败: {}", e))?;
+    let conf: serde_json::Value =
+        serde_json::from_str(TAURI_CONF).map_err(|e| format!("tauri.conf.json 解析失败: {}", e))?;
     conf["plugins"]["updater"]["pubkey"]
         .as_str()
         .map(str::to_string)
@@ -163,8 +163,8 @@ fn verify_download(exe_path: &std::path::Path, sig_path: &std::path::Path) -> Re
         .map_err(|e| format!("公钥解析失败: {}", e))?
         .into_public_key()
         .map_err(|e| format!("公钥解析失败: {}", e))?;
-    let sig_box = minisign::SignatureBox::from_file(sig_path)
-        .map_err(|e| format!("签名解析失败: {}", e))?;
+    let sig_box =
+        minisign::SignatureBox::from_file(sig_path).map_err(|e| format!("签名解析失败: {}", e))?;
 
     let exe_bytes = std::fs::read(exe_path).map_err(|e| format!("读取 exe 失败: {}", e))?;
     // allow_legacy=true 与 tauri 官方一致
@@ -207,11 +207,7 @@ pub async fn portable_download_update(
             .await
             .map_err(|e| format!("创建临时文件失败: {}", e))?;
         let mut downloaded: u64 = 0;
-        while let Some(chunk) = resp
-            .chunk()
-            .await
-            .map_err(|e| format!("下载中断: {}", e))?
-        {
+        while let Some(chunk) = resp.chunk().await.map_err(|e| format!("下载中断: {}", e))? {
             downloaded += chunk.len() as u64;
             file.write_all(&chunk)
                 .await
@@ -265,15 +261,16 @@ pub async fn portable_download_update(
 /// .bat 本体保持纯 ASCII（@echo off + start /min），通过 cmd /c start /min 无弹窗独立进程运行。
 #[tauri::command]
 pub async fn portable_install(app: AppHandle, new_exe_path: String) -> Result<(), String> {
-    let current_exe = std::env::current_exe()
-        .map_err(|e| format!("获取当前 exe 路径失败: {}", e))?;
+    let current_exe =
+        std::env::current_exe().map_err(|e| format!("获取当前 exe 路径失败: {}", e))?;
     let new_exe = std::path::PathBuf::from(&new_exe_path);
     if !new_exe.is_file() {
         return Err(format!("新 exe 不存在: {}", new_exe_path));
     }
 
     let old_exe = format!("{}.old", current_exe.display());
-    let bat_path = std::env::temp_dir().join(format!("invoice-update-{}.bat", uuid::Uuid::new_v4()));
+    let bat_path =
+        std::env::temp_dir().join(format!("invoice-update-{}.bat", uuid::Uuid::new_v4()));
 
     let script = format!(
         "Start-Sleep -Seconds 3\n\

@@ -22,7 +22,8 @@ pub fn parse_itinerary_text(texts: &[OcrTextItem]) -> Vec<Itinerary> {
 /// 解决滴滴行程单中时间列单元格内换行导致分钟丢失的问题
 fn merge_split_times(text: &str) -> String {
     // 模式1：word-level atomized text — "06-07\n20:\n17" → "06-07 20:17"
-    let re_word = Regex::new(r"(?m)^(\d{2}-\d{2})\s*\n\s*(\d{1,2}[:：])\s*\n\s*(\d{1,2})\b").unwrap();
+    let re_word =
+        Regex::new(r"(?m)^(\d{2}-\d{2})\s*\n\s*(\d{1,2}[:：])\s*\n\s*(\d{1,2})\b").unwrap();
     let merged = re_word.replace_all(text, "$1 $2$3").to_string();
 
     // 模式2：主行 "06-07 20:" 续行 "17 周日" → 合并为 "06-07 20:17 周日"
@@ -37,13 +38,12 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
     let all_text = merge_split_times(all_text);
 
     // 格式1：OCR 输出，带 ¥ 符号  2025-08-05 09:30  滴滴出行  ¥35.00
-    let re = Regex::new(
-        r"(?m)(\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2})\s+(.+?)\s+[¥￥]\s*([\d.]+)",
-    )
-    .unwrap();
+    let re = Regex::new(r"(?m)(\d{4}[-/]\d{2}[-/]\d{2}\s+\d{2}:\d{2})\s+(.+?)\s+[¥￥]\s*([\d.]+)")
+        .unwrap();
 
     for cap in re.captures_iter(&all_text) {
-        itineraries.push(Itinerary { city: String::new(),
+        itineraries.push(Itinerary {
+            city: String::new(),
             date_time: cap[1].to_string(),
             provider: cap[2].trim().to_string(),
             pickup: String::new(),
@@ -60,9 +60,7 @@ fn parse_itinerary_text_impl(all_text: &str) -> Vec<Itinerary> {
     // 格式2：parangi 提取的表格格式
     // 匹配：序号 车型 MM-DD HH: 城市 ... 里程 金额
     // 例：1 专车 04-22 21: 成都 ... 60.6 195.37
-    let re_table = Regex::new(
-        r"(\d+)\s+\S+\s+(\d{2}-\d{2}\s+\d{2}:\d{0,2})\s+(\S+)\s+"
-    ).unwrap();
+    let re_table = Regex::new(r"(\d+)\s+\S+\s+(\d{2}-\d{2}\s+\d{2}:\d{0,2})\s+(\S+)\s+").unwrap();
     let re_cont_min = Regex::new(r"^(\d{1,2})\b").unwrap();
 
     let lines: Vec<&str> = all_text.lines().collect();
@@ -157,7 +155,11 @@ pub fn parse_itinerary_with_coords_pages_and_fallback(
         if let Some(fb) = fallback_texts {
             cross_validate_amounts(&mut all, fb);
             // 用 fallback 文本（含行程单顶部时间区间）补全无年份的行程 date_time
-            let fb_text: String = fb.iter().map(|t| t.text.as_str()).collect::<Vec<_>>().join("\n");
+            let fb_text: String = fb
+                .iter()
+                .map(|t| t.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
             enrich_itinerary_years(&mut all, &fb_text);
         }
         return all;
@@ -248,9 +250,9 @@ const COL_KEYWORDS: &[(SemanticCol, &[&str])] = &[
 /// 3. 用"时间"列锚定行程 Y 范围
 /// 4. 聚合 Y 范围内各列文本提取字段
 fn detect_merged_distance_amount(header: &[&PositionedText]) -> bool {
-    header.iter().any(|p| {
-        p.text.contains("金额") && (p.text.contains("里程") || p.text.contains("公里"))
-    })
+    header
+        .iter()
+        .any(|p| p.text.contains("金额") && (p.text.contains("里程") || p.text.contains("公里")))
 }
 
 fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> {
@@ -284,18 +286,36 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
     let header_col_span = estimate_col_span_from_header(&header);
     let data_col_span = estimate_col_span(&data);
     let col_span = header_col_span.map_or(data_col_span, |h| h.max(data_col_span));
-    let seq_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Seq).map(|(_, x)| *x);
+    let seq_x = col_map
+        .iter()
+        .find(|(s, _)| *s == SemanticCol::Seq)
+        .map(|(_, x)| *x);
     let avg_row_h = estimate_row_height(&data, seq_x.unwrap_or(0.0), col_span);
 
-    let time_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Time).map(|(_, x)| *x);
+    let time_x = col_map
+        .iter()
+        .find(|(s, _)| *s == SemanticCol::Time)
+        .map(|(_, x)| *x);
 
     let re_amount = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
 
-    let pickup_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Pickup).map(|(_, x)| *x);
-    let dropoff_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Dropoff).map(|(_, x)| *x);
+    let pickup_x = col_map
+        .iter()
+        .find(|(s, _)| *s == SemanticCol::Pickup)
+        .map(|(_, x)| *x);
+    let dropoff_x = col_map
+        .iter()
+        .find(|(s, _)| *s == SemanticCol::Dropoff)
+        .map(|(_, x)| *x);
     let amount_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Amount)?.1;
-    let provider_x = col_map.iter().find(|(s, _)| *s == SemanticCol::Provider).map(|(_, x)| *x);
-    let city_x = col_map.iter().find(|(s, _)| *s == SemanticCol::City).map(|(_, x)| *x);
+    let provider_x = col_map
+        .iter()
+        .find(|(s, _)| *s == SemanticCol::Provider)
+        .map(|(_, x)| *x);
+    let city_x = col_map
+        .iter()
+        .find(|(s, _)| *s == SemanticCol::City)
+        .map(|(_, x)| *x);
 
     let col_boundaries = build_col_boundaries(&header, &col_map);
 
@@ -322,12 +342,12 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
     if let Some(tx) = time_x {
         let time_blocks: Vec<&&PositionedText> = data
             .iter()
-            .filter(|p| {
-                (p.x - tx).abs() <= col_span * 0.5 && looks_like_datetime(&p.text)
-            })
+            .filter(|p| (p.x - tx).abs() <= col_span * 0.5 && looks_like_datetime(&p.text))
             .collect();
         for tb in &time_blocks {
-            let near_existing = anchor_ys.iter().any(|&ay| (ay - tb.y).abs() < avg_row_h * 0.5);
+            let near_existing = anchor_ys
+                .iter()
+                .any(|&ay| (ay - tb.y).abs() < avg_row_h * 0.5);
             if !near_existing {
                 anchor_ys.push(tb.y);
             }
@@ -348,7 +368,9 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
                     .iter()
                     .filter(|p| {
                         p.y > gap_lo && p.y < gap_hi && {
-                            let in_amt_col = if let Some((xlo, xhi)) = col_boundaries.get(&SemanticCol::Amount) {
+                            let in_amt_col = if let Some((xlo, xhi)) =
+                                col_boundaries.get(&SemanticCol::Amount)
+                            {
                                 p.x >= *xlo && p.x <= *xhi
                             } else {
                                 (p.x - amount_x).abs() <= col_span * 0.5
@@ -405,7 +427,11 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
             let raw_time_text = if let Some((xlo, xhi)) = col_boundaries.get(&SemanticCol::Time) {
                 let main_text = filter_collect_by_x(&main, *xlo, *xhi);
                 let cont_text = filter_collect_by_x(&cont, *xlo, *xhi);
-                if cont_text.is_empty() { main_text } else { format!("{} {}", main_text, cont_text) }
+                if cont_text.is_empty() {
+                    main_text
+                } else {
+                    format!("{} {}", main_text, cont_text)
+                }
             } else {
                 collect_col_in_range(&data, tx, col_span, y_lo, y_hi)
             };
@@ -420,11 +446,19 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
             if merged_dist_amt {
                 let split_x = amount_x;
                 let text = collect_col_nearest(&data, split_x, *xhi, y_lo, y_hi, y_center);
-                if text.is_empty() { collect_col_nearest(&data, *xlo, *xhi, y_lo, y_hi, y_center) } else { text }
+                if text.is_empty() {
+                    collect_col_nearest(&data, *xlo, *xhi, y_lo, y_hi, y_center)
+                } else {
+                    text
+                }
             } else {
                 let amount_x_val = (*xlo + *xhi) / 2.0;
                 let text = collect_col_nearest(&data, amount_x_val, *xhi, y_lo, y_hi, y_center);
-                if text.is_empty() { collect_col_nearest(&data, *xlo, *xhi, y_lo, y_hi, y_center) } else { text }
+                if text.is_empty() {
+                    collect_col_nearest(&data, *xlo, *xhi, y_lo, y_hi, y_center)
+                } else {
+                    text
+                }
             }
         } else {
             let (xlo, xhi) = if merged_dist_amt {
@@ -439,25 +473,49 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
             .and_then(|c| c[1].parse().ok())
             .unwrap_or(0.0);
         // ponytail: OCR 有时丢失金额小数点（"30.60"→"3060"），>=1000 且无小数点时除以 100
-        let amount = if amount >= 1000.0 && !amount_text.contains('.') { amount / 100.0 } else { amount };
+        let amount = if amount >= 1000.0 && !amount_text.contains('.') {
+            amount / 100.0
+        } else {
+            amount
+        };
 
         let (pickup, dropoff, provider) = if let (Some(_px), Some(_dx)) = (pickup_x, dropoff_x) {
             let pickup_text = collect_text_main_cont(
-                &main, &cont, &col_boundaries, SemanticCol::Pickup, pickup_x, col_span,
+                &main,
+                &cont,
+                &col_boundaries,
+                SemanticCol::Pickup,
+                pickup_x,
+                col_span,
             );
             let dropoff_text = collect_text_main_cont(
-                &main, &cont, &col_boundaries, SemanticCol::Dropoff, dropoff_x, col_span,
+                &main,
+                &cont,
+                &col_boundaries,
+                SemanticCol::Dropoff,
+                dropoff_x,
+                col_span,
             );
 
             let pickup = extract_pickup(&pickup_text);
             let dropoff = extract_dropoff(&dropoff_text);
 
             let provider = provider_x.map_or(String::new(), |_pvx| {
-                let pv_main = filter_provider_blocks(&main, seq_x, time_x, col_span, &col_boundaries);
-                let pv_cont = filter_provider_blocks(&cont, seq_x, time_x, col_span, &col_boundaries);
-                let pv_text = if pv_cont.is_empty() { pv_main } else { format!("{} {}", pv_main, pv_cont) };
+                let pv_main =
+                    filter_provider_blocks(&main, seq_x, time_x, col_span, &col_boundaries);
+                let pv_cont =
+                    filter_provider_blocks(&cont, seq_x, time_x, col_span, &col_boundaries);
+                let pv_text = if pv_cont.is_empty() {
+                    pv_main
+                } else {
+                    format!("{} {}", pv_main, pv_cont)
+                };
                 let words: Vec<&str> = pv_text.split_whitespace().collect();
-                words.into_iter().find(|w| !is_seq_number(w)).unwrap_or("").to_string()
+                words
+                    .into_iter()
+                    .find(|w| !is_seq_number(w))
+                    .unwrap_or("")
+                    .to_string()
             });
 
             (pickup, dropoff, provider)
@@ -466,12 +524,17 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
             let station_text = if let Some((xlo, xhi)) = col_boundaries.get(&SemanticCol::Pickup) {
                 let main_text = filter_collect_by_x(&main, *xlo, *xhi);
                 let cont_text = filter_collect_by_x(&cont, *xlo, *xhi);
-                if cont_text.is_empty() { main_text } else { format!("{} {}", main_text, cont_text) }
+                if cont_text.is_empty() {
+                    main_text
+                } else {
+                    format!("{} {}", main_text, cont_text)
+                }
             } else {
                 collect_col_in_range(&data, station_x, col_span, y_lo, y_hi)
             };
             let re_pickup_tft = Regex::new(r"进站[：:]\s*([^\s~出]+)").unwrap();
-            let re_dropoff_tft = Regex::new(r"出站[：:]\s*([^\s~进]+)|(?:^|[^进出])站[：:]\s*([^\s~进]+)").unwrap();
+            let re_dropoff_tft =
+                Regex::new(r"出站[：:]\s*([^\s~进]+)|(?:^|[^进出])站[：:]\s*([^\s~进]+)").unwrap();
             let pickup = re_pickup_tft
                 .captures(&station_text)
                 .map(|c| c[1].to_string())
@@ -491,7 +554,12 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
         if amount > 0.0 {
             let city = city_x.map_or(String::new(), |cx| {
                 let t = collect_text_main_cont(
-                    &main, &cont, &col_boundaries, SemanticCol::City, Some(cx), col_span,
+                    &main,
+                    &cont,
+                    &col_boundaries,
+                    SemanticCol::City,
+                    Some(cx),
+                    col_span,
                 );
                 t.trim().to_string()
             });
@@ -516,7 +584,11 @@ fn parse_table_generic(positioned: &[PositionedText]) -> Option<Vec<Itinerary>> 
         });
     }
 
-    if entries.is_empty() { None } else { Some(entries) }
+    if entries.is_empty() {
+        None
+    } else {
+        Some(entries)
+    }
 }
 
 // ── 表格单元格解析（find_tables 路径） ──────────────────
@@ -537,7 +609,8 @@ pub fn parse_itinerary_from_tables(
     let re_amount = Regex::new(r"(\d+(?:\.\d+)?)").unwrap();
     let re_dropoff_tft = Regex::new(r"出站[：:]\s*([^\s~]+)").unwrap();
     let re_pickup_tft = Regex::new(r"进站[：:]\s*([^\s~]+)").unwrap();
-    let re_has_time = Regex::new(r"\d{2}-\d{2}\s+\d{1,2}[:：]|\d{4}-\d{2}-\d{2}\s+\d{1,2}[:：]").unwrap();
+    let re_has_time =
+        Regex::new(r"\d{2}-\d{2}\s+\d{1,2}[:：]|\d{4}-\d{2}-\d{2}\s+\d{1,2}[:：]").unwrap();
 
     let mut all_entries: Vec<Itinerary> = Vec::new();
 
@@ -550,9 +623,9 @@ pub fn parse_itinerary_from_tables(
             // 找表头行：含"序"关键词 + 金额相关关键词
             let header_idx = match table.rows.iter().position(|row| {
                 let has_seq = row.iter().any(|c| c.merged_text.contains("序"));
-                let has_amount = row.iter().any(|c| {
-                    c.merged_text.contains("额") || c.merged_text.contains("元")
-                });
+                let has_amount = row
+                    .iter()
+                    .any(|c| c.merged_text.contains("额") || c.merged_text.contains("元"));
                 has_seq && has_amount
             }) {
                 Some(idx) => idx,
@@ -573,9 +646,10 @@ pub fn parse_itinerary_from_tables(
                 } else {
                     kws
                 };
-                if let Some(pos) = header_texts.iter().position(|h| {
-                    kws.iter().any(|kw| h.contains(kw))
-                }) {
+                if let Some(pos) = header_texts
+                    .iter()
+                    .position(|h| kws.iter().any(|kw| h.contains(kw)))
+                {
                     col_indices.insert(*sem, pos);
                 }
             }
@@ -638,7 +712,10 @@ pub fn parse_itinerary_from_tables(
                 }
 
                 // 正常行：金额提取（merged_text 去空格，合并里程+金额列取末位数字）
-                let amount_text = row.get(amount_col).map(|c| c.merged_text.as_str()).unwrap_or("");
+                let amount_text = row
+                    .get(amount_col)
+                    .map(|c| c.merged_text.as_str())
+                    .unwrap_or("");
                 let amount: f64 = re_amount
                     .find_iter(amount_text)
                     .last()
@@ -652,7 +729,9 @@ pub fn parse_itinerary_from_tables(
                 let date_time = col_indices
                     .get(&SemanticCol::Time)
                     .and_then(|&idx| row.get(idx))
-                    .and_then(|cell| crate::parser::datetime_util::extract_datetime(&cell.line_text))
+                    .and_then(|cell| {
+                        crate::parser::datetime_util::extract_datetime(&cell.line_text)
+                    })
                     .unwrap_or_default();
 
                 // 供应商：merged_text 已去所有空格（"滴滴 轻享" → "滴滴轻享"）
@@ -685,8 +764,11 @@ pub fn parse_itinerary_from_tables(
                         // 天府通同一列"进出站/线路"格式："进站：XX ~ 出站：YY"
                         if text.contains('~') {
                             if let Some(first) = text.split('~').next() {
-                                let cleaned = first.trim()
-                                    .trim_start_matches("进站：").trim_start_matches("进站:").trim();
+                                let cleaned = first
+                                    .trim()
+                                    .trim_start_matches("进站：")
+                                    .trim_start_matches("进站:")
+                                    .trim();
                                 if !cleaned.is_empty() {
                                     return cleaned.to_string();
                                 }
@@ -710,8 +792,11 @@ pub fn parse_itinerary_from_tables(
                         // 天府通同一列"进出站/线路"格式："进站：XX ~ 出站：YY"
                         if text.contains('~') {
                             if let Some(last) = text.split('~').last() {
-                                let cleaned = last.trim()
-                                    .trim_start_matches("出站：").trim_start_matches("出站:").trim();
+                                let cleaned = last
+                                    .trim()
+                                    .trim_start_matches("出站：")
+                                    .trim_start_matches("出站:")
+                                    .trim();
                                 if !cleaned.is_empty() {
                                     return cleaned.to_string();
                                 }
@@ -744,17 +829,41 @@ pub fn parse_itinerary_from_tables(
     }
 }
 
-fn build_col_boundaries(header: &[&PositionedText], col_map: &[(SemanticCol, f64)]) -> HashMap<SemanticCol, (f64, f64)> {
+fn build_col_boundaries(
+    header: &[&PositionedText],
+    col_map: &[(SemanticCol, f64)],
+) -> HashMap<SemanticCol, (f64, f64)> {
     let mut all_xs: Vec<f64> = header.iter().map(|p| p.x).collect();
     all_xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    
+
     let mut boundaries = HashMap::new();
     for (sem, x) in col_map {
-        let pos = all_xs.iter().position(|&hx| (hx - *x).abs() < 5.0).unwrap_or_else(|| {
-            all_xs.iter().enumerate().min_by(|(_, a), (_, b)| (*a - x).abs().partial_cmp(&(*b - x).abs()).unwrap_or(std::cmp::Ordering::Equal)).unwrap().0
-        });
-        let left = if pos == 0 { 0.0 } else { (all_xs[pos - 1] + all_xs[pos]) / 2.0 };
-        let right = if pos + 1 < all_xs.len() { (all_xs[pos] + all_xs[pos + 1]) / 2.0 } else { all_xs[pos] + 200.0 };
+        let pos = all_xs
+            .iter()
+            .position(|&hx| (hx - *x).abs() < 5.0)
+            .unwrap_or_else(|| {
+                all_xs
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        (*a - x)
+                            .abs()
+                            .partial_cmp(&(*b - x).abs())
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .unwrap()
+                    .0
+            });
+        let left = if pos == 0 {
+            0.0
+        } else {
+            (all_xs[pos - 1] + all_xs[pos]) / 2.0
+        };
+        let right = if pos + 1 < all_xs.len() {
+            (all_xs[pos] + all_xs[pos + 1]) / 2.0
+        } else {
+            all_xs[pos] + 200.0
+        };
         boundaries.insert(*sem, (left, right));
     }
     boundaries
@@ -768,7 +877,12 @@ fn is_seq_number(text: &str) -> bool {
     if let Ok(n) = trimmed.parse::<u32>() {
         return n <= 200;
     }
-    trimmed.split(|c: char| !c.is_ascii_digit()).next().map_or(false, |s| !s.is_empty() && s.parse::<u32>().map_or(false, |n| n <= 200))
+    trimmed
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .map_or(false, |s| {
+            !s.is_empty() && s.parse::<u32>().map_or(false, |n| n <= 200)
+        })
 }
 
 fn extract_seq_number(text: &str) -> Option<u32> {
@@ -777,10 +891,15 @@ fn extract_seq_number(text: &str) -> Option<u32> {
         return None;
     }
     if let Ok(n) = trimmed.parse::<u32>() {
-        if n <= 200 { return Some(n); }
+        if n <= 200 {
+            return Some(n);
+        }
         return None;
     }
-    trimmed.split(|c: char| !c.is_ascii_digit()).next().and_then(|s| s.parse::<u32>().ok().filter(|&n| n <= 200))
+    trimmed
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .and_then(|s| s.parse::<u32>().ok().filter(|&n| n <= 200))
 }
 
 /// 检查单条行程提取结果是否不完整（有字段未提取到）
@@ -817,7 +936,10 @@ pub fn compute_incomplete_fields(entries: &mut [Itinerary]) {
             missing.push("amount".to_string());
         }
         let dt = entry.date_time.trim();
-        if dt.is_empty() || dt.contains("??") || dt.ends_with(':') || dt.ends_with('：')
+        if dt.is_empty()
+            || dt.contains("??")
+            || dt.ends_with(':')
+            || dt.ends_with('：')
             || (!dt.contains(':') && !dt.contains('：'))
         {
             missing.push("date_time".to_string());
@@ -832,7 +954,10 @@ fn looks_like_datetime(text: &str) -> bool {
     let re_short_colon = Regex::new(r"^\d{2}-\d{2}\s*\d{0,2}[:：]").unwrap();
     // ponytail: bare "MM-DD" date — pdfplumber splits "06-23" and "09:" into separate words
     let re_short_bare = Regex::new(r"^\d{2}-\d{2}$").unwrap();
-    re_full.is_match(text) || re_short_digit.is_match(text) || re_short_colon.is_match(text) || re_short_bare.is_match(text)
+    re_full.is_match(text)
+        || re_short_digit.is_match(text)
+        || re_short_colon.is_match(text)
+        || re_short_bare.is_match(text)
 }
 
 fn clean_time_text(text: &str) -> String {
@@ -855,7 +980,11 @@ fn clean_time_text(text: &str) -> String {
             }
             filtered.push(*w);
         }
-        if filtered.is_empty() { text.to_string() } else { filtered.join(" ") }
+        if filtered.is_empty() {
+            text.to_string()
+        } else {
+            filtered.join(" ")
+        }
     } else {
         text.to_string()
     }
@@ -868,7 +997,13 @@ fn collect_col_in_range(
     y_lo: f64,
     y_hi: f64,
 ) -> String {
-    collect_col_in_range_impl(data, col_x - col_span * 0.5, col_x + col_span * 0.5, y_lo, y_hi)
+    collect_col_in_range_impl(
+        data,
+        col_x - col_span * 0.5,
+        col_x + col_span * 0.5,
+        y_lo,
+        y_hi,
+    )
 }
 
 fn collect_col_nearest(
@@ -895,7 +1030,11 @@ fn collect_col_nearest(
     let best_y = items[0].y;
     let threshold = if items.len() > 1 {
         let ys: Vec<f64> = items.iter().map(|p| p.y).collect();
-        let min_diff = ys.windows(2).map(|w| (w[1] - w[0]).abs()).filter(|d| *d > 1.0).fold(f64::INFINITY, f64::min);
+        let min_diff = ys
+            .windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .filter(|d| *d > 1.0)
+            .fold(f64::INFINITY, f64::min);
         (min_diff * 0.4).max(15.0)
     } else {
         50.0
@@ -914,7 +1053,8 @@ fn filter_collect_by_x(items: &[&PositionedText], x_lo: f64, x_hi: f64) -> Strin
         .filter(|p| p.x >= x_lo && p.x <= x_hi)
         .collect();
     filtered.sort_by(|a, b| {
-        a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)
+        a.y.partial_cmp(&b.y)
+            .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
     });
     filtered
@@ -933,11 +1073,26 @@ fn collect_text_main_cont(
     col_span: f64,
 ) -> String {
     let (main_text, cont_text) = if let Some((xlo, xhi)) = col_boundaries.get(&col) {
-        (filter_collect_by_x(main, *xlo, *xhi), filter_collect_by_x(cont, *xlo, *xhi))
+        (
+            filter_collect_by_x(main, *xlo, *xhi),
+            filter_collect_by_x(cont, *xlo, *xhi),
+        )
     } else if let Some(cx) = col_x {
         (
-            collect_col_in_range_impl(main, cx - col_span * 0.5, cx + col_span * 0.5, f64::NEG_INFINITY, f64::INFINITY),
-            collect_col_in_range_impl(cont, cx - col_span * 0.5, cx + col_span * 0.5, f64::NEG_INFINITY, f64::INFINITY),
+            collect_col_in_range_impl(
+                main,
+                cx - col_span * 0.5,
+                cx + col_span * 0.5,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+            ),
+            collect_col_in_range_impl(
+                cont,
+                cx - col_span * 0.5,
+                cx + col_span * 0.5,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+            ),
         )
     } else {
         return String::new();
@@ -964,14 +1119,24 @@ fn filter_provider_blocks(
     let mut filtered: Vec<&&PositionedText> = items
         .iter()
         .filter(|p| {
-            if p.x < xlo || p.x > xhi { return false; }
-            if looks_like_datetime(&p.text) { return false; }
-            if p.text.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-') { return false; }
+            if p.x < xlo || p.x > xhi {
+                return false;
+            }
+            if looks_like_datetime(&p.text) {
+                return false;
+            }
+            if p.text
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.' || c == '-')
+            {
+                return false;
+            }
             true
         })
         .collect();
     filtered.sort_by(|a, b| {
-        a.y.partial_cmp(&b.y).unwrap_or(std::cmp::Ordering::Equal)
+        a.y.partial_cmp(&b.y)
+            .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.x.partial_cmp(&b.x).unwrap_or(std::cmp::Ordering::Equal))
     });
     filtered
@@ -989,13 +1154,18 @@ fn filter_provider_blocks(
 
 fn extract_provider_from_merged(text: &str) -> &str {
     let trimmed = text.trim();
-    let digits_end = trimmed.char_indices()
+    let digits_end = trimmed
+        .char_indices()
         .take_while(|(_, c)| c.is_ascii_digit())
         .last()
         .map(|(i, c)| i + c.len_utf8())
         .unwrap_or(0);
     let rest = &trimmed[digits_end..];
-    if rest.is_empty() { "" } else { rest.trim() }
+    if rest.is_empty() {
+        ""
+    } else {
+        rest.trim()
+    }
 }
 
 fn collect_col_in_range_impl(
@@ -1053,7 +1223,6 @@ pub fn enrich_itinerary_years(entries: &mut [Itinerary], all_text: &str) {
     }
 }
 
-
 fn extract_pickup(text: &str) -> String {
     let re_tft = Regex::new(r"进站[：:]\s*([^\s~出]+)").unwrap();
     if let Some(c) = re_tft.captures(text) {
@@ -1085,7 +1254,11 @@ fn find_header(positioned: &[PositionedText]) -> Option<Vec<&PositionedText>> {
             .filter(|p| (p.y - header_y).abs() <= 20.0)
             .collect();
         // 确认表头行包含"序"+"号"（拆分或连写都兼容）和另一个关键列名
-        let text: String = header.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("");
+        let text: String = header
+            .iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>()
+            .join("");
         if text.contains("序")
             && text.contains("号")
             && (text.contains("时间") || text.contains("金额") || text.contains("起点"))
@@ -1102,7 +1275,11 @@ fn estimate_col_span_from_header(header: &[&PositionedText]) -> Option<f64> {
     }
     let mut xs: Vec<f64> = header.iter().map(|p| p.x).collect();
     xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mut diffs: Vec<f64> = xs.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 10.0).collect();
+    let mut diffs: Vec<f64> = xs
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|d| *d > 10.0)
+        .collect();
     if diffs.is_empty() {
         return None;
     }
@@ -1138,14 +1315,22 @@ fn estimate_row_height(data: &[&PositionedText], seq_x: f64, col_span: f64) -> f
     if seq_texts.len() >= 2 {
         let mut ys = seq_texts;
         ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let diffs: Vec<f64> = ys.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 10.0).collect();
+        let diffs: Vec<f64> = ys
+            .windows(2)
+            .map(|w| w[1] - w[0])
+            .filter(|d| *d > 10.0)
+            .collect();
         if !diffs.is_empty() {
             return diffs.iter().cloned().fold(f64::INFINITY, f64::min);
         }
     }
     let mut ys: Vec<f64> = data.iter().map(|p| p.y).collect();
     ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let diffs: Vec<f64> = ys.windows(2).map(|w| w[1] - w[0]).filter(|d| *d > 15.0).collect();
+    let diffs: Vec<f64> = ys
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|d| *d > 15.0)
+        .collect();
     if diffs.is_empty() {
         return 50.0;
     }
@@ -1187,7 +1372,8 @@ fn parse_tianfutong_format(all_text: &str) -> Vec<Itinerary> {
     for cap in re_line.captures_iter(all_text) {
         let amount: f64 = cap[3].parse().unwrap_or(0.0);
         if amount > 0.0 {
-            entries.push(Itinerary { city: String::new(),
+            entries.push(Itinerary {
+                city: String::new(),
                 date_time: cap[2].to_string(),
                 provider: "天府通".to_string(),
                 pickup: cap[1].to_string(),
@@ -1249,7 +1435,9 @@ pub fn cross_validate_amounts(entries: &mut [Itinerary], fallback_texts: &[OcrTe
             // 数量不匹配：对每个 entry 搜索所有 ref 找 starts_with 匹配
             // 只修截断的 provider（entry 是 ref 的前缀），避免误匹配
             for entry in entries.iter_mut() {
-                if entry.provider.chars().count() <= 1 { continue; }
+                if entry.provider.chars().count() <= 1 {
+                    continue;
+                }
                 for ref_pv in &ref_providers {
                     if ref_pv.starts_with(entry.provider.as_str())
                         && ref_pv.len() > entry.provider.len()
@@ -1274,7 +1462,9 @@ pub fn cross_validate_amounts(entries: &mut [Itinerary], fallback_texts: &[OcrTe
         } else {
             // 数量不匹配：提取 date_time 中有效的 MM-DD 前缀，按前缀匹配 ref_time
             for entry in entries.iter_mut() {
-                if !is_time_garbled(&entry.date_time) { continue; }
+                if !is_time_garbled(&entry.date_time) {
+                    continue;
+                }
                 // 从 date_time 提取 MM-DD 前缀（如 "04-27" from "04-27 08:??"）
                 let date_prefix = extract_date_prefix(&entry.date_time);
                 if let Some(prefix) = date_prefix {
@@ -1300,9 +1490,8 @@ fn extract_date_prefix(dt: &str) -> Option<String> {
 fn extract_reference_amounts_ordered(all_text: &str) -> Vec<f64> {
     let mut results = Vec::new();
 
-    let re_didi = Regex::new(
-        r"(?m)^\d+\s+\S+\s+\d{2}-\d{2}\s+\d{1,2}[:：].*?([\d.]+)\s*$"
-    ).unwrap();
+    let re_didi =
+        Regex::new(r"(?m)^\d+\s+\S+\s+\d{2}-\d{2}\s+\d{1,2}[:：].*?([\d.]+)\s*$").unwrap();
     for cap in re_didi.captures_iter(all_text) {
         if let Ok(amount) = cap[1].parse::<f64>() {
             results.push(amount);
@@ -1313,9 +1502,7 @@ fn extract_reference_amounts_ordered(all_text: &str) -> Vec<f64> {
         return results;
     }
 
-    let re_gaode = Regex::new(
-        r"(?m)(?:^|\n)\d+\s+\S+.*?([\d.]+)元"
-    ).unwrap();
+    let re_gaode = Regex::new(r"(?m)(?:^|\n)\d+\s+\S+.*?([\d.]+)元").unwrap();
     for cap in re_gaode.captures_iter(all_text) {
         if let Ok(amount) = cap[1].parse::<f64>() {
             results.push(amount);
@@ -1327,12 +1514,8 @@ fn extract_reference_amounts_ordered(all_text: &str) -> Vec<f64> {
 
 fn extract_reference_providers_ordered(all_text: &str) -> Vec<String> {
     // 不用 (?m)^ — pdfplumber 空格拼接后 "1 专车 04-22 21:" 在一行内
-    let re_didi_main = Regex::new(
-        r"(\d+)\s+(\S+)\s+\d{2}-\d{2}\s+\d{1,2}[:：]"
-    ).unwrap();
-    let re_cont = Regex::new(
-        r"(轻享|特快|甄选|快车)"
-    ).unwrap();
+    let re_didi_main = Regex::new(r"(\d+)\s+(\S+)\s+\d{2}-\d{2}\s+\d{1,2}[:：]").unwrap();
+    let re_cont = Regex::new(r"(轻享|特快|甄选|快车)").unwrap();
 
     // 收集主匹配 + 位置（用于区间搜索续行后缀）
     // 存 match 的 start 和 end：续行段必须截止于下一条 match 的 start，
@@ -1351,7 +1534,8 @@ fn extract_reference_providers_ordered(all_text: &str) -> Vec<String> {
         let mut results = Vec::new();
         for (i, (_seq, main_pv, _start, match_end)) in matches.iter().enumerate() {
             // 在当前 match 结束到下一个 match 开始之间搜索续行后缀
-            let search_end = matches.get(i + 1)
+            let search_end = matches
+                .get(i + 1)
                 .map(|(_, _, s, _)| *s)
                 .unwrap_or(all_text.len());
             let segment = &all_text[*match_end..search_end];
@@ -1365,9 +1549,7 @@ fn extract_reference_providers_ordered(all_text: &str) -> Vec<String> {
     }
 
     let mut results = Vec::new();
-    let re_gaode = Regex::new(
-        r"\d+\s+(\S+)\s+(\S+)\s+\d{4}-\d{2}-\d{2}"
-    ).unwrap();
+    let re_gaode = Regex::new(r"\d+\s+(\S+)\s+(\S+)\s+\d{4}-\d{2}-\d{2}").unwrap();
     for cap in re_gaode.captures_iter(all_text) {
         results.push(format!("{}{}", &cap[1], &cap[2]));
     }
@@ -1379,13 +1561,12 @@ fn extract_reference_times_ordered(all_text: &str) -> Vec<String> {
     let mut results = Vec::new();
 
     // 不用 (?m)^ — pdfplumber 空格拼接后所有内容在一行
-    let re_main = Regex::new(
-        r"(\d+)\s+\S+\s+(\d{2}-\d{2})\s+(\d{1,2})(:\d{2})?[:：]?"
-    ).unwrap();
+    let re_main = Regex::new(r"(\d+)\s+\S+\s+(\d{2}-\d{2})\s+(\d{1,2})(:\d{2})?[:：]?").unwrap();
     let re_cont_min = Regex::new(
         // 搜索紧随时间后的分钟数（如 "21: 56 分钟" 里的 56）
-        r"(\d{1,2})\s*(?:分钟|周二|周一|周三|周四|周五|周六|周日)"
-    ).unwrap();
+        r"(\d{1,2})\s*(?:分钟|周二|周一|周三|周四|周五|周六|周日)",
+    )
+    .unwrap();
 
     // 收集主匹配 + 位置（同 provider 逻辑：续行段截止于下一条 match 的 start）
     let main_matches: Vec<(String, String, usize, usize, Option<String>)> = re_main
@@ -1404,7 +1585,8 @@ fn extract_reference_times_ordered(all_text: &str) -> Vec<String> {
             format!("{} {}:{}", date, hour, m.trim_start_matches(':'))
         } else {
             // 在当前 match 到下一个 match 之间搜索分钟
-            let search_end = main_matches.get(i + 1)
+            let search_end = main_matches
+                .get(i + 1)
                 .map(|(_, _, s, _, _)| *s)
                 .unwrap_or(all_text.len());
             let segment = &all_text[*match_end..search_end];
@@ -1426,9 +1608,7 @@ fn extract_reference_times_ordered(all_text: &str) -> Vec<String> {
         return results;
     }
 
-    let re_gaode = Regex::new(
-        r"\d+\s+\S+\s+\S+\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})"
-    ).unwrap();
+    let re_gaode = Regex::new(r"\d+\s+\S+\s+\S+\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})").unwrap();
     for cap in re_gaode.captures_iter(all_text) {
         results.push(format!("{} {}", &cap[1], &cap[2]));
     }
@@ -1557,7 +1737,8 @@ fn parse_fallback_format(text: &str) -> Vec<Itinerary> {
                 String::new()
             });
 
-            results.push(Itinerary { city: String::new(),
+            results.push(Itinerary {
+                city: String::new(),
                 date_time: time,
                 provider: String::new(),
                 pickup: String::new(),
@@ -1675,7 +1856,11 @@ mod tests {
             make_positioned_item("出站：牛王庙", 500.0, 210.0),
         ];
         let result = parse_itinerary_with_coords(&texts);
-        assert_eq!(result.len(), 1, "expected 1 itinerary from split-CJK header");
+        assert_eq!(
+            result.len(),
+            1,
+            "expected 1 itinerary from split-CJK header"
+        );
         assert_eq!(result[0].provider, "天府通");
         assert_eq!(result[0].date_time, "2026-05-10 20:04:43");
         assert_eq!(result[0].pickup, "成都东客站");
@@ -1712,8 +1897,15 @@ mod tests {
             make_positioned_item("195.37", 700.0, 180.0),
         ];
         let result = parse_itinerary_with_coords(&texts);
-        assert_eq!(result.len(), 1, "expected 1 itinerary from split-CJK page-2 header");
-        assert!(!result[0].date_time.is_empty(), "date_time must not be empty");
+        assert_eq!(
+            result.len(),
+            1,
+            "expected 1 itinerary from split-CJK page-2 header"
+        );
+        assert!(
+            !result[0].date_time.is_empty(),
+            "date_time must not be empty"
+        );
         assert_eq!(result[0].date_time, "04-22 21:10");
         assert_eq!(result[0].pickup, "天府机场");
         assert_eq!(result[0].dropoff, "汉庭酒店");
@@ -1754,12 +1946,26 @@ mod tests {
         for i in 0..35 {
             let y = 160.0 + (i as f64) * 7.0;
             // Items at diverse X positions > 125 (min_x+50) to inflate the count
-            texts.push(make_positioned_item("x", 130.0 + (i as f64 * 3.0) % 300.0, y));
-            texts.push(make_positioned_item("y", 200.0 + (i as f64 * 5.0) % 250.0, y));
+            texts.push(make_positioned_item(
+                "x",
+                130.0 + (i as f64 * 3.0) % 300.0,
+                y,
+            ));
+            texts.push(make_positioned_item(
+                "y",
+                200.0 + (i as f64 * 5.0) % 250.0,
+                y,
+            ));
         }
         let result = parse_itinerary_with_coords(&texts);
-        assert!(!result.is_empty(), "expected at least 1 itinerary, got 0 — col_span too small?");
-        assert!(!result[0].date_time.is_empty(), "date_time must not be empty");
+        assert!(
+            !result.is_empty(),
+            "expected at least 1 itinerary, got 0 — col_span too small?"
+        );
+        assert!(
+            !result[0].date_time.is_empty(),
+            "date_time must not be empty"
+        );
     }
 
     #[test]
@@ -1815,8 +2021,24 @@ mod tests {
     fn test_enrich_year_from_header_period() {
         // 行程单顶部"行程时间：2026年4月"，行程条目无年份 "04-22 21:30"
         let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "04-22 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "04-25 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0, incomplete_fields: vec![] },
+            Itinerary {
+                city: String::new(),
+                date_time: "04-22 21:30".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 35.0,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "04-25 08:48".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.0,
+                incomplete_fields: vec![],
+            },
         ];
         let all_text = "滴滴出行行程单\n行程时间：2026年4月\n1 专车 04-22 21:30 成都 35.00\n2 专车 04-25 08:48 成都 40.00";
         enrich_itinerary_years(&mut entries, all_text);
@@ -1826,18 +2048,30 @@ mod tests {
 
     #[test]
     fn test_enrich_year_skips_already_dated() {
-        let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
-        ];
+        let mut entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-04-22 21:30".to_string(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 35.0,
+            incomplete_fields: vec![],
+        }];
         enrich_itinerary_years(&mut entries, "2026年4月");
         assert_eq!(entries[0].date_time, "2026-04-22 21:30");
     }
 
     #[test]
     fn test_enrich_year_no_year_in_text_keeps_original() {
-        let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "04-22 21:30".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
-        ];
+        let mut entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "04-22 21:30".to_string(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 35.0,
+            incomplete_fields: vec![],
+        }];
         enrich_itinerary_years(&mut entries, "滴滴行程单\n无年份信息");
         assert_eq!(entries[0].date_time, "04-22 21:30");
     }
@@ -1845,9 +2079,15 @@ mod tests {
     #[test]
     fn test_enrich_year_from_iso_date_in_text() {
         // 顶部有 "2026-04-22 至 2026-04-25" 区间
-        let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "04-25 08:48".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0, incomplete_fields: vec![] },
-        ];
+        let mut entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "04-25 08:48".to_string(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 40.0,
+            incomplete_fields: vec![],
+        }];
         enrich_itinerary_years(&mut entries, "行程时间 2026-04-22 至 2026-04-25");
         assert_eq!(entries[0].date_time, "2026-04-25 08:48");
     }
@@ -1857,23 +2097,77 @@ mod tests {
         // 跨年行程：12-28 → 12-30 → 01-02
         // 月份从12降到1，说明跨年了，1月的条目应该年份+1
         let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "12-28 21:30".to_string(), provider: "滴滴".to_string(), pickup: "A".to_string(), dropoff: "B".to_string(), amount: 35.0, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "12-30 08:48".to_string(), provider: "滴滴".to_string(), pickup: "C".to_string(), dropoff: "D".to_string(), amount: 40.0, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "01-02 09:00".to_string(), provider: "滴滴".to_string(), pickup: "E".to_string(), dropoff: "F".to_string(), amount: 45.0, incomplete_fields: vec![] },
+            Itinerary {
+                city: String::new(),
+                date_time: "12-28 21:30".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 35.0,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "12-30 08:48".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.0,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "01-02 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "E".to_string(),
+                dropoff: "F".to_string(),
+                amount: 45.0,
+                incomplete_fields: vec![],
+            },
         ];
         enrich_itinerary_years(&mut entries, "行程时间：2025年12月-2026年1月");
-        assert_eq!(entries[0].date_time, "2025-12-28 21:30", "12月应使用基准年2025");
+        assert_eq!(
+            entries[0].date_time, "2025-12-28 21:30",
+            "12月应使用基准年2025"
+        );
         assert_eq!(entries[1].date_time, "2025-12-30 08:48", "同月不递增");
-        assert_eq!(entries[2].date_time, "2026-01-02 09:00", "月回退12→1，年份+1");
+        assert_eq!(
+            entries[2].date_time, "2026-01-02 09:00",
+            "月回退12→1，年份+1"
+        );
     }
 
     #[test]
     fn test_enrich_year_no_rollback_when_same_year() {
         // 同一年内月份递增：03-15 → 04-01 → 05-20
         let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "03-15 10:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 30.0, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "04-01 14:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 35.0, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "05-20 09:00".to_string(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 40.0, incomplete_fields: vec![] },
+            Itinerary {
+                city: String::new(),
+                date_time: "03-15 10:00".to_string(),
+                provider: String::new(),
+                pickup: String::new(),
+                dropoff: String::new(),
+                amount: 30.0,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "04-01 14:00".to_string(),
+                provider: String::new(),
+                pickup: String::new(),
+                dropoff: String::new(),
+                amount: 35.0,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "05-20 09:00".to_string(),
+                provider: String::new(),
+                pickup: String::new(),
+                dropoff: String::new(),
+                amount: 40.0,
+                incomplete_fields: vec![],
+            },
         ];
         enrich_itinerary_years(&mut entries, "行程时间：2026年3月-5月");
         assert_eq!(entries[0].date_time, "2026-03-15 10:00");
@@ -1946,9 +2240,15 @@ mod tests {
 
     #[test]
     fn test_complete_entry_is_valid() {
-        let entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-        ];
+        let entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-06-23 09:39".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 51.30,
+            incomplete_fields: vec![],
+        }];
         assert!(!has_incomplete_entries(&entries));
     }
 
@@ -1960,68 +2260,128 @@ mod tests {
 
     #[test]
     fn test_missing_minutes_is_incomplete() {
-        let entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23 09:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-        ];
+        let entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-06-23 09:??".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 51.30,
+            incomplete_fields: vec![],
+        }];
         assert!(has_incomplete_entries(&entries));
     }
 
     #[test]
     fn test_trailing_colon_is_incomplete() {
-        let entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-04-30 08:".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 100.0, incomplete_fields: vec![] },
-        ];
+        let entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-04-30 08:".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 100.0,
+            incomplete_fields: vec![],
+        }];
         assert!(has_incomplete_entries(&entries));
     }
 
     #[test]
     fn test_date_only_no_time_is_incomplete() {
-        let entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-        ];
+        let entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-06-23".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 51.30,
+            incomplete_fields: vec![],
+        }];
         assert!(has_incomplete_entries(&entries));
     }
 
     #[test]
     fn test_zero_amount_is_incomplete() {
-        let entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 0.0, incomplete_fields: vec![] },
-        ];
+        let entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-06-23 09:39".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 0.0,
+            incomplete_fields: vec![],
+        }];
         assert!(has_incomplete_entries(&entries));
     }
 
     #[test]
     fn test_empty_time_is_incomplete() {
-        let entries = vec![
-            Itinerary { city: String::new(), date_time: String::new(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 10.0, incomplete_fields: vec![] },
-        ];
+        let entries = vec![Itinerary {
+            city: String::new(),
+            date_time: String::new(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 10.0,
+            incomplete_fields: vec![],
+        }];
         assert!(has_incomplete_entries(&entries));
     }
 
     #[test]
     fn test_mixed_complete_and_incomplete() {
         let entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-            Itinerary { city: String::new(), date_time: "2026-07-03 17:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 114.10, incomplete_fields: vec![] },
+            Itinerary {
+                city: String::new(),
+                date_time: "2026-06-23 09:39".into(),
+                provider: String::new(),
+                pickup: String::new(),
+                dropoff: String::new(),
+                amount: 51.30,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2026-07-03 17:??".into(),
+                provider: String::new(),
+                pickup: String::new(),
+                dropoff: String::new(),
+                amount: 114.10,
+                incomplete_fields: vec![],
+            },
         ];
         assert!(has_incomplete_entries(&entries));
     }
 
     #[test]
     fn test_compute_incomplete_fields_flags_missing_time() {
-        let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23 09:??".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-        ];
+        let mut entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-06-23 09:??".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 51.30,
+            incomplete_fields: vec![],
+        }];
         compute_incomplete_fields(&mut entries);
-        assert!(entries[0].incomplete_fields.contains(&"date_time".to_string()));
+        assert!(entries[0]
+            .incomplete_fields
+            .contains(&"date_time".to_string()));
         assert!(!entries[0].incomplete_fields.contains(&"amount".to_string()));
     }
 
     #[test]
     fn test_compute_incomplete_fields_ok_when_complete() {
-        let mut entries = vec![
-            Itinerary { city: String::new(), date_time: "2026-06-23 09:39".into(), provider: String::new(), pickup: String::new(), dropoff: String::new(), amount: 51.30, incomplete_fields: vec![] },
-        ];
+        let mut entries = vec![Itinerary {
+            city: String::new(),
+            date_time: "2026-06-23 09:39".into(),
+            provider: String::new(),
+            pickup: String::new(),
+            dropoff: String::new(),
+            amount: 51.30,
+            incomplete_fields: vec![],
+        }];
         compute_incomplete_fields(&mut entries);
         assert!(entries[0].incomplete_fields.is_empty());
     }
@@ -2033,7 +2393,10 @@ mod tests {
         // 滴滴行程单时间列单元格内折行： "06-07 20:\n  17 周日"
         let input = "1 专车 06-07 20:\n17 周日\n长沙\n芙蓉北路\n60.6\n195.37";
         let merged = merge_split_times(input);
-        assert!(merged.contains("06-07 20:17"), "应合并为 06-07 20:17，实际: {merged}");
+        assert!(
+            merged.contains("06-07 20:17"),
+            "应合并为 06-07 20:17，实际: {merged}"
+        );
         // ponytail: 冒号后仍有 "20:17"，contains("20:") 永远为真，只断言合并结果
     }
 
@@ -2077,8 +2440,14 @@ mod tests {
         // word-level atomized text: "06-07\n20:\n17" → "06-07 20:17"
         let input = "1\n专车\n06-07\n20:\n17\n周日\n长沙\n¥195.37\n2\n专车\n06-12\n21:\n41\n周五\n长沙\n¥114.10";
         let merged = merge_split_times(input);
-        assert!(merged.contains("06-07 20:17"), "word-level 应合并为 06-07 20:17，实际: {merged}");
-        assert!(merged.contains("06-12 21:41"), "word-level 应合并为 06-12 21:41");
+        assert!(
+            merged.contains("06-07 20:17"),
+            "word-level 应合并为 06-07 20:17，实际: {merged}"
+        );
+        assert!(
+            merged.contains("06-12 21:41"),
+            "word-level 应合并为 06-12 21:41"
+        );
     }
 
     #[test]
@@ -2132,12 +2501,15 @@ mod tests {
     #[test]
     fn test_parse_itinerary_from_tables_didi_mock() {
         // 模拟滴滴行程单表格数据（从真实诊断输出提取）
-        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+        use crate::pdf::text_extractor::{TableCellInfo, TableInfo};
 
         fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
             TableCellInfo {
                 text: text.to_string(),
-                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                x0: 0.0,
+                top: 0.0,
+                x1: 50.0,
+                bottom: 20.0,
                 words: Vec::new(),
                 line_text: line_text.to_string(),
                 merged_text: merged_text.to_string(),
@@ -2175,7 +2547,11 @@ mod tests {
             cell("04-27 08: 51 周一", "04-27 08: 51 周一", "04-2708:51周一"),
             cell("成都 ...", "成都 ...", "成都..."),
             cell("花牌坊|...", "花牌坊|美居酒店", "花牌坊|美居酒店"),
-            cell("跳伞塔|...", "跳伞塔|社区党群服务中心", "跳伞塔|社区党群服务中心"),
+            cell(
+                "跳伞塔|...",
+                "跳伞塔|社区党群服务中心",
+                "跳伞塔|社区党群服务中心",
+            ),
             cell("9.0", "9.0", "9.0"),
             cell("26.60", "26.60", "26.60"),
             cell("", "", ""),
@@ -2186,7 +2562,11 @@ mod tests {
             cell("04-28 14: 45 周二", "04-28 14: 45 周二", "04-2814:45周二"),
             cell("成都 ...", "成都 ...", "成都..."),
             cell("九眼桥|...", "九眼桥|星巴克咖啡", "九眼桥|星巴克咖啡"),
-            cell("跳伞塔|...", "跳伞塔|社区党群服务中心", "跳伞塔|社区党群服务中心"),
+            cell(
+                "跳伞塔|...",
+                "跳伞塔|社区党群服务中心",
+                "跳伞塔|社区党群服务中心",
+            ),
             cell("3.8", "3.8", "3.8"),
             cell("11.30", "11.30", "11.30"),
             cell("", "", ""),
@@ -2197,7 +2577,11 @@ mod tests {
             cell("04-29 08: 26 周三", "04-29 08: 26 周三", "04-2908:26周三"),
             cell("成都 ...", "成都 ...", "成都..."),
             cell("星巴克咖啡|...", "星巴克咖啡|主路", "星巴克咖啡|主路"),
-            cell("跳伞塔|...", "跳伞塔|社区党群服务中心", "跳伞塔|社区党群服务中心"),
+            cell(
+                "跳伞塔|...",
+                "跳伞塔|社区党群服务中心",
+                "跳伞塔|社区党群服务中心",
+            ),
             cell("3.2", "3.2", "3.2"),
             cell("12.90", "12.90", "12.90"),
             cell("", "", ""),
@@ -2216,7 +2600,10 @@ mod tests {
 
         let page_tables = vec![TableInfo {
             rows: vec![header, row1, row5, row11, row13, row14],
-            x0: 64.5, top: 321.3, x1: 530.7, bottom: 719.4,
+            x0: 64.5,
+            top: 321.3,
+            x1: 530.7,
+            bottom: 719.4,
         }];
         let tables_by_page = vec![page_tables];
 
@@ -2229,28 +2616,44 @@ mod tests {
         let entry5 = entries.iter().find(|e| (e.amount - 26.60).abs() < 0.01);
         assert!(entry5.is_some(), "应找到金额 26.60 的条目");
         let e5 = entry5.unwrap();
-        assert!(e5.provider.contains("滴滴轻享"),
-            "row5 provider 应为滴滴轻享，实际: '{}'", e5.provider);
-        assert!(e5.date_time.contains("04-27 08:51") || e5.date_time.contains("04-27"),
-            "row5 时间应为 04-27 08:51，实际: '{}'", e5.date_time);
+        assert!(
+            e5.provider.contains("滴滴轻享"),
+            "row5 provider 应为滴滴轻享，实际: '{}'",
+            e5.provider
+        );
+        assert!(
+            e5.date_time.contains("04-27 08:51") || e5.date_time.contains("04-27"),
+            "row5 时间应为 04-27 08:51，实际: '{}'",
+            e5.date_time
+        );
 
         // row 13: provider "滴滴 特快" → merged_text → "滴滴特快"
         let entry13 = entries.iter().find(|e| (e.amount - 12.90).abs() < 0.01);
         assert!(entry13.is_some(), "应找到金额 12.90 的条目");
         let e13 = entry13.unwrap();
-        assert_eq!(e13.provider, "滴滴特快",
-            "row13 provider 应为滴滴特快，实际: '{}'", e13.provider);
+        assert_eq!(
+            e13.provider, "滴滴特快",
+            "row13 provider 应为滴滴特快，实际: '{}'",
+            e13.provider
+        );
 
         // 所有条目 provider 不应为空
-        assert!(entries.iter().all(|e| !e.provider.is_empty()),
-            "所有条目 provider 不应为空");
+        assert!(
+            entries.iter().all(|e| !e.provider.is_empty()),
+            "所有条目 provider 不应为空"
+        );
 
         // 所有条目应有时间
-        assert!(entries.iter().all(|e| e.date_time.contains(':')),
-            "所有条目应有时间");
+        assert!(
+            entries.iter().all(|e| e.date_time.contains(':')),
+            "所有条目应有时间"
+        );
 
-        eprintln!("  [TEST] 行程单表格解析: {} 条, provider 样例: {}",
-            entries.len(), entries[0].provider);
+        eprintln!(
+            "  [TEST] 行程单表格解析: {} 条, provider 样例: {}",
+            entries.len(),
+            entries[0].provider
+        );
     }
 
     #[cfg(feature = "pdfplumber")]
@@ -2258,12 +2661,15 @@ mod tests {
     fn test_parse_itinerary_from_tables_weekday_never_leaks() {
         // 滴滴行程单 line_text 中周几可能被换行拆开（"周\n一"）或连续（"周三"），
         // 两种形态都不应泄漏进 date_time——extract_datetime 按格式列表直接提取时间
-        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+        use crate::pdf::text_extractor::{TableCellInfo, TableInfo};
 
         fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
             TableCellInfo {
                 text: text.to_string(),
-                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                x0: 0.0,
+                top: 0.0,
+                x1: 50.0,
+                bottom: 20.0,
                 words: Vec::new(),
                 line_text: line_text.to_string(),
                 merged_text: merged_text.to_string(),
@@ -2308,32 +2714,55 @@ mod tests {
         ];
         let page_tables = vec![TableInfo {
             rows: vec![header, row1, row2],
-            x0: 0.0, top: 0.0, x1: 500.0, bottom: 200.0,
+            x0: 0.0,
+            top: 0.0,
+            x1: 500.0,
+            bottom: 200.0,
         }];
         let tables_by_page = vec![page_tables];
 
         let result = parse_itinerary_from_tables(&tables_by_page);
         let entries = result.expect("应返回 Some");
-        assert_eq!(entries.len(), 2, "应解析出 2 条行程，实际 {}", entries.len());
+        assert_eq!(
+            entries.len(),
+            2,
+            "应解析出 2 条行程，实际 {}",
+            entries.len()
+        );
         for e in &entries {
-            assert!(!["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
-                .iter().any(|w| e.date_time.contains(w)),
-                "date_time 不应含周几: '{}'", e.date_time);
+            assert!(
+                !["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+                    .iter()
+                    .any(|w| e.date_time.contains(w)),
+                "date_time 不应含周几: '{}'",
+                e.date_time
+            );
         }
-        assert_eq!(entries[0].date_time, "05-06 15:22", "实际: {}", entries[0].date_time);
-        assert_eq!(entries[1].date_time, "05-11 11:48", "实际: {}", entries[1].date_time);
+        assert_eq!(
+            entries[0].date_time, "05-06 15:22",
+            "实际: {}",
+            entries[0].date_time
+        );
+        assert_eq!(
+            entries[1].date_time, "05-11 11:48",
+            "实际: {}",
+            entries[1].date_time
+        );
     }
 
     #[cfg(feature = "pdfplumber")]
     #[test]
     fn test_parse_itinerary_from_tables_tianfutong() {
         // 模拟天府通行程单：7 列表头 + 正常行 + 续行
-        use crate::pdf::text_extractor::{TableInfo, TableCellInfo};
+        use crate::pdf::text_extractor::{TableCellInfo, TableInfo};
 
         fn cell(text: &str, line_text: &str, merged_text: &str) -> TableCellInfo {
             TableCellInfo {
                 text: text.to_string(),
-                x0: 0.0, top: 0.0, x1: 50.0, bottom: 20.0,
+                x0: 0.0,
+                top: 0.0,
+                x1: 50.0,
+                bottom: 20.0,
                 words: Vec::new(),
                 line_text: line_text.to_string(),
                 merged_text: merged_text.to_string(),
@@ -2355,20 +2784,33 @@ mod tests {
             cell("1", "1", "1"),
             cell("地铁", "地铁", "地铁"),
             cell("4458359453167616", "4458359453167616", "4458359453167616"),
-            cell("2026-04-24 17:58:59", "2026-04-24 17:58:59", "2026-04-2417:58:59"),
-            cell("进站：省体育馆~出站：花牌坊", "进站：省体育馆~出站：花牌坊", "进站：省体育馆~出站：花牌坊"),
+            cell(
+                "2026-04-24 17:58:59",
+                "2026-04-24 17:58:59",
+                "2026-04-2417:58:59",
+            ),
+            cell(
+                "进站：省体育馆~出站：花牌坊",
+                "进站：省体育馆~出站：花牌坊",
+                "进站：省体育馆~出站：花牌坊",
+            ),
             cell("支付宝APP", "支付宝APP", "支付宝APP"),
             cell("3", "3", "3"),
         ];
 
         // 续行 row3: 1 个单元格，内容为第 2 行的剩余未拆分列
-        let row2_cont = vec![
-            cell("进站：天宇路~出站：花牌坊 支付宝APP 3 地铁 ...", "进站：天宇路~ 出站：花牌坊 支付宝APP 3 地铁 ...", "进站：天宇路~出站：花牌坊支付宝APP3地铁..."),
-        ];
+        let row2_cont = vec![cell(
+            "进站：天宇路~出站：花牌坊 支付宝APP 3 地铁 ...",
+            "进站：天宇路~ 出站：花牌坊 支付宝APP 3 地铁 ...",
+            "进站：天宇路~出站：花牌坊支付宝APP3地铁...",
+        )];
 
         let page_tables = vec![TableInfo {
             rows: vec![header, row1, row2_cont],
-            x0: 18.4, top: 420.1, x1: 576.9, bottom: 564.0,
+            x0: 18.4,
+            top: 420.1,
+            x1: 576.9,
+            bottom: 564.0,
         }];
         let tables_by_page = vec![page_tables];
 
@@ -2378,13 +2820,21 @@ mod tests {
         assert!(!entries.is_empty(), "至少应有 1 条行程");
         // 应只有一条（续行被合并到第一条）
         assert_eq!(entries.len(), 1, "天府通续行应合并为 1 条行程");
-        assert_eq!(entries[0].provider, "地铁",
-            "天府通 provider 应为地铁，实际: '{}'", entries[0].provider);
-        assert_eq!(entries[0].pickup, "省体育馆",
-            "天府通 pickup 应为省体育馆，实际: '{}'", entries[0].pickup);
-        assert!(!entries[0].dropoff.is_empty(),
-            "天府通 dropoff 不应为空");
-        assert!((entries[0].amount - 3.0).abs() < 0.01,
-            "天府通 amount 应为 3.0，实际: {}", entries[0].amount);
+        assert_eq!(
+            entries[0].provider, "地铁",
+            "天府通 provider 应为地铁，实际: '{}'",
+            entries[0].provider
+        );
+        assert_eq!(
+            entries[0].pickup, "省体育馆",
+            "天府通 pickup 应为省体育馆，实际: '{}'",
+            entries[0].pickup
+        );
+        assert!(!entries[0].dropoff.is_empty(), "天府通 dropoff 不应为空");
+        assert!(
+            (entries[0].amount - 3.0).abs() < 0.01,
+            "天府通 amount 应为 3.0，实际: {}",
+            entries[0].amount
+        );
     }
 }

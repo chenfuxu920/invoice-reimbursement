@@ -1,43 +1,47 @@
 use crate::models::invoice::{HotelDetail, Invoice, InvoiceCategory, InvoiceSource};
-use chrono::{NaiveDate, Datelike};
 use crate::ocr::structured_output::OcrStructuredOutput;
 use crate::ocr::OcrTextItem;
 use crate::parser::invoice_type_detector::{InvoiceType, InvoiceTypeDetector};
+use chrono::{Datelike, NaiveDate};
 use regex::Regex;
 use uuid::Uuid;
 
 /// 发票区域结构
 struct InvoiceRegions {
-    header: String,      // 发票号码、开票日期
-    buyer: String,       // 购买方信息
-    seller: String,      // 销售方信息
-    items: String,       // 商品明细（项目名称、金额等）
-    total: String,       // 价税合计
-    remarks: String,     // 备注
+    header: String,  // 发票号码、开票日期
+    buyer: String,   // 购买方信息
+    seller: String,  // 销售方信息
+    items: String,   // 商品明细（项目名称、金额等）
+    total: String,   // 价税合计
+    remarks: String, // 备注
 }
 
 /// 将全角数字 ０-９ 归一化为半角 0-9（不变其他字符）。
 /// 火车票等票据的日期/发票号常混用全角数字，使正则 `\d` 匹配失败。
 fn normalize_fullwidth_digits(s: &str) -> String {
-    s.chars().map(|c| {
-        if ('\u{FF10}'..='\u{FF19}').contains(&c) {
-            // 全角 ０ (U+FF10) → 半角 '0' (U+0030)
-            char::from_u32(c as u32 - 0xFF10 + 0x30).unwrap_or(c)
-        } else {
-            c
-        }
-    }).collect()
+    s.chars()
+        .map(|c| {
+            if ('\u{FF10}'..='\u{FF19}').contains(&c) {
+                // 全角 ０ (U+FF10) → 半角 '0' (U+0030)
+                char::from_u32(c as u32 - 0xFF10 + 0x30).unwrap_or(c)
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// 从 OcrTextItem 提取 Y 坐标（取顶部），无坐标返回 f64::MAX
 fn item_top_y(item: &OcrTextItem) -> f64 {
-    item.box_coords.as_ref()
+    item.box_coords
+        .as_ref()
         .and_then(|v| v["points"][0]["y"].as_f64())
         .unwrap_or(f64::MAX)
 }
 /// 提取 X 坐标（取左侧）
 fn item_left_x(item: &OcrTextItem) -> f64 {
-    item.box_coords.as_ref()
+    item.box_coords
+        .as_ref()
         .and_then(|v| v["points"][0]["x"].as_f64())
         .unwrap_or(f64::MAX)
 }
@@ -48,8 +52,13 @@ fn sort_texts_by_position(texts: &[OcrTextItem]) -> Vec<&OcrTextItem> {
     items.sort_by(|a, b| {
         let ya = item_top_y(a);
         let yb = item_top_y(b);
-        ya.partial_cmp(&yb).unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| item_left_x(a).partial_cmp(&item_left_x(b)).unwrap_or(std::cmp::Ordering::Equal))
+        ya.partial_cmp(&yb)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                item_left_x(a)
+                    .partial_cmp(&item_left_x(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     });
     items
 }
@@ -119,8 +128,14 @@ fn line_group_text(items: &[&OcrTextItem]) -> String {
 fn item_bounds(item: &OcrTextItem) -> Option<(f64, f64, f64, f64)> {
     let coords = item.box_coords.as_ref()?;
     let pts = coords.get("points")?.as_array()?;
-    let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|v| v.as_f64())).collect();
-    let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+    let xs: Vec<f64> = pts
+        .iter()
+        .filter_map(|p| p.get("x").and_then(|v| v.as_f64()))
+        .collect();
+    let ys: Vec<f64> = pts
+        .iter()
+        .filter_map(|p| p.get("y").and_then(|v| v.as_f64()))
+        .collect();
     if xs.is_empty() || ys.is_empty() {
         return None;
     }
@@ -195,17 +210,23 @@ fn merge_vertical_chars(texts: &[OcrTextItem]) -> Vec<OcrTextItem> {
             let x_max = all_xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let y_min = all_ys.iter().cloned().fold(f64::INFINITY, f64::min);
             let y_max = all_ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-            let avg_conf: f64 =
-                title_items.iter().map(|&(i, _)| texts[i].confidence).sum::<f64>()
-                    / title_items.len() as f64;
-            Some(crate::ocr::engine::bbox_to_json(x_min, y_min, x_max, y_max, avg_conf))
+            let avg_conf: f64 = title_items
+                .iter()
+                .map(|&(i, _)| texts[i].confidence)
+                .sum::<f64>()
+                / title_items.len() as f64;
+            Some(crate::ocr::engine::bbox_to_json(
+                x_min, y_min, x_max, y_max, avg_conf,
+            ))
         } else {
             None
         };
 
-        let avg_conf: f64 =
-            title_items.iter().map(|&(i, _)| texts[i].confidence).sum::<f64>()
-                / title_items.len() as f64;
+        let avg_conf: f64 = title_items
+            .iter()
+            .map(|&(i, _)| texts[i].confidence)
+            .sum::<f64>()
+            / title_items.len() as f64;
 
         merged.push(OcrTextItem {
             text: title.text.clone(),
@@ -262,13 +283,19 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
             // 其他文本归入当前区域（total 或 remarks）
         } else {
             // 识别区域切换（自上而下顺序，不需防回退）
-            if trimmed.contains("购买方") && (trimmed.contains("名称") || trimmed.contains("统一社会信用代码")) {
+            if trimmed.contains("购买方")
+                && (trimmed.contains("名称") || trimmed.contains("统一社会信用代码"))
+            {
                 current_region = "buyer";
             } else if trimmed.contains("销售方") {
                 current_region = "seller";
-            } else if trimmed.contains("项目名称") || trimmed.contains("货物或应税劳务") {
+            } else if trimmed.contains("项目名称") || trimmed.contains("货物或应税劳务")
+            {
                 current_region = "items";
-            } else if trimmed.contains("价税合计") || trimmed.contains("票价") || trimmed.contains("合计金额") {
+            } else if trimmed.contains("价税合计")
+                || trimmed.contains("票价")
+                || trimmed.contains("合计金额")
+            {
                 current_region = "total";
                 past_total = true;
             } else if trimmed.contains("备注") {
@@ -277,12 +304,30 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
         }
 
         match current_region {
-            "header" => { regions.header.push_str(trimmed); regions.header.push(' '); }
-            "buyer"  => { regions.buyer.push_str(trimmed);  regions.buyer.push(' '); }
-            "seller" => { regions.seller.push_str(trimmed); regions.seller.push(' '); }
-            "items"  => { regions.items.push_str(trimmed);  regions.items.push(' '); }
-            "total"  => { regions.total.push_str(trimmed);  regions.total.push(' '); }
-            "remarks" => { regions.remarks.push_str(trimmed); regions.remarks.push(' '); }
+            "header" => {
+                regions.header.push_str(trimmed);
+                regions.header.push(' ');
+            }
+            "buyer" => {
+                regions.buyer.push_str(trimmed);
+                regions.buyer.push(' ');
+            }
+            "seller" => {
+                regions.seller.push_str(trimmed);
+                regions.seller.push(' ');
+            }
+            "items" => {
+                regions.items.push_str(trimmed);
+                regions.items.push(' ');
+            }
+            "total" => {
+                regions.total.push_str(trimmed);
+                regions.total.push(' ');
+            }
+            "remarks" => {
+                regions.remarks.push_str(trimmed);
+                regions.remarks.push(' ');
+            }
             _ => {}
         }
     }
@@ -291,7 +336,10 @@ fn split_into_regions(text: &str) -> InvoiceRegions {
 }
 
 /// 从 OCR 文本中提取出发/到达城市（仅 Train/Flight 类发票）
-pub(crate) fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (Option<String>, Option<String>) {
+pub(crate) fn extract_ticket_cities(
+    text: &str,
+    category: &InvoiceCategory,
+) -> (Option<String>, Option<String>) {
     if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
         return (None, None);
     }
@@ -302,15 +350,17 @@ pub(crate) fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (
     if *category == InvoiceCategory::Train {
         // 火车票：出发站/发站（带标签）
         let re = Regex::new(r"(?:出发站|发站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
-        departure = re.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        departure = re
+            .captures(text)
+            .map(|c| station_to_city(c.get(1).unwrap().as_str()));
         let re_arr = Regex::new(r"(?:到达站|到站)[：:]\s*(\S{2,6}(?:站)?)").unwrap();
-        arrival = re_arr.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        arrival = re_arr
+            .captures(text)
+            .map(|c| station_to_city(c.get(1).unwrap().as_str()));
 
         // 火车票兜底：铁路电子客票无标签格式 "G878长沙南站 武汉站"
         if departure.is_none() || arrival.is_none() {
-            let re_no_label = Regex::new(
-                r"[A-Z]+\d+\s*(\S{2,6}站)\s+(\S{2,6}站)"
-            ).unwrap();
+            let re_no_label = Regex::new(r"[A-Z]+\d+\s*(\S{2,6}站)\s+(\S{2,6}站)").unwrap();
             if let Some(caps) = re_no_label.captures(text) {
                 if departure.is_none() {
                     departure = Some(station_to_city(caps.get(1).unwrap().as_str()));
@@ -326,8 +376,9 @@ pub(crate) fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (
         // ponytail: 启发式，要求恰好两个 CJK 词后跟车次，避免匹配散落的单字噪声
         if departure.is_none() || arrival.is_none() {
             let re_split = Regex::new(
-                r"(\p{Unified_Ideograph}{2,6})\s+(\p{Unified_Ideograph}{2,6})\s+[A-Z]+\d+"
-            ).unwrap();
+                r"(\p{Unified_Ideograph}{2,6})\s+(\p{Unified_Ideograph}{2,6})\s+[A-Z]+\d+",
+            )
+            .unwrap();
             if let Some(caps) = re_split.captures(text) {
                 if departure.is_none() {
                     departure = Some(station_to_city(caps.get(1).unwrap().as_str()));
@@ -340,17 +391,21 @@ pub(crate) fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (
     } else {
         // 机票：自/FROM, 至/TO
         let re_dep = Regex::new(r"(?:自|FROM)[：:]\s*(\S{2,10})").unwrap();
-        departure = re_dep.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        departure = re_dep
+            .captures(text)
+            .map(|c| station_to_city(c.get(1).unwrap().as_str()));
         let re_arr = Regex::new(r"(?:至|TO)[：:]\s*(\S{2,10})").unwrap();
-        arrival = re_arr.captures(text).map(|c| station_to_city(c.get(1).unwrap().as_str()));
+        arrival = re_arr
+            .captures(text)
+            .map(|c| station_to_city(c.get(1).unwrap().as_str()));
     }
 
     // 兜底：飞猪等平台票据，备注中城市以 "城市-城市" 格式出现
     // 例如: "2026/05/15 成都-长沙 3U8767 经济舱H"
     if departure.is_none() || arrival.is_none() {
-        let re_route = Regex::new(
-            r"(\p{Unified_Ideograph}{2,4})[\s]*[-－—][\s]*(\p{Unified_Ideograph}{2,4})"
-        ).unwrap();
+        let re_route =
+            Regex::new(r"(\p{Unified_Ideograph}{2,4})[\s]*[-－—][\s]*(\p{Unified_Ideograph}{2,4})")
+                .unwrap();
         if let Some(caps) = re_route.captures(text) {
             let raw_dep = caps.get(1).unwrap().as_str().trim();
             let raw_arr = caps.get(2).unwrap().as_str().trim();
@@ -367,7 +422,10 @@ pub(crate) fn extract_ticket_cities(text: &str, category: &InvoiceCategory) -> (
 }
 
 /// 从票据 OCR 文本中提取票面实际出行日期（非开票日期）
-pub(crate) fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory) -> Option<NaiveDate> {
+pub(crate) fn extract_ticket_travel_date(
+    text: &str,
+    category: &InvoiceCategory,
+) -> Option<NaiveDate> {
     if *category != InvoiceCategory::Train && *category != InvoiceCategory::Flight {
         return None;
     }
@@ -386,7 +444,8 @@ pub(crate) fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory)
     }
 
     // 格式2: "2025年11月14日 15:22开" — 铁路电子客票（后跟发车时间，区别于开票日期）
-    let re_cn = Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s+\d{1,2}:\d{2}").unwrap();
+    let re_cn =
+        Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s+\d{1,2}:\d{2}").unwrap();
     if let Some(caps) = re_cn.captures(text) {
         let y: i32 = caps.get(1)?.as_str().parse().ok()?;
         let m: u32 = caps.get(2)?.as_str().parse().ok()?;
@@ -402,14 +461,25 @@ pub(crate) fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory)
     // "2025年11月15日 5:22开" (正常) / "2025年11月15日22开" (OCR 丢失 "5:")
     if *category == InvoiceCategory::Train {
         // 格式2b: 日+空格+HH:MM开
-        let re_cn_time = Regex::new(
-            r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(\d{1,2}):(\d{2})\s*开"
-        ).unwrap();
+        let re_cn_time =
+            Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(\d{1,2}):(\d{2})\s*开")
+                .unwrap();
         for caps in re_cn_time.captures_iter(text) {
-            let y: i32 = match caps.get(1)?.as_str().parse() { Ok(v) => v, _ => continue };
-            let m: u32 = match caps.get(2)?.as_str().parse() { Ok(v) => v, _ => continue };
-            let d: u32 = match caps.get(3)?.as_str().parse() { Ok(v) => v, _ => continue };
-            if m < 1 || m > 12 || d < 1 || d > 31 { continue; }
+            let y: i32 = match caps.get(1)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            let m: u32 = match caps.get(2)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            let d: u32 = match caps.get(3)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            if m < 1 || m > 12 || d < 1 || d > 31 {
+                continue;
+            }
             if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
                 if date.year() >= 2020 && date.year() <= 2100 {
                     return Some(date);
@@ -417,14 +487,24 @@ pub(crate) fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory)
             }
         }
         // 格式2c: 日+时间数字+开（OCR 丢失冒号/小时）
-        let re_cn_nocolon = Regex::new(
-            r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(\d{2,4})\s*开"
-        ).unwrap();
+        let re_cn_nocolon =
+            Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*(\d{2,4})\s*开").unwrap();
         for caps in re_cn_nocolon.captures_iter(text) {
-            let y: i32 = match caps.get(1)?.as_str().parse() { Ok(v) => v, _ => continue };
-            let m: u32 = match caps.get(2)?.as_str().parse() { Ok(v) => v, _ => continue };
-            let d: u32 = match caps.get(3)?.as_str().parse() { Ok(v) => v, _ => continue };
-            if m < 1 || m > 12 || d < 1 || d > 31 { continue; }
+            let y: i32 = match caps.get(1)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            let m: u32 = match caps.get(2)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            let d: u32 = match caps.get(3)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            if m < 1 || m > 12 || d < 1 || d > 31 {
+                continue;
+            }
             if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
                 if date.year() >= 2020 && date.year() <= 2100 {
                     return Some(date);
@@ -433,16 +513,21 @@ pub(crate) fn extract_ticket_travel_date(text: &str, category: &InvoiceCategory)
         }
         // 格式2d: 月后有多余噪声数字（pdfplumber 将日期拆散→行分组拼接产生噪声）
         // ponytail: 匹配"月+多位数+日+(可选冒号)+时间数字+开"，取最后1-2位数字作为日
-        let re_cn_noisy = Regex::new(
-            r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d+)\s*日\s*:?\s*(\d+)\s*开"
-        ).unwrap();
+        let re_cn_noisy =
+            Regex::new(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d+)\s*日\s*:?\s*(\d+)\s*开").unwrap();
         for caps in re_cn_noisy.captures_iter(text) {
-            let y: i32 = match caps.get(1)?.as_str().parse() { Ok(v) => v, _ => continue };
-            let m: u32 = match caps.get(2)?.as_str().parse() { Ok(v) => v, _ => continue };
+            let y: i32 = match caps.get(1)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
+            let m: u32 = match caps.get(2)?.as_str().parse() {
+                Ok(v) => v,
+                _ => continue,
+            };
             let day_digits = caps.get(3)?.as_str();
             for len in (1..=2).rev() {
                 if day_digits.len() >= len {
-                    let d_str = &day_digits[day_digits.len()-len..];
+                    let d_str = &day_digits[day_digits.len() - len..];
                     if let Ok(d) = d_str.parse::<u32>() {
                         if d >= 1 && d <= 31 {
                             if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
@@ -491,12 +576,25 @@ fn station_to_city(raw: &str) -> String {
 
     // 兜底映射表（已知片区/镇/区 → 城市）
     let mapping: std::collections::HashMap<&str, &str> = [
-        ("虹桥", "上海"), ("宝安", "深圳"), ("江北", "重庆"),
-        ("流亭", "青岛"), ("龙嘉", "长春"), ("太平", "哈尔滨"),
-        ("遥墙", "济南"), ("周水子", "大连"), ("双流", "成都"),
-        ("天河", "武汉"), ("黄花", "长沙"), ("咸阳", "西安"),
-        ("滨海", "天津"), ("长水", "昆明"), ("萧山", "杭州"),
-    ].iter().cloned().collect();
+        ("虹桥", "上海"),
+        ("宝安", "深圳"),
+        ("江北", "重庆"),
+        ("流亭", "青岛"),
+        ("龙嘉", "长春"),
+        ("太平", "哈尔滨"),
+        ("遥墙", "济南"),
+        ("周水子", "大连"),
+        ("双流", "成都"),
+        ("天河", "武汉"),
+        ("黄花", "长沙"),
+        ("咸阳", "西安"),
+        ("滨海", "天津"),
+        ("长水", "昆明"),
+        ("萧山", "杭州"),
+    ]
+    .iter()
+    .cloned()
+    .collect();
 
     // 直接映射匹配
     if let Some(city) = mapping.get(s.as_str()) {
@@ -511,9 +609,28 @@ fn station_to_city(raw: &str) -> String {
     }
 
     // 已知主要城市前缀（2字）
-    let major_cities = ["北京", "上海", "广州", "深圳", "成都", "杭州", "南京",
-                        "武汉", "天津", "重庆", "西安", "长沙", "昆明", "青岛",
-                        "大连", "厦门", "哈尔滨", "长春", "济南", "沈阳"];
+    let major_cities = [
+        "北京",
+        "上海",
+        "广州",
+        "深圳",
+        "成都",
+        "杭州",
+        "南京",
+        "武汉",
+        "天津",
+        "重庆",
+        "西安",
+        "长沙",
+        "昆明",
+        "青岛",
+        "大连",
+        "厦门",
+        "哈尔滨",
+        "长春",
+        "济南",
+        "沈阳",
+    ];
 
     // 去除方向后缀后检查是否为已知城市（如 "北京南" → "北京"）
     for dir in &["东", "南", "西", "北"] {
@@ -529,7 +646,10 @@ fn station_to_city(raw: &str) -> String {
     for city in &major_cities {
         if s.starts_with(city) && s.len() > city.len() {
             let rest = &s[city.len()..];
-            if mapping.contains_key(rest) || ["东", "南", "西", "北"].contains(&rest) || rest.len() >= 2 {
+            if mapping.contains_key(rest)
+                || ["东", "南", "西", "北"].contains(&rest)
+                || rest.len() >= 2
+            {
                 return city.to_string();
             }
         }
@@ -543,14 +663,10 @@ fn station_to_city(raw: &str) -> String {
     raw.trim().to_string()
 }
 
-pub fn parse_invoice_text(
-    texts: &[OcrTextItem],
-    source: InvoiceSource,
-) -> Result<Invoice, String> {
+pub fn parse_invoice_text(texts: &[OcrTextItem], source: InvoiceSource) -> Result<Invoice, String> {
     // 竖排标题合并：将"销"/"售"/"方"/"信"/"息"等竖排单字合并为"销售方信息"，
     // 使 split_into_regions 的 contains("销售方") 能命中
-    let vertical_titles =
-        crate::parser::layout_extractor::detect_vertical_titles_from_items(texts);
+    let vertical_titles = crate::parser::layout_extractor::detect_vertical_titles_from_items(texts);
     let merged_texts = merge_vertical_chars(texts);
     let sorted_merged = sort_texts_by_position(&merged_texts);
 
@@ -570,12 +686,24 @@ pub fn parse_invoice_text(
     let regions = split_into_regions(&all_text);
 
     eprintln!("[hotel_debug] === parse_invoice_text ===");
-    eprintln!("[hotel_debug] all_text (first 500 chars): {}", &all_text.chars().take(500).collect::<String>());
+    eprintln!(
+        "[hotel_debug] all_text (first 500 chars): {}",
+        &all_text.chars().take(500).collect::<String>()
+    );
     eprintln!("[hotel_debug] regions.header.len={}, .buyer.len={}, .seller.len={}, .items.len={}, .total.len={}, .remarks.len={}",
         regions.header.len(), regions.buyer.len(), regions.seller.len(), regions.items.len(), regions.total.len(), regions.remarks.len());
-    eprintln!("[hotel_debug] regions.items: {}", &regions.items.chars().take(300).collect::<String>());
-    eprintln!("[hotel_debug] regions.remarks: {}", &regions.remarks.chars().take(500).collect::<String>());
-    eprintln!("[hotel_debug] regions.seller: {}", &regions.seller.chars().take(200).collect::<String>());
+    eprintln!(
+        "[hotel_debug] regions.items: {}",
+        &regions.items.chars().take(300).collect::<String>()
+    );
+    eprintln!(
+        "[hotel_debug] regions.remarks: {}",
+        &regions.remarks.chars().take(500).collect::<String>()
+    );
+    eprintln!(
+        "[hotel_debug] regions.seller: {}",
+        &regions.seller.chars().take(200).collect::<String>()
+    );
 
     let amount = match extract_amount(&regions.total) {
         Ok(amt) => amt,
@@ -610,34 +738,47 @@ pub fn parse_invoice_text(
     let date = extract_date(&all_text);
     let invoice_number = extract_invoice_number(&regions.header);
 
-    let mut category = classify_from_regions(&regions.items, &regions.seller, &item_name, &seller_name);
-    eprintln!("[hotel_debug] classify_from_regions → {:?} (items_has_住宿服务={}, items_has_生产生活={})",
-        category, regions.items.contains("*住宿服务*"), regions.items.contains("*生产生活服务*住宿费"));
+    let mut category =
+        classify_from_regions(&regions.items, &regions.seller, &item_name, &seller_name);
+    eprintln!(
+        "[hotel_debug] classify_from_regions → {:?} (items_has_住宿服务={}, items_has_生产生活={})",
+        category,
+        regions.items.contains("*住宿服务*"),
+        regions.items.contains("*生产生活服务*住宿费")
+    );
 
     if category == InvoiceCategory::Other {
-        let blocks: Vec<_> = texts.iter().map(|t| {
-            crate::ocr::structured_output::OcrTextBlock {
+        let blocks: Vec<_> = texts
+            .iter()
+            .map(|t| crate::ocr::structured_output::OcrTextBlock {
                 text: t.text.clone(),
                 confidence: t.confidence,
                 bbox: crate::ocr::structured_output::BoundingBox::default(),
                 line_index: 0,
                 block_type: crate::ocr::structured_output::TextBlockType::Other,
-            }
-        }).collect();
+            })
+            .collect();
         let ocr_output = crate::ocr::structured_output::OcrStructuredOutput {
             blocks,
             layout: crate::ocr::structured_output::PageLayout::default(),
         };
         let invoice_type = InvoiceTypeDetector::detect(&ocr_output);
-        eprintln!("[hotel_debug] classify_from_regions returned Other, invoice_type={:?}", invoice_type);
+        eprintln!(
+            "[hotel_debug] classify_from_regions returned Other, invoice_type={:?}",
+            invoice_type
+        );
         category = classify_from_full_text(&ocr_output, &invoice_type);
         eprintln!("[hotel_debug] classify_from_full_text → {:?}", category);
     }
 
-    eprintln!("[hotel_debug] final category={:?}, amount={}, seller={}, date={:?}", category, amount, seller_name, date);
+    eprintln!(
+        "[hotel_debug] final category={:?}, amount={}, seller={}, date={:?}",
+        category, amount, seller_name, date
+    );
 
     // pdfplumber 多栏合并可能把"备"和"注"拆散，"备注"区域检测为空时回退到 seller 区域
-    let effective_remarks = if category == InvoiceCategory::Hotel && regions.remarks.is_empty()
+    let effective_remarks = if category == InvoiceCategory::Hotel
+        && regions.remarks.is_empty()
         && !regions.seller.is_empty()
     {
         eprintln!("[hotel_debug] remarks empty, using seller as fallback (pdfplumber split '备注' into '备'+'注')");
@@ -651,17 +792,32 @@ pub fn parse_invoice_text(
         let item_quantity = extract_item_quantity(&regions.items);
         let detail = parse_hotel_detail(effective_remarks, date);
         let statement = extract_hotel_statement_detail(&all_text, date);
-        eprintln!("[hotel_debug] remarks_nights={:?}, item_quantity={:?}, detail={:?}, statement={:?}",
-            remarks_nights, item_quantity,
-            detail.as_ref().map(|d| format!("{}-{} nights={}", d.check_in.map_or("?".into(), |c| c.to_string()), d.check_out.map_or("?".into(), |c| c.to_string()), d.nights)),
-            statement.as_ref().map(|s| format!("{}-{} nights={}", s.check_in.map_or("?".into(), |c| c.to_string()), s.check_out.map_or("?".into(), |c| c.to_string()), s.nights)));
+        eprintln!(
+            "[hotel_debug] remarks_nights={:?}, item_quantity={:?}, detail={:?}, statement={:?}",
+            remarks_nights,
+            item_quantity,
+            detail.as_ref().map(|d| format!(
+                "{}-{} nights={}",
+                d.check_in.map_or("?".into(), |c| c.to_string()),
+                d.check_out.map_or("?".into(), |c| c.to_string()),
+                d.nights
+            )),
+            statement.as_ref().map(|s| format!(
+                "{}-{} nights={}",
+                s.check_in.map_or("?".into(), |c| c.to_string()),
+                s.check_out.map_or("?".into(), |c| c.to_string()),
+                s.nights
+            ))
+        );
         // 交叉验证：备注天数 vs 商品数量 vs 结账单入住/离店日期
         // 商品数量列中 q=1 是行项目数不是住宿天数，不可靠；q>1 才可信
         let nights = match (remarks_nights, item_quantity) {
             (Some(r), Some(q)) if r != q => r.max(q),
             (Some(r), _) => r,
             (_, Some(q)) if q > 1 => q,
-            _ => detail.as_ref().map(|d| d.nights)
+            _ => detail
+                .as_ref()
+                .map(|d| d.nights)
                 .or_else(|| statement.as_ref().map(|s| s.nights))
                 .unwrap_or(1),
         };
@@ -754,11 +910,11 @@ fn resolve_year_for_stay(stay_month: u32, invoice_date: NaiveDate) -> i32 {
     let inv_year = invoice_date.year();
     let inv_month = invoice_date.month();
     if stay_month > 6 && inv_month <= 6 {
-        inv_year - 1  // e.g. 发票1月，入住12月 → 去年
+        inv_year - 1 // e.g. 发票1月，入住12月 → 去年
     } else if stay_month <= 6 && inv_month > 6 {
-        inv_year + 1  // e.g. 发票12月，入住1月 → 明年
+        inv_year + 1 // e.g. 发票12月，入住1月 → 明年
     } else {
-        inv_year       // 同半边
+        inv_year // 同半边
     }
 }
 
@@ -789,7 +945,10 @@ fn extract_item_quantity(items_text: &str) -> Option<usize> {
 /// 支持多种日期格式：2026-04-27、2026年04月27日、2026/04/27、2026.04.27
 /// 无年份时（04-27、4月27日）使用发票日期年份补全
 /// 标签可能带有可选的中文/英文冒号
-pub(crate) fn extract_hotel_statement_detail(text: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
+pub(crate) fn extract_hotel_statement_detail(
+    text: &str,
+    invoice_date: NaiveDate,
+) -> Option<HotelDetail> {
     let check_in = extract_labeled_date(text, "入住日期", invoice_date)?;
     let check_out = extract_labeled_date(text, "离店日期", invoice_date)?;
     let nights = (check_out - check_in).num_days().max(1) as usize;
@@ -890,7 +1049,8 @@ fn classify_from_regions(
     seller_name: &str,
 ) -> InvoiceCategory {
     // 1. 优先匹配商品明细中的服务类型码（最可靠）
-    if items_text.contains("*住宿服务*") || items_text.contains("*生产生活服务*住宿费") {
+    if items_text.contains("*住宿服务*") || items_text.contains("*生产生活服务*住宿费")
+    {
         return InvoiceCategory::Hotel;
     }
     // *运输服务*/客运服务 可被火车票/机票共用，需先排除后再归为市内交通
@@ -1031,7 +1191,19 @@ pub fn classify_from_full_text(
     if contains_any(&all_text, &["酒店", "宾馆", "住宿", "招待所", "民宿"]) {
         return InvoiceCategory::Hotel;
     }
-    if contains_any(&all_text, &["滴滴", "网约车", "高德", "t3", "曹操", "出租", "地铁", "轨道"]) {
+    if contains_any(
+        &all_text,
+        &[
+            "滴滴",
+            "网约车",
+            "高德",
+            "t3",
+            "曹操",
+            "出租",
+            "地铁",
+            "轨道",
+        ],
+    ) {
         return InvoiceCategory::CityTransport;
     }
     // 保险/退改签优先于航班检查（防止"机票航空意外险"误判为机票）
@@ -1076,7 +1248,10 @@ pub(crate) fn extract_amount(text: &str) -> Result<f64, String> {
         let match_start = cap.get(0).unwrap().start();
         let line_start = text[..match_start].rfind('\n').map_or(0, |p| p + 1);
         let context_before = &text[line_start..match_start];
-        if context_before.contains("税额") || context_before.contains("税率") || context_before.contains("不含税") {
+        if context_before.contains("税额")
+            || context_before.contains("税率")
+            || context_before.contains("不含税")
+        {
             continue;
         }
         let v: f64 = cap[1].replace(",", "").parse().unwrap_or(0.0);
@@ -1089,18 +1264,16 @@ pub(crate) fn extract_amount(text: &str) -> Result<f64, String> {
     }
 
     // Step 1: 关键字 + ¥ + 两位小数 — "价税合计（大写） ¥523.57"
-    let re_step1 =
-        Regex::new(r"(?:价税合计|合计金额|总金额)[^¥￥]{0,20}[¥￥]\s*([\d,]+\.\d{2})")
-            .map_err(|e| e.to_string())?;
+    let re_step1 = Regex::new(r"(?:价税合计|合计金额|总金额)[^¥￥]{0,20}[¥￥]\s*([\d,]+\.\d{2})")
+        .map_err(|e| e.to_string())?;
     if let Some(caps) = re_step1.captures(text) {
         let amount_str = caps[1].replace(",", "");
         return amount_str.parse::<f64>().map_err(|e| e.to_string());
     }
 
     // Step 2: 关键字后紧邻（10字符内）两位小数 — "价税合计¥6.30"
-    let re_step2 =
-        Regex::new(r"(?:价税合计|合计金额)[^0-9]{0,10}([\d,]+\.\d{2})")
-            .map_err(|e| e.to_string())?;
+    let re_step2 = Regex::new(r"(?:价税合计|合计金额)[^0-9]{0,10}([\d,]+\.\d{2})")
+        .map_err(|e| e.to_string())?;
     if let Some(caps) = re_step2.captures(text) {
         let amount_str = caps[1].replace(",", "");
         return amount_str.parse::<f64>().map_err(|e| e.to_string());
@@ -1163,8 +1336,12 @@ pub(crate) fn extract_seller_name(text: &str) -> String {
     let mut candidates: Vec<String> = Vec::new();
     for m in re_start.find_iter(text) {
         let after = &text[m.end()..];
-        let end_pos = re_end.find(after).map(|em| em.start()).unwrap_or(after.len());
-        let name = after[..end_pos].trim()
+        let end_pos = re_end
+            .find(after)
+            .map(|em| em.start())
+            .unwrap_or(after.len());
+        let name = after[..end_pos]
+            .trim()
             .trim_end_matches(|c: char| c == '买' || c == '售' || c == ' ');
         if name.len() > 2 && !candidates.iter().any(|c| c == name) {
             candidates.push(name.to_string());
@@ -1193,10 +1370,9 @@ pub(crate) fn extract_seller_name(text: &str) -> String {
 /// 取最后一个匹配——销售方通常在买方之后，且买方常为非公司主体（个人/大学）。
 /// ponytail: 启发式，买方也是公司时可能取错；升级路径=用坐标区分买/卖方列。
 pub(crate) fn extract_company_name_fallback(text: &str) -> Option<String> {
-    let re = Regex::new(
-        r"([\u4e00-\u9fa5（）()]{2,40}(?:股份有限公司|有限责任公司|有限公司|公司))",
-    )
-    .unwrap();
+    let re =
+        Regex::new(r"([\u4e00-\u9fa5（）()]{2,40}(?:股份有限公司|有限责任公司|有限公司|公司))")
+            .unwrap();
     re.captures_iter(text)
         .filter_map(|c| c.get(1).map(|m| m.as_str().trim().to_string()))
         .filter(|n| n.chars().count() >= 3)
@@ -1212,15 +1388,21 @@ fn extract_seller_by_coords(texts: &[OcrTextItem]) -> String {
             let name = caps[1].trim();
             // 修复：使用 chars().count() 而非 len()（字节计数），
             // 中文字符 3 字节但 1 字符，"公司A" = 7 字节但 4 字符
-            if name.chars().count() <= 2 { continue; }
+            if name.chars().count() <= 2 {
+                continue;
+            }
             if let Some(coords) = &item.box_coords {
                 // 修复：使用 X 中心而非 X0（左边缘），
                 // 宽 Word 跨两栏时左边缘可能比买方还左，但中心点在右栏
                 if let Some(pts) = coords.get("points").and_then(|p| p.as_array()) {
-                    let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|v| v.as_f64())).collect();
+                    let xs: Vec<f64> = pts
+                        .iter()
+                        .filter_map(|p| p.get("x").and_then(|v| v.as_f64()))
+                        .collect();
                     if !xs.is_empty() {
                         let x_center = (xs.iter().cloned().fold(f64::INFINITY, f64::min)
-                            + xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max)) / 2.0;
+                            + xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max))
+                            / 2.0;
                         if x_center > best_x {
                             best_x = x_center;
                             best_name = name.to_string();
@@ -1257,8 +1439,10 @@ fn extract_seller_by_vertical_title(
         .iter()
         .filter_map(|t| {
             let pts = t.box_coords.as_ref()?.get("points")?.as_array()?;
-            let ys: Vec<f64> =
-                pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+            let ys: Vec<f64> = pts
+                .iter()
+                .filter_map(|p| p.get("y").and_then(|v| v.as_f64()))
+                .collect();
             if ys.len() < 2 {
                 return None;
             }
@@ -1267,7 +1451,9 @@ fn extract_seller_by_vertical_title(
             Some(y1 - y0)
         })
         .collect();
-    let avg_height = if heights.is_empty() { 12.0 } else {
+    let avg_height = if heights.is_empty() {
+        12.0
+    } else {
         heights.iter().sum::<f64>() / heights.len() as f64
     };
     let tol = avg_height.max(6.0) * 0.5;
@@ -1325,7 +1511,8 @@ fn extract_seller_by_vertical_title(
 
 /// 从 box_coords 提取顶部 Y 坐标（points[0].y）
 fn box_top_y(coords: &Option<serde_json::Value>) -> Option<f64> {
-    coords.as_ref()?
+    coords
+        .as_ref()?
         .get("points")?
         .as_array()?
         .first()?
@@ -1335,7 +1522,8 @@ fn box_top_y(coords: &Option<serde_json::Value>) -> Option<f64> {
 
 /// 从 box_coords 提取底部 Y 坐标（points[2].y）
 fn box_bottom_y(coords: &Option<serde_json::Value>) -> Option<f64> {
-    coords.as_ref()?
+    coords
+        .as_ref()?
         .get("points")?
         .as_array()?
         .get(2)?
@@ -1348,7 +1536,8 @@ fn box_bottom_y(coords: &Option<serde_json::Value>) -> Option<f64> {
 /// 此函数通过坐标从"价税合计"下方、"开票人"上方恢复备注文本。
 fn extract_toll_remarks_by_coords(texts: &[OcrTextItem]) -> String {
     // 找价税合计行的底部 Y（备注在其下方）
-    let total_bottom_y = texts.iter()
+    let total_bottom_y = texts
+        .iter()
         .filter(|t| t.text.contains("价税合计"))
         .filter_map(|t| box_bottom_y(&t.box_coords))
         .max_by(|a, b| a.partial_cmp(b).unwrap());
@@ -1359,7 +1548,8 @@ fn extract_toll_remarks_by_coords(texts: &[OcrTextItem]) -> String {
     };
 
     // 找开票人行的顶部 Y（备注在其上方，若存在）
-    let drawer_top_y = texts.iter()
+    let drawer_top_y = texts
+        .iter()
         .filter(|t| t.text.contains("开票人"))
         .filter_map(|t| box_top_y(&t.box_coords))
         .min_by(|a, b| a.partial_cmp(b).unwrap());
@@ -1391,7 +1581,11 @@ fn extract_toll_remarks_by_coords(texts: &[OcrTextItem]) -> String {
     }
 
     parts.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    parts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(" ")
+    parts
+        .iter()
+        .map(|(_, t)| t.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub(crate) fn extract_item_name(text: &str) -> String {
@@ -1476,10 +1670,20 @@ pub fn classify_invoice(seller_name: &str, item_name: &str) -> InvoiceCategory {
         InvoiceCategory::Flight
     } else if contains_any(
         &combined_lower,
-        &["出租", "网约车", "滴滴", "高德", "t3", "曹操", "地铁", "轨道"],
+        &[
+            "出租",
+            "网约车",
+            "滴滴",
+            "高德",
+            "t3",
+            "曹操",
+            "地铁",
+            "轨道",
+        ],
     ) {
         InvoiceCategory::CityTransport
-    } else if contains_any(&combined_lower, &["酒店", "宾馆", "住宿", "招待所", "民宿"]) {
+    } else if contains_any(&combined_lower, &["酒店", "宾馆", "住宿", "招待所", "民宿"])
+    {
         InvoiceCategory::Hotel
     } else if contains_any(&combined_lower, &["通行", "etc"]) {
         InvoiceCategory::Toll
@@ -1555,8 +1759,7 @@ mod tests {
             "众安在线财产保险股份有限公司",
             "价税合计：¥50.00",
         ]);
-        let result =
-            classify_from_full_text(&ocr, &InvoiceType::VatElectronicInvoice);
+        let result = classify_from_full_text(&ocr, &InvoiceType::VatElectronicInvoice);
         assert_eq!(result, InvoiceCategory::Insurance);
     }
 
@@ -1564,10 +1767,7 @@ mod tests {
     fn test_classify_insurance_invoice_defense_against_flight_type() {
         // 防御性测试：即使 InvoiceType 被误判为 FlightInvoice，
         // 含"保险"的发票仍应归为 Insurance
-        let ocr = create_ocr_output(vec![
-            "*保险服务*国内机票航空意外险",
-            "价税合计：¥50.00",
-        ]);
+        let ocr = create_ocr_output(vec!["*保险服务*国内机票航空意外险", "价税合计：¥50.00"]);
         let result = classify_from_full_text(&ocr, &InvoiceType::FlightInvoice);
         assert_eq!(result, InvoiceCategory::Insurance);
     }
@@ -1588,8 +1788,7 @@ mod tests {
     #[test]
     fn test_classify_from_full_text_city_transport() {
         let ocr = create_ocr_output(vec!["滴滴出行电子发票", "网约车服务"]);
-        let result =
-            classify_from_full_text(&ocr, &InvoiceType::RideHailingInvoice);
+        let result = classify_from_full_text(&ocr, &InvoiceType::RideHailingInvoice);
         assert_eq!(result, InvoiceCategory::CityTransport);
     }
 
@@ -1746,10 +1945,7 @@ mod tests {
     fn test_extract_date_cn() {
         let text = "2025年08月05日";
         let date = extract_date(text);
-        assert_eq!(
-            date,
-            chrono::NaiveDate::from_ymd_opt(2025, 8, 5).unwrap()
-        );
+        assert_eq!(date, chrono::NaiveDate::from_ymd_opt(2025, 8, 5).unwrap());
     }
 
     #[test]
@@ -1837,11 +2033,15 @@ mod tests {
 
     #[test]
     fn test_extract_toll_travel_time_standard_format() {
-        let remarks = "湘ADG5926 湖南新港站入 湖南黄花站出 2026-05-25 10:06:04 （不可用于增值税进项抵扣）";
+        let remarks =
+            "湘ADG5926 湖南新港站入 湖南黄花站出 2026-05-25 10:06:04 （不可用于增值税进项抵扣）";
         let time = extract_toll_travel_time(remarks);
         assert!(time.is_some());
         let t = time.unwrap();
-        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(
+            t.date(),
+            chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap()
+        );
         assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
     }
 
@@ -1851,8 +2051,14 @@ mod tests {
         let time = extract_toll_travel_time(remarks);
         assert!(time.is_some());
         let t = time.unwrap();
-        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 6, 23).unwrap());
-        assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(14, 24, 10).unwrap());
+        assert_eq!(
+            t.date(),
+            chrono::NaiveDate::from_ymd_opt(2026, 6, 23).unwrap()
+        );
+        assert_eq!(
+            t.time(),
+            chrono::NaiveTime::from_hms_opt(14, 24, 10).unwrap()
+        );
     }
 
     #[test]
@@ -1868,18 +2074,25 @@ mod tests {
         let time = extract_toll_travel_time(remarks);
         assert!(time.is_some());
         let t = time.unwrap();
-        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(
+            t.date(),
+            chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap()
+        );
         assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
     }
 
     /// Bug: OCR 将日期和时间粘连（无空格），如 "2026-05-2510:06:04"
     #[test]
     fn test_extract_toll_travel_time_no_space_between_date_time() {
-        let remarks = "湘ADG5926 湖南新港站入湖南黄花站出2026-05-2510:06:04（不可用于增值税进项抵扣）";
+        let remarks =
+            "湘ADG5926 湖南新港站入湖南黄花站出2026-05-2510:06:04（不可用于增值税进项抵扣）";
         let time = extract_toll_travel_time(remarks);
         assert!(time.is_some(), "should extract time even without space");
         let t = time.unwrap();
-        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(
+            t.date(),
+            chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap()
+        );
         assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
     }
 
@@ -1893,7 +2106,11 @@ mod tests {
         // Bug: #3 天府通13元 — ¥13.00价税合计...2026 should not return 2026
         let text = "壹拾叁圆整¥13.00价税合计（大写） （小写） 2026/04/24-2026/04/26";
         let result = extract_amount(text).unwrap();
-        assert!((result - 13.00).abs() < 0.01, "expected 13.00, got {}", result);
+        assert!(
+            (result - 13.00).abs() < 0.01,
+            "expected 13.00, got {}",
+            result
+        );
     }
 
     #[test]
@@ -1901,7 +2118,11 @@ mod tests {
         // Bug: #1 长沙轨交 pdfplumber — "6.30价税合计"
         let text = "6.30价税合计(大写) ¥ 陆圆叁角整 (小写)";
         let result = extract_amount(text).unwrap();
-        assert!((result - 6.30).abs() < 0.01, "expected 6.30, got {}", result);
+        assert!(
+            (result - 6.30).abs() < 0.01,
+            "expected 6.30, got {}",
+            result
+        );
     }
 
     #[test]
@@ -1909,7 +2130,11 @@ mod tests {
         // Bug: tax ID "91430100578607044B" should not be captured
         let text = "91430100578607044B 价税合计 ¥6.30";
         let result = extract_amount(text).unwrap();
-        assert!((result - 6.30).abs() < 0.01, "expected 6.30, got {}", result);
+        assert!(
+            (result - 6.30).abs() < 0.01,
+            "expected 6.30, got {}",
+            result
+        );
     }
 
     #[test]
@@ -1917,7 +2142,11 @@ mod tests {
         // Normal amount with Chinese amount words
         let text = "价税合计（大写） （小写）伍佰贰拾叁圆伍角柒分 ¥523.57";
         let result = extract_amount(text).unwrap();
-        assert!((result - 523.57).abs() < 0.01, "expected 523.57, got {}", result);
+        assert!(
+            (result - 523.57).abs() < 0.01,
+            "expected 523.57, got {}",
+            result
+        );
     }
 
     // ===== extract_seller_name TDD tests =====
@@ -2044,7 +2273,9 @@ mod tests {
             },
             // 备注行：无"备注"关键词，在价税合计下方
             OcrTextItem {
-                text: "湘ADG5926 湖南新港站入湖南黄花站出2026-05-2510:06:04（不可用于增值税进项抵扣）".to_string(),
+                text:
+                    "湘ADG5926 湖南新港站入湖南黄花站出2026-05-2510:06:04（不可用于增值税进项抵扣）"
+                        .to_string(),
                 confidence: 0.97,
                 box_coords: Some(serde_json::json!({
                     "points":[{"x":172,"y":838},{"x":1097,"y":838},{"x":1097,"y":883},{"x":172,"y":883}]
@@ -2072,7 +2303,10 @@ mod tests {
             "toll_travel_time should be extracted from recovered remarks"
         );
         let t = inv.toll_travel_time.unwrap();
-        assert_eq!(t.date(), chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap());
+        assert_eq!(
+            t.date(),
+            chrono::NaiveDate::from_ymd_opt(2026, 5, 25).unwrap()
+        );
         assert_eq!(t.time(), chrono::NaiveTime::from_hms_opt(10, 6, 4).unwrap());
     }
 
@@ -2084,7 +2318,11 @@ mod tests {
         let result = extract_amount(text);
         assert!(result.is_ok());
         let amount = result.unwrap();
-        assert!((amount - 2528.05).abs() < 0.01, "应提取价税合计 2528.05，而非税额 143.10，实际: {}", amount);
+        assert!(
+            (amount - 2528.05).abs() < 0.01,
+            "应提取价税合计 2528.05，而非税额 143.10，实际: {}",
+            amount
+        );
     }
 
     #[test]
@@ -2095,7 +2333,11 @@ mod tests {
         let result = extract_amount(text);
         assert!(result.is_ok());
         let amount = result.unwrap();
-        assert!((amount - 6.30).abs() < 0.01, "OCR 颠倒场景应提取 6.30，实际: {}", amount);
+        assert!(
+            (amount - 6.30).abs() < 0.01,
+            "OCR 颠倒场景应提取 6.30，实际: {}",
+            amount
+        );
     }
 
     #[test]
@@ -2105,7 +2347,11 @@ mod tests {
         let result = extract_amount(text);
         assert!(result.is_ok());
         let amount = result.unwrap();
-        assert!((amount - 2528.05).abs() < 0.01, "应取最大值 2528.05，实际: {}", amount);
+        assert!(
+            (amount - 2528.05).abs() < 0.01,
+            "应取最大值 2528.05，实际: {}",
+            amount
+        );
     }
 
     #[test]
@@ -2261,23 +2507,41 @@ mod tests {
     #[test]
     fn test_parse_nights_from_remarks_with_spaces() {
         // OCR 分行后 "共 3 天"（含空格）
-        assert_eq!(parse_nights_from_remarks("成都景澜美居酒店,订单日期:4-24至4-27,共 3 天"), Some(3));
+        assert_eq!(
+            parse_nights_from_remarks("成都景澜美居酒店,订单日期:4-24至4-27,共 3 天"),
+            Some(3)
+        );
         // 紧凑格式 "共3天"
         assert_eq!(parse_nights_from_remarks("备注:共3天,共1间"), Some(3));
         // 跨行空格 "共\n3\n天" → join后 "共 3 天"
-        assert_eq!(parse_nights_from_remarks("订单姓名:陈福旭 共 3 天 共1间"), Some(3));
+        assert_eq!(
+            parse_nights_from_remarks("订单姓名:陈福旭 共 3 天 共1间"),
+            Some(3)
+        );
     }
 
     #[test]
     fn test_extract_item_quantity_formats() {
         // 标准格式：quantity=3（多天，可信）
-        assert_eq!(extract_item_quantity("*住宿服务*住宿费  3  1260.00"), Some(3));
+        assert_eq!(
+            extract_item_quantity("*住宿服务*住宿费  3  1260.00"),
+            Some(3)
+        );
         // 单行项目：quantity=1（不可信）
-        assert_eq!(extract_item_quantity("*住宿服务*住宿费  1  420.00"), Some(1));
+        assert_eq!(
+            extract_item_quantity("*住宿服务*住宿费  1  420.00"),
+            Some(1)
+        );
         // 华住格式：含 "天" 单位
-        assert_eq!(extract_item_quantity("*住宿服务*住宿费 天 7 340.70 2384.95"), Some(7));
+        assert_eq!(
+            extract_item_quantity("*住宿服务*住宿费 天 7 340.70 2384.95"),
+            Some(7)
+        );
         // 景澜美居：税法编码 *生产生活服务*（非 *住宿服务*）
-        assert_eq!(extract_item_quantity("*生产生活服务*住宿费 天 7 340.707547169811 2384.95 6% 143.10"), Some(7));
+        assert_eq!(
+            extract_item_quantity("*生产生活服务*住宿费 天 7 340.707547169811 2384.95 6% 143.10"),
+            Some(7)
+        );
     }
 
     #[test]
@@ -2362,21 +2626,56 @@ mod tests {
         // 标准税票：items行数量=1，备注含订单日期但无"共N天"
         // 应通过订单日期计算天数(3晚)，不使用item_quantity=1
         let texts = vec![
-            OcrTextItem { text: "发票号码:12345678".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "开票日期:2026年05月01日".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "项目名称".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "*住宿服务*住宿费 1 1260.00".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "价税合计 1260.00".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "销售方 成都景澜美居酒店".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "备注".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "成都景澜美居酒店,订单日期:4-27至4-30,共1间,订单姓名:陈福旭".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "发票号码:12345678".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "开票日期:2026年05月01日".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "项目名称".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "*住宿服务*住宿费 1 1260.00".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "价税合计 1260.00".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "销售方 成都景澜美居酒店".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "备注".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "成都景澜美居酒店,订单日期:4-27至4-30,共1间,订单姓名:陈福旭".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         let result = parse_invoice_text(&texts, InvoiceSource::Pdf("hotel.pdf".to_string()));
         assert!(result.is_ok());
         let inv = result.unwrap();
         assert_eq!(inv.category, InvoiceCategory::Hotel);
         let hd = inv.hotel_detail.expect("should have hotel_detail");
-        assert_eq!(hd.nights, 3, "应通过订单日期计算=3晚，不能把item_quantity=1当成天数");
+        assert_eq!(
+            hd.nights, 3,
+            "应通过订单日期计算=3晚，不能把item_quantity=1当成天数"
+        );
     }
 
     #[test]
@@ -2395,7 +2694,11 @@ mod tests {
             OcrTextItem { text: "备注 购买方地址:- 电话:- 销方地址:成都市 成都景澜美居酒店,订单日期:5-29至6-5,共7天,共1间,订单姓名:陈福旭".to_string(), confidence: 1.0, box_coords: None },
         ];
         let result = parse_invoice_text(&texts, InvoiceSource::Pdf("hotel.pdf".to_string()));
-        assert!(result.is_ok(), "parse_invoice_text failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "parse_invoice_text failed: {:?}",
+            result.err()
+        );
         let inv = result.unwrap();
         assert_eq!(inv.category, InvoiceCategory::Hotel, "应分类为酒店");
         let hd = inv.hotel_detail.expect("should have hotel_detail");
@@ -2407,20 +2710,70 @@ mod tests {
         // 模拟景澜美居发票 #24：入离日期（非订单日期）+ 备注多行含销售方地址
         // 验证 split_into_regions 不会被 "销售方地址" 切出备注区域
         let texts = vec![
-            OcrTextItem { text: "发票号码: 26512000002353030546".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "开票日期: 2026年06月05日".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "购买方 名称: 国防科技大学".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "销售方 名称: 四川景澜酒店管理有限公司".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "项目名称 规格型号 单位 数量 单价 金额 税率/征收率 税额".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "*生产生活服务*住宿费 天 4 346.014150943396 1384.06 6% 83.04".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "价税合计 ¥1467.10".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "备注".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "购买方地址:- 电话:-".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "销售方地址:成都市金牛区花牌坊街168号1栋1单元1层6号 电话:028-87751288".to_string(), confidence: 1.0, box_coords: None },
-            OcrTextItem { text: "成都景澜美居酒店,入离日期:5-25至5-29,共4天,共1间,订单姓名:陈福旭".to_string(), confidence: 1.0, box_coords: None },
+            OcrTextItem {
+                text: "发票号码: 26512000002353030546".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "开票日期: 2026年06月05日".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "购买方 名称: 国防科技大学".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "销售方 名称: 四川景澜酒店管理有限公司".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "项目名称 规格型号 单位 数量 单价 金额 税率/征收率 税额".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "*生产生活服务*住宿费 天 4 346.014150943396 1384.06 6% 83.04".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "价税合计 ¥1467.10".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "备注".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "购买方地址:- 电话:-".to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "销售方地址:成都市金牛区花牌坊街168号1栋1单元1层6号 电话:028-87751288"
+                    .to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
+            OcrTextItem {
+                text: "成都景澜美居酒店,入离日期:5-25至5-29,共4天,共1间,订单姓名:陈福旭"
+                    .to_string(),
+                confidence: 1.0,
+                box_coords: None,
+            },
         ];
         let result = parse_invoice_text(&texts, InvoiceSource::Pdf("hotel2.pdf".to_string()));
-        assert!(result.is_ok(), "parse_invoice_text failed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "parse_invoice_text failed: {:?}",
+            result.err()
+        );
         let inv = result.unwrap();
         assert_eq!(inv.category, InvoiceCategory::Hotel, "应分类为酒店");
         let hd = inv.hotel_detail.expect("should have hotel_detail");

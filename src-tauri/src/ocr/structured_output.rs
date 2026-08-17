@@ -166,7 +166,10 @@ mod tests {
         for block_type in types {
             let json = serde_json::to_string(&block_type).unwrap();
             let deserialized: TextBlockType = serde_json::from_str(&json).unwrap();
-            assert_eq!(std::mem::discriminant(&deserialized), std::mem::discriminant(&block_type));
+            assert_eq!(
+                std::mem::discriminant(&deserialized),
+                std::mem::discriminant(&block_type)
+            );
         }
     }
 
@@ -348,7 +351,10 @@ mod tests {
         ];
 
         let high_confidence: Vec<_> = blocks.iter().filter(|b| b.confidence > 0.9).collect();
-        let medium_confidence: Vec<_> = blocks.iter().filter(|b| b.confidence > 0.6 && b.confidence <= 0.9).collect();
+        let medium_confidence: Vec<_> = blocks
+            .iter()
+            .filter(|b| b.confidence > 0.6 && b.confidence <= 0.9)
+            .collect();
         let low_confidence: Vec<_> = blocks.iter().filter(|b| b.confidence <= 0.6).collect();
 
         assert_eq!(high_confidence.len(), 1);
@@ -393,7 +399,10 @@ mod tests {
         for region_type in types {
             let json = serde_json::to_string(&region_type).unwrap();
             let deserialized: RegionType = serde_json::from_str(&json).unwrap();
-            assert_eq!(std::mem::discriminant(&deserialized), std::mem::discriminant(&region_type));
+            assert_eq!(
+                std::mem::discriminant(&deserialized),
+                std::mem::discriminant(&region_type)
+            );
         }
     }
 }

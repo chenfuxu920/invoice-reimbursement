@@ -119,20 +119,20 @@ pub struct Column {
 /// 检测到的竖排标题（如"销售方信息"/"购买方信息"/"价税合计"/"备注"）
 #[derive(Debug, Clone)]
 pub struct VerticalTitle {
-    pub text: String,           // 合并后的完整标题文本，如 "销售方信息"
-    pub x_min: f64,             // 标题 X 列左边界
-    pub x_max: f64,             // 标题 X 列右边界
-    pub y_min: f64,             // 标题 Y 起始（顶部）
-    pub y_max: f64,             // 标题 Y 结束（底部）
+    pub text: String, // 合并后的完整标题文本，如 "销售方信息"
+    pub x_min: f64,   // 标题 X 列左边界
+    pub x_max: f64,   // 标题 X 列右边界
+    pub y_min: f64,   // 标题 Y 起始（顶部）
+    pub y_max: f64,   // 标题 Y 结束（底部）
     pub title_type: VerticalTitleType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum VerticalTitleType {
-    Seller,   // "销售方信息" / "销售方"
-    Buyer,    // "购买方信息" / "购买方"
-    Total,    // "价税合计"
-    Remarks,  // "备注"
+    Seller,  // "销售方信息" / "销售方"
+    Buyer,   // "购买方信息" / "购买方"
+    Total,   // "价税合计"
+    Remarks, // "备注"
 }
 
 /// Describes the columnar layout of a page based on word X-coordinate gaps.
@@ -179,14 +179,21 @@ pub fn detect_columns_with_tuning(words: &[Word], tuning: &LayoutTuning) -> Colu
     }
 
     // Exclude header words (Y < threshold)
-    let body_words: Vec<&Word> = words.iter().filter(|w| w.bbox.top >= tuning.header_y_threshold).collect();
+    let body_words: Vec<&Word> = words
+        .iter()
+        .filter(|w| w.bbox.top >= tuning.header_y_threshold)
+        .collect();
     if body_words.is_empty() {
         return ColumnarLayout { columns: vec![] };
     }
 
     // Compute average word height for adaptive bucket sizing
     let sum_h: f64 = body_words.iter().map(|w| w.bbox.height()).sum();
-    let avg_height = if body_words.is_empty() { tuning.default_avg_height } else { sum_h / body_words.len() as f64 };
+    let avg_height = if body_words.is_empty() {
+        tuning.default_avg_height
+    } else {
+        sum_h / body_words.len() as f64
+    };
     let bucket_width = tuning.bucket_width(avg_height);
 
     // Determine X range
@@ -280,10 +287,10 @@ pub fn detect_columns_with_tuning(words: &[Word], tuning: &LayoutTuning) -> Colu
 const VERTICAL_TITLE_PATTERNS: &[(&str, VerticalTitleType)] = &[
     ("销售方信息", VerticalTitleType::Seller),
     ("购买方信息", VerticalTitleType::Buyer),
-    ("价税合计",   VerticalTitleType::Total),
-    ("销售方",     VerticalTitleType::Seller),
-    ("购买方",     VerticalTitleType::Buyer),
-    ("备注",       VerticalTitleType::Remarks),
+    ("价税合计", VerticalTitleType::Total),
+    ("销售方", VerticalTitleType::Seller),
+    ("购买方", VerticalTitleType::Buyer),
+    ("备注", VerticalTitleType::Remarks),
 ];
 
 /// 内部平坦化坐标结构，用于竖排标题检测统一处理 Word / OcrTextItem
@@ -351,9 +358,15 @@ fn detect_vertical_titles_inner(flat_items: Vec<FlatItem>, avg_height: f64) -> V
 
                 // 计算该组坐标边界（取所有 word 的并集）
                 let x_min = group.iter().map(|i| i.x_min).fold(f64::INFINITY, f64::min);
-                let x_max = group.iter().map(|i| i.x_max).fold(f64::NEG_INFINITY, f64::max);
+                let x_max = group
+                    .iter()
+                    .map(|i| i.x_max)
+                    .fold(f64::NEG_INFINITY, f64::max);
                 let y_min = group.iter().map(|i| i.y_min).fold(f64::INFINITY, f64::min);
-                let y_max = group.iter().map(|i| i.y_max).fold(f64::NEG_INFINITY, f64::max);
+                let y_max = group
+                    .iter()
+                    .map(|i| i.y_max)
+                    .fold(f64::NEG_INFINITY, f64::max);
 
                 titles.push(VerticalTitle {
                     text: pattern.to_string(),
@@ -410,14 +423,21 @@ pub fn detect_vertical_titles_from_items(items: &[crate::ocr::OcrTextItem]) -> V
         .iter()
         .filter_map(|t| {
             let pts = t.box_coords.as_ref()?.get("points")?.as_array()?;
-            let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
-            if ys.len() < 2 { return None; }
+            let ys: Vec<f64> = pts
+                .iter()
+                .filter_map(|p| p.get("y").and_then(|v| v.as_f64()))
+                .collect();
+            if ys.len() < 2 {
+                return None;
+            }
             let y0 = ys.iter().cloned().fold(f64::INFINITY, f64::min);
             let y1 = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             Some(y1 - y0)
         })
         .collect();
-    let avg_height = if heights.is_empty() { 12.0 } else {
+    let avg_height = if heights.is_empty() {
+        12.0
+    } else {
         heights.iter().sum::<f64>() / heights.len() as f64
     };
 
@@ -426,8 +446,14 @@ pub fn detect_vertical_titles_from_items(items: &[crate::ocr::OcrTextItem]) -> V
         .filter_map(|t| {
             let coords = t.box_coords.as_ref()?;
             let pts = coords.get("points")?.as_array()?;
-            let xs: Vec<f64> = pts.iter().filter_map(|p| p.get("x").and_then(|v| v.as_f64())).collect();
-            let ys: Vec<f64> = pts.iter().filter_map(|p| p.get("y").and_then(|v| v.as_f64())).collect();
+            let xs: Vec<f64> = pts
+                .iter()
+                .filter_map(|p| p.get("x").and_then(|v| v.as_f64()))
+                .collect();
+            let ys: Vec<f64> = pts
+                .iter()
+                .filter_map(|p| p.get("y").and_then(|v| v.as_f64()))
+                .collect();
             if xs.is_empty() || ys.is_empty() {
                 return None;
             }
@@ -559,9 +585,7 @@ pub fn extract_seller_by_raw_coords(words: &[Word]) -> String {
     // Find all words containing "名称" and either "：" or ":"
     let candidates: Vec<&Word> = words
         .iter()
-        .filter(|w| {
-            w.text.contains("名称") && (w.text.contains("：") || w.text.contains(":"))
-        })
+        .filter(|w| w.text.contains("名称") && (w.text.contains("：") || w.text.contains(":")))
         .collect();
 
     if candidates.is_empty() {
@@ -689,10 +713,7 @@ fn extract_company_name_before_label(text_before: &str) -> String {
         .collect();
 
     // Require a company suffix to avoid returning random text
-    if cleaned.contains("公司")
-        || cleaned.contains("酒店")
-        || cleaned.contains("中心")
-    {
+    if cleaned.contains("公司") || cleaned.contains("酒店") || cleaned.contains("中心") {
         return cleaned.trim().to_string();
     }
 
@@ -727,10 +748,7 @@ pub fn extract_amount_by_coords_with_tuning(words: &[Word], tuning: &LayoutTunin
     let anchor = find_anchor_word(words, &["价税合计", "合计金额", "总金额"])?;
 
     // 2. Define compact Y-band (使用 LayoutTuning 的偏移量)
-    let page_max_x = words
-        .iter()
-        .map(|w| w.bbox.x1)
-        .fold(0.0f64, f64::max);
+    let page_max_x = words.iter().map(|w| w.bbox.x1).fold(0.0f64, f64::max);
     let region_words = extract_region_words(
         words,
         0.0,
@@ -920,10 +938,7 @@ mod tests {
         ];
 
         let layout = detect_columns(&words);
-        assert!(
-            !layout.is_single_column(),
-            "expected double-column layout"
-        );
+        assert!(!layout.is_single_column(), "expected double-column layout");
         let left = layout.left_column().expect("left column");
         let right = layout.right_column().expect("right column");
         assert!(
@@ -1049,20 +1064,8 @@ mod tests {
     fn test_extract_seller_by_raw_coords_rightmost() {
         // 买方 on left (X=31), 销售方 on right (X=315) — should pick rightmost
         let words = vec![
-            make_word(
-                "名称：中国人民解放军国防科技大学",
-                31.0,
-                95.0,
-                175.0,
-                104.0,
-            ),
-            make_word(
-                "名称：成都滴滴优行科技有限公司",
-                315.0,
-                95.0,
-                450.0,
-                104.0,
-            ),
+            make_word("名称：中国人民解放军国防科技大学", 31.0, 95.0, 175.0, 104.0),
+            make_word("名称：成都滴滴优行科技有限公司", 315.0, 95.0, 450.0, 104.0),
         ];
         let seller = extract_seller_by_raw_coords(&words);
         assert_eq!(seller, "成都滴滴优行科技有限公司");
@@ -1097,9 +1100,21 @@ mod tests {
         // 但卖方在右栏，X 中心点更大。用 X0 会误选取买方，用中心点正确选取卖方。
         let words = vec![
             // 买方：X0=34, X1=178, center=106
-            make_word("名称：中国人民解放军国防科技大学", 34.0, 103.0, 178.0, 112.0),
+            make_word(
+                "名称：中国人民解放军国防科技大学",
+                34.0,
+                103.0,
+                178.0,
+                112.0,
+            ),
             // 卖方：X0=20, X1=481, center=250（宽 Word 跨两栏，左边缘比买方还左）
-            make_word("名称：阿斯兰航空服务（上海）有限公司销", 20.0, 103.0, 481.0, 112.0),
+            make_word(
+                "名称：阿斯兰航空服务（上海）有限公司销",
+                20.0,
+                103.0,
+                481.0,
+                112.0,
+            ),
         ];
         let seller = extract_seller_by_raw_coords(&words);
         assert_eq!(seller, "阿斯兰航空服务（上海）有限公司");
@@ -1125,9 +1140,21 @@ mod tests {
         // 产生 "[公司名]名称：[标签]" 格式。应从 "名称：" 之前提取公司名。
         let words = vec![
             // 买方（宽 Word，含水印"载"前缀）
-            make_word("载中国人民解放军国防科技大学系统工程学院", 60.0, 99.0, 596.0, 111.0),
+            make_word(
+                "载中国人民解放军国防科技大学系统工程学院",
+                60.0,
+                99.0,
+                596.0,
+                111.0,
+            ),
             // 卖方：公司名 + "名称：" + 标签 "买"
-            make_word("四川景澜酒店管理有限公司名称：名称：买", 20.0, 102.0, 454.0, 115.0),
+            make_word(
+                "四川景澜酒店管理有限公司名称：名称：买",
+                20.0,
+                102.0,
+                454.0,
+                115.0,
+            ),
         ];
         let seller = extract_seller_by_raw_coords(&words);
         assert_eq!(seller, "四川景澜酒店管理有限公司");
@@ -1211,13 +1238,7 @@ mod tests {
         // items 表格的不含税金额在更上方 Y（应被排除），价税合计在下方
         let words = vec![
             make_word("584.73", 204.0, 163.0, 231.0, 172.0), // items 行，Y=163
-            make_word(
-                "价税合计（大写）",
-                36.0,
-                293.0,
-                200.0,
-                304.0,
-            ), // total 锚点，Y=293
+            make_word("价税合计（大写）", 36.0, 293.0, 200.0, 304.0), // total 锚点，Y=293
             make_word("523.57", 445.0, 294.0, 472.0, 303.0), // 含税金额
         ];
         let amt = extract_amount_by_coords(&words).expect("should find amount");
@@ -1238,20 +1259,11 @@ mod tests {
         // 税号 > 1e6 应被排除
         let words = vec![
             make_word("价税合计", 36.0, 293.0, 100.0, 304.0),
-            make_word(
-                "91430100578607044B",
-                200.0,
-                295.0,
-                400.0,
-                304.0,
-            ), // 税号
+            make_word("91430100578607044B", 200.0, 295.0, 400.0, 304.0), // 税号
             make_word("6.30", 445.0, 294.0, 472.0, 303.0),
         ];
         let amt = extract_amount_by_coords(&words).expect("should find amount");
-        assert!(
-            (amt - 6.30).abs() < 0.001,
-            "should pick 6.30 not tax id"
-        );
+        assert!((amt - 6.30).abs() < 0.001, "should pick 6.30 not tax id");
     }
 
     // ── merge_words_in_column ─────────────────────────────────────────

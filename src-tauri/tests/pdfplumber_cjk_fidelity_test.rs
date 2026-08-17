@@ -36,7 +36,9 @@ fn extract_pdfplumber(path: &Path) -> Result<String, String> {
         match text {
             Ok(t) => all_text.push_str(&t),
             Err(_) => {
-                return Err("pdfplumber panic during extract_text (likely CID font issue)".to_string());
+                return Err(
+                    "pdfplumber panic during extract_text (likely CID font issue)".to_string(),
+                );
             }
         }
     }
@@ -61,7 +63,6 @@ fn run_fidelity_test(
     base_dir: &Path,
     results: &mut Vec<(String, usize, f64)>,
 ) {
-
     // Determine the actual PDF path
     let pdf_path = if let Some(search) = pdf_search {
         let dir = match std::fs::read_dir(base_dir) {
@@ -86,7 +87,10 @@ fn run_fidelity_test(
             .collect();
 
         if found.is_empty() {
-            eprintln!("  [SKIP] No file containing '{}' found in {:?}", search, base_dir);
+            eprintln!(
+                "  [SKIP] No file containing '{}' found in {:?}",
+                search, base_dir
+            );
             results.push((format!("{}* (NOT FOUND)", search), 0, 1.0));
             return;
         }
@@ -109,11 +113,7 @@ fn run_fidelity_test(
     eprintln!("  Testing: {}", display_name);
     let (text, _rate) = compare_extraction(&pdf_path);
 
-    results.push((
-        display_name.clone(),
-        text.chars().count(),
-        0.0,
-    ));
+    results.push((display_name.clone(), text.chars().count(), 0.0));
 
     eprintln!("    pdfplumber chars: {}", text.chars().count());
 
@@ -129,26 +129,46 @@ fn run_fidelity_test(
 #[test]
 fn test_cjk_fidelity_didi_invoice() {
     let mut results = Vec::new();
-    run_fidelity_test("滴滴电子发票A.pdf", None, Path::new("../data/市内交通"), &mut results);
+    run_fidelity_test(
+        "滴滴电子发票A.pdf",
+        None,
+        Path::new("../data/市内交通"),
+        &mut results,
+    );
 }
 
 #[test]
 fn test_cjk_fidelity_vat_invoice() {
     let mut results = Vec::new();
     // dzfp_ hotel invoices are in 住宿/; the test needs a dzfp_ that's there
-    run_fidelity_test("dzfp_ (glob)", Some("dzfp_"), Path::new("../data/住宿"), &mut results);
+    run_fidelity_test(
+        "dzfp_ (glob)",
+        Some("dzfp_"),
+        Path::new("../data/住宿"),
+        &mut results,
+    );
 }
 
 #[test]
 fn test_cjk_fidelity_itinerary() {
     let mut results = Vec::new();
-    run_fidelity_test("天府通电子行程单.pdf", None, Path::new("../data/行程单/天府通"), &mut results);
+    run_fidelity_test(
+        "天府通电子行程单.pdf",
+        None,
+        Path::new("../data/行程单/天府通"),
+        &mut results,
+    );
 }
 
 #[test]
 fn test_cjk_fidelity_flight_ticket() {
     let mut results = Vec::new();
-    run_fidelity_test("飞猪 (glob)", Some("飞猪"), Path::new("../data/机票"), &mut results);
+    run_fidelity_test(
+        "飞猪 (glob)",
+        Some("飞猪"),
+        Path::new("../data/机票"),
+        &mut results,
+    );
 }
 
 // ─── Summary test ───────────────────────────────────────────────────────────
@@ -197,5 +217,8 @@ fn test_cjk_fidelity_summary() {
         println!("Some pdfplumber CJK extraction tests FAILED (empty text)");
     }
 
-    assert!(all_ok, "One or more pdfplumber CJK extraction tests returned empty text");
+    assert!(
+        all_ok,
+        "One or more pdfplumber CJK extraction tests returned empty text"
+    );
 }

@@ -86,23 +86,56 @@ fn dump_seller_line_raw_chars() {
     }
     for (tobj, group) in &groups {
         let text: String = group.iter().map(|c| c.text.as_str()).collect();
-        let x0 = group.iter().map(|c| c.bbox.x0).fold(f64::INFINITY, f64::min);
-        let x1 = group.iter().map(|c| c.bbox.x1).fold(f64::NEG_INFINITY, f64::max);
+        let x0 = group
+            .iter()
+            .map(|c| c.bbox.x0)
+            .fold(f64::INFINITY, f64::min);
+        let x1 = group
+            .iter()
+            .map(|c| c.bbox.x1)
+            .fold(f64::NEG_INFINITY, f64::max);
         println!(
             "  tobj={}: x=[{:.2}, {:.2}] text=\"{}\" ({} chars, fonts: {})",
-            tobj, x0, x1, text, group.len(),
-            group.iter().map(|c| c.fontname.as_str()).collect::<std::collections::HashSet<_>>().iter().cloned().collect::<Vec<_>>().join(", ")
+            tobj,
+            x0,
+            x1,
+            text,
+            group.len(),
+            group
+                .iter()
+                .map(|c| c.fontname.as_str())
+                .collect::<std::collections::HashSet<_>>()
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
 
     // dump 完整 ctm 矩阵用于前几个销售方 chars
     println!("\n=== 前 40 个销售方 chars 的 render_mode 和 color ===");
     for (i, ch) in seller_chars.iter().take(40).enumerate() {
-        let ns_color = ch.non_stroking_color.clone().map(|c| format!("{:?}", c)).unwrap_or_else(|| "None".to_string());
-        let s_color = ch.stroking_color.clone().map(|c| format!("{:?}", c)).unwrap_or_else(|| "None".to_string());
+        let ns_color = ch
+            .non_stroking_color
+            .clone()
+            .map(|c| format!("{:?}", c))
+            .unwrap_or_else(|| "None".to_string());
+        let s_color = ch
+            .stroking_color
+            .clone()
+            .map(|c| format!("{:?}", c))
+            .unwrap_or_else(|| "None".to_string());
         println!(
             "  [{}] '{}' code={:x} x0={:.2} render_mode={} non_stroke={} stroke={} font={} tobj={}",
-            i, ch.text, ch.char_code, ch.bbox.x0, ch.render_mode, ns_color, s_color, ch.fontname, ch.text_object_index
+            i,
+            ch.text,
+            ch.char_code,
+            ch.bbox.x0,
+            ch.render_mode,
+            ns_color,
+            s_color,
+            ch.fontname,
+            ch.text_object_index
         );
     }
 }
@@ -135,7 +168,11 @@ fn verify_seller_line_word_grouping() {
 
     println!("\n=== 销售方行 words (颜色分拆后) ===");
     for (i, w) in seller_words.iter().enumerate() {
-        let ns_color = w.non_stroking_color.clone().map(|c| format!("{:?}", c)).unwrap_or_else(|| "None".to_string());
+        let ns_color = w
+            .non_stroking_color
+            .clone()
+            .map(|c| format!("{:?}", c))
+            .unwrap_or_else(|| "None".to_string());
         println!(
             "  [{}] \"{}\" x0={:.2} top={:.2} x1={:.2} color={}",
             i, w.text, w.bbox.x0, w.bbox.top, w.bbox.x1, ns_color
@@ -144,7 +181,11 @@ fn verify_seller_line_word_grouping() {
 
     // 断言：棕色标签"名称:"和黑色值"长沙市轨道交通运营有限公司"应分开
     // 旧 bug：word grouping 混合产生 "称道：交通..." 之类乱序
-    let all_seller_text: String = seller_words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ");
+    let all_seller_text: String = seller_words
+        .iter()
+        .map(|w| w.text.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
     println!("\n  合并文本: \"{}\"", all_seller_text);
 
     // 关键断言：不应出现"称道"（棕色"称"混入黑色"道"）
@@ -161,7 +202,10 @@ fn verify_seller_line_word_grouping() {
     assert!(
         has_full_value,
         "FAIL: 应找到完整的值 '长沙市轨道交通运营有限公司'，实际 words: {:?}",
-        seller_words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>()
+        seller_words
+            .iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>()
     );
 
     // 关键断言：标签"名"和"称:"存在（可能在不同 word，因棕色空格分隔）
@@ -170,7 +214,10 @@ fn verify_seller_line_word_grouping() {
     assert!(
         has_name && has_cheng,
         "FAIL: 应找到标签 '名' 和 '称:'，实际 words: {:?}",
-        seller_words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>()
+        seller_words
+            .iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>()
     );
 
     println!("\n  PASS: 标签和值正确分离");
@@ -188,7 +235,9 @@ fn verify_full_extraction_contains_seller_name() {
     let extraction = extract_pdf_column_aware(&pdf_path).expect("extract should succeed");
 
     // 合并所有页的文本
-    let all_text: String = extraction.pages.iter()
+    let all_text: String = extraction
+        .pages
+        .iter()
         .flat_map(|p| p.texts.iter())
         .map(|t| t.text.as_str())
         .collect::<Vec<_>>()

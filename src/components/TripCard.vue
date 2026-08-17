@@ -106,9 +106,12 @@ import InvoiceDetailModal from './InvoiceDetailModal.vue'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
 import { toast } from '../composables/toast'
+import { useProfile } from '../composables/profile'
 import type { Invoice, Trip, ReimbursementForm as ReimbursementFormResult } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
+
+const { profile } = useProfile()
 
 const props = defineProps<{
   trip: Trip
@@ -154,12 +157,12 @@ async function refreshReimbursable() {
   try {
     const form = await invoke<ReimbursementFormResult>('preview_reimbursement_form', {
       matchResults: props.trip.matches,
-      name: '',
-      department: '',
+      name: profile.value.name,
+      department: profile.value.department,
       destination: props.trip.destination,
       travelStart: props.trip.travelStart,
       travelEnd: props.trip.travelEnd,
-      companions: 0,
+      companions: profile.value.companions,
       hotelLevel: props.trip.hotelLevel,
     })
     if (seq !== requestSeq) return // 丢弃过期结果
@@ -193,12 +196,12 @@ const formModel = computed(() => ({
 }))
 
 const formInfo = computed(() => ({
-  name: '',
-  department: '',
+  name: profile.value.name,
+  department: profile.value.department,
   destination: props.trip.destination,
   travelStart: props.trip.travelStart,
   travelEnd: props.trip.travelEnd,
-  companions: 0,
+  companions: profile.value.companions,
   hotelLevel: props.trip.hotelLevel,
 }))
 

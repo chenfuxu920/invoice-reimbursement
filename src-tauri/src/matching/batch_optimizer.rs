@@ -1,8 +1,8 @@
+use super::scoring::{MatchScore, MultiDimensionalScorer};
+use super::strategy_selector::{MatchingStrategy, StrategySelector};
 use crate::models::invoice::Invoice;
 use crate::models::match_result::{MatchResult, MatchType};
 use crate::models::payment::PaymentRecord;
-use super::scoring::{MultiDimensionalScorer, MatchScore};
-use super::strategy_selector::{MatchingStrategy, StrategySelector};
 use std::collections::HashSet;
 
 const CANDIDATE_THRESHOLD: f64 = 0.5;
@@ -41,9 +41,7 @@ impl BatchMatchOptimizer {
                 MatchingStrategy::OneToMany => {
                     self.match_one_to_many(invoice, payments, &used_payment_ids)
                 }
-                _ => {
-                    self.match_one_to_one(invoice, payments, &used_payment_ids)
-                }
+                _ => self.match_one_to_one(invoice, payments, &used_payment_ids),
             };
 
             match result {
@@ -118,7 +116,10 @@ impl BatchMatchOptimizer {
     ) -> Result<MatchResult, MatchError> {
         let mut candidates: Vec<(MatchScore, &PaymentRecord)> = Vec::new();
 
-        for payment in payments.iter().filter(|p| !used_payment_ids.contains(&p.id)) {
+        for payment in payments
+            .iter()
+            .filter(|p| !used_payment_ids.contains(&p.id))
+        {
             let score = self.scorer.score(invoice, payment);
             if score.total >= CANDIDATE_THRESHOLD {
                 candidates.push((score, payment));
@@ -141,7 +142,8 @@ impl BatchMatchOptimizer {
             payments: vec![(*best_payment).clone()],
             match_type: MatchType::OneToOne,
             confidence: best_score.total,
-            amount_diff: (invoice.amount - best_payment.total_value()).abs()
+            amount_diff: (invoice.amount - best_payment.total_value())
+                .abs()
                 .min((invoice.amount - best_payment.amount).abs()),
             itinerary_payment_pairs: vec![],
             shared_payment_ids: vec![],
@@ -169,8 +171,10 @@ impl BatchMatchOptimizer {
         let tolerance = 5.0;
 
         if let Some(indices) = self.find_subset_sum(&amounts, target, tolerance) {
-            let matched_payments: Vec<PaymentRecord> =
-                indices.iter().map(|&i| available_payments[i].clone()).collect();
+            let matched_payments: Vec<PaymentRecord> = indices
+                .iter()
+                .map(|&i| available_payments[i].clone())
+                .collect();
             let total: f64 = matched_payments.iter().map(|p| p.amount).sum();
 
             return Ok(MatchResult {
@@ -192,7 +196,16 @@ impl BatchMatchOptimizer {
 
     fn find_subset_sum(&self, amounts: &[f64], target: f64, tolerance: f64) -> Option<Vec<usize>> {
         let mut result: Option<Vec<usize>> = None;
-        self.search_subset(amounts, target, tolerance, 0, 0.0, &mut Vec::new(), &mut result, 10);
+        self.search_subset(
+            amounts,
+            target,
+            tolerance,
+            0,
+            0.0,
+            &mut Vec::new(),
+            &mut result,
+            10,
+        );
         result
     }
 
@@ -306,7 +319,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -321,7 +334,8 @@ mod tests {
             travel_date: None,
             category: InvoiceCategory::CityTransport,
             source: InvoiceSource::Link("http://example.com".to_string()),
-            itineraries: vec![Itinerary { city: String::new(),
+            itineraries: vec![Itinerary {
+                city: String::new(),
                 date_time: "2025-01-15 09:00".to_string(),
                 provider: "滴滴".to_string(),
                 pickup: "A站".to_string(),
@@ -334,7 +348,7 @@ mod tests {
             hotel_detail: None,
             departure_city: None,
             arrival_city: None,
-                        toll_travel_time: None,
+            toll_travel_time: None,
         }
     }
 
@@ -462,9 +476,12 @@ mod tests {
     #[test]
     fn test_high_confidence_matches() {
         let optimizer = BatchMatchOptimizer::new();
-        let invoices = vec![
-            make_invoice("inv1", 100.0, InvoiceCategory::Hotel, "如家酒店"),
-        ];
+        let invoices = vec![make_invoice(
+            "inv1",
+            100.0,
+            InvoiceCategory::Hotel,
+            "如家酒店",
+        )];
         let payments = vec![make_payment("p1", 100.0, "如家酒店")];
 
         let result = optimizer.batch_match(&invoices, &payments);

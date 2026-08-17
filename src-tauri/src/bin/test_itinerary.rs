@@ -15,7 +15,10 @@ fn main() {
             println!("行程数: {}", doc.itineraries.len());
             println!("合计: {:.2}", doc.total_amount);
             for it in &doc.itineraries {
-                println!("  {} | {} | {} → {} | ¥{:.2}", it.date_time, it.provider, it.pickup, it.dropoff, it.amount);
+                println!(
+                    "  {} | {} | {} → {} | ¥{:.2}",
+                    it.date_time, it.provider, it.pickup, it.dropoff, it.amount
+                );
             }
         }
         Err(e) => println!("失败: {}", e),

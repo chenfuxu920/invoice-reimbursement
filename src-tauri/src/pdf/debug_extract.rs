@@ -93,7 +93,10 @@ pub fn debug_extract_texts(
     let render_start = std::time::Instant::now();
     let images = render_pdf_to_rgb_images(pdf_path, dpi)?;
     let page_count = images.len();
-    let render_log = format!("[渲染] DPI={dpi} 页数={page_count} 耗时={:.0}ms", render_start.elapsed().as_millis());
+    let render_log = format!(
+        "[渲染] DPI={dpi} 页数={page_count} 耗时={:.0}ms",
+        render_start.elapsed().as_millis()
+    );
     logs_pdfplumber.push(render_log.clone());
     logs_ocr.push(render_log);
 
@@ -102,7 +105,10 @@ pub fn debug_extract_texts(
     let pdfplumber_by_page = match extract_pdfplumber_by_page(pdf_path, page_count) {
         Ok(pages) => {
             let pp_total: usize = pages.iter().map(|v| v.len()).sum();
-            logs_pdfplumber.push(format!("[提取] pdfplumber words={pp_total} 耗时={:.0}ms", pp_start.elapsed().as_millis()));
+            logs_pdfplumber.push(format!(
+                "[提取] pdfplumber words={pp_total} 耗时={:.0}ms",
+                pp_start.elapsed().as_millis()
+            ));
             for (i, words) in pages.iter().enumerate() {
                 if !words.is_empty() {
                     logs_pdfplumber.push(format!("[页{i}] {} words", words.len()));
@@ -111,7 +117,10 @@ pub fn debug_extract_texts(
             pages
         }
         Err(e) => {
-            logs_pdfplumber.push(format!("[提取] pdfplumber 失败: {e} → 降级为空 耗时={:.0}ms", pp_start.elapsed().as_millis()));
+            logs_pdfplumber.push(format!(
+                "[提取] pdfplumber 失败: {e} → 降级为空 耗时={:.0}ms",
+                pp_start.elapsed().as_millis()
+            ));
             vec![Vec::new(); page_count]
         }
     };
@@ -133,7 +142,10 @@ pub fn debug_extract_texts(
         match extract_ocr_by_page(engine, pdf_path, page_count) {
             Ok(pages) => {
                 let total: usize = pages.iter().map(|v| v.len()).sum();
-                logs_ocr.push(format!("[提取] OCR items={total} 耗时={:.0}ms", ocr_start.elapsed().as_millis()));
+                logs_ocr.push(format!(
+                    "[提取] OCR items={total} 耗时={:.0}ms",
+                    ocr_start.elapsed().as_millis()
+                ));
                 for (i, items) in pages.iter().enumerate() {
                     if !items.is_empty() {
                         logs_ocr.push(format!("[页{i}] {} items", items.len()));
@@ -284,7 +296,10 @@ fn extract_pdfplumber_by_page(
 fn extract_pdfplumber_shapes_by_page(
     pdf_path: &str,
     page_count: usize,
-) -> (Vec<Vec<(f64, f64, f64, f64, f64)>>, Vec<Vec<(f64, f64, f64, f64, f64, bool)>>) {
+) -> (
+    Vec<Vec<(f64, f64, f64, f64, f64)>>,
+    Vec<Vec<(f64, f64, f64, f64, f64, bool)>>,
+) {
     // ponytail: 调试工具，PDF 打开两次可接受（words 和 shapes 各一次）
     let result = std::panic::catch_unwind(|| {
         let pdf = match Pdf::open_file(pdf_path, None) {
@@ -292,7 +307,8 @@ fn extract_pdfplumber_shapes_by_page(
             Err(_) => return (vec![Vec::new(); page_count], vec![Vec::new(); page_count]),
         };
         let mut lines_by_page: Vec<Vec<(f64, f64, f64, f64, f64)>> = vec![Vec::new(); page_count];
-        let mut rects_by_page: Vec<Vec<(f64, f64, f64, f64, f64, bool)>> = vec![Vec::new(); page_count];
+        let mut rects_by_page: Vec<Vec<(f64, f64, f64, f64, f64, bool)>> =
+            vec![Vec::new(); page_count];
         for page_result in pdf.pages_iter() {
             let page = match page_result {
                 Ok(p) => p,
@@ -307,7 +323,14 @@ fn extract_pdfplumber_shapes_by_page(
                 lines_by_page[idx].push((line.x0, line.top, line.x1, line.bottom, line.line_width));
             }
             for rect in page.rects() {
-                rects_by_page[idx].push((rect.x0, rect.top, rect.x1, rect.bottom, rect.line_width, rect.fill));
+                rects_by_page[idx].push((
+                    rect.x0,
+                    rect.top,
+                    rect.x1,
+                    rect.bottom,
+                    rect.line_width,
+                    rect.fill,
+                ));
             }
         }
         (lines_by_page, rects_by_page)
@@ -322,7 +345,10 @@ fn extract_pdfplumber_shapes_by_page(
 fn extract_pdfplumber_shapes_by_page(
     _pdf_path: &str,
     page_count: usize,
-) -> (Vec<Vec<(f64, f64, f64, f64, f64)>>, Vec<Vec<(f64, f64, f64, f64, f64, bool)>>) {
+) -> (
+    Vec<Vec<(f64, f64, f64, f64, f64)>>,
+    Vec<Vec<(f64, f64, f64, f64, f64, bool)>>,
+) {
     (vec![Vec::new(); page_count], vec![Vec::new(); page_count])
 }
 
@@ -339,7 +365,8 @@ fn extract_pdfplumber_tables_by_page(
             Ok(p) => p,
             Err(_) => return vec![Vec::new(); page_count],
         };
-        let mut cells_by_page: Vec<Vec<(f64, f64, f64, f64, String)>> = vec![Vec::new(); page_count];
+        let mut cells_by_page: Vec<Vec<(f64, f64, f64, f64, String)>> =
+            vec![Vec::new(); page_count];
         for page_result in pdf.pages_iter() {
             let page = match page_result {
                 Ok(p) => p,
@@ -353,9 +380,15 @@ fn extract_pdfplumber_tables_by_page(
                 normalize_columns,
                 ..TableSettings::default()
             });
-            let total_cells: usize = tables.iter().map(|t| t.rows.iter().map(|r| r.len()).sum::<usize>()).sum();
+            let total_cells: usize = tables
+                .iter()
+                .map(|t| t.rows.iter().map(|r| r.len()).sum::<usize>())
+                .sum();
             let page_area = page.width() * page.height();
-            let table_area: f64 = tables.iter().map(|t| t.bbox.width() * t.bbox.height()).sum();
+            let table_area: f64 = tables
+                .iter()
+                .map(|t| t.bbox.width() * t.bbox.height())
+                .sum();
 
             // ponytail: lattice 只检测到 QR code 小框（<5% 页面积），回退到 word 级伪单元格
             let trivial = total_cells <= 2 && table_area < page_area * 0.05;

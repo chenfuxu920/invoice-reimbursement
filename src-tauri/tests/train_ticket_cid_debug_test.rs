@@ -42,7 +42,7 @@ fn train_ticket_cid_dump() {
     // 文档级统计（跨页汇总）
     let mut total_ascii = 0usize;
     let mut total_cjk = 0usize;
-    let mut total_hangul = 0usize;       // U+AC00-U+D7AF (CID 当 Unicode 的典型症状)
+    let mut total_hangul = 0usize; // U+AC00-U+D7AF (CID 当 Unicode 的典型症状)
     let mut total_hangul_compat = 0usize; // U+3130-U+318F
     let mut total_pua = 0usize;
     let mut total_replacement = 0usize;
@@ -81,8 +81,14 @@ fn train_ticket_cid_dump() {
     println!("  U+FFFD 替换:                {total_replacement}");
 
     // ponytail: 最小回归断言 — CID 当 Unicode bug 会让韩文音节+兼容字母暴涨；CJK 主区会塌缩
-    assert_eq!(total_hangul, 0, "韩文音节必须为 0（CID 当 Unicode 症状）— got {total_hangul}");
-    assert_eq!(total_hangul_compat, 0, "韩文兼容字母必须为 0 — got {total_hangul_compat}");
+    assert_eq!(
+        total_hangul, 0,
+        "韩文音节必须为 0（CID 当 Unicode 症状）— got {total_hangul}"
+    );
+    assert_eq!(
+        total_hangul_compat, 0,
+        "韩文兼容字母必须为 0 — got {total_hangul_compat}"
+    );
     assert!(
         total_cjk >= 50,
         "CJK 主区字符必须 ≥ 50（火车票应有大量中文）— got {total_cjk}"

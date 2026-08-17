@@ -27,7 +27,9 @@ fn main() {
                     let src_meta = std::fs::metadata(&src).ok();
                     let dst_meta = std::fs::metadata(&dst).ok();
                     match (src_meta, dst_meta) {
-                        (Some(s), Some(d)) => s.len() != d.len() || s.modified().ok() != d.modified().ok(),
+                        (Some(s), Some(d)) => {
+                            s.len() != d.len() || s.modified().ok() != d.modified().ok()
+                        }
                         _ => true,
                     }
                 } else {

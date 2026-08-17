@@ -11,7 +11,7 @@ pub enum InvoiceType {
     TrainInvoice,
     HotelStatement,
     TransitCardStatement,
-    TollInvoice,    // 高速通行费发票
+    TollInvoice, // 高速通行费发票
     Other,
 }
 
@@ -71,7 +71,10 @@ impl InvoiceTypeDetector {
     fn is_ride_hailing_itinerary(text: &str) -> bool {
         text.contains("行程报销单")
             || (text.contains("行程单")
-                && (text.contains("滴滴") || text.contains("高德") || text.contains("T3") || text.contains("曹操")))
+                && (text.contains("滴滴")
+                    || text.contains("高德")
+                    || text.contains("T3")
+                    || text.contains("曹操")))
     }
 
     fn is_transit_card_statement(text: &str) -> bool {
@@ -87,7 +90,8 @@ impl InvoiceTypeDetector {
         text.contains("机票")
             || text.contains("航班")
             || text.contains("航空")
-            || text.contains("行程单") && (text.contains("飞猪") || text.contains("携程") || text.contains("去哪儿"))
+            || text.contains("行程单")
+                && (text.contains("飞猪") || text.contains("携程") || text.contains("去哪儿"))
     }
 
     fn is_vat_electronic_invoice(text: &str) -> bool {
@@ -97,7 +101,8 @@ impl InvoiceTypeDetector {
         }
         // 电子普通发票（如众安保险、华住酒店），但排除网约车发票
         // 滴滴/高德等电子发票也是"电子发票（普通发票）"格式，应归 RideHailingInvoice
-        text.contains("电子发票") && text.contains("普通发票")
+        text.contains("电子发票")
+            && text.contains("普通发票")
             && !Self::is_ride_hailing_invoice(text)
     }
 
@@ -110,11 +115,15 @@ impl InvoiceTypeDetector {
             || text.contains("铁路客票")
             || text.contains("铁路电子客票")
             || text.contains("高铁")
-            || Regex::new(r"[GD]\d+").unwrap().is_match(text) && (text.contains("站") || text.contains("铁路"))
+            || Regex::new(r"[GD]\d+").unwrap().is_match(text)
+                && (text.contains("站") || text.contains("铁路"))
     }
 
     fn is_ride_hailing_invoice(text: &str) -> bool {
-        (text.contains("滴滴") || text.contains("高德") || text.contains("T3") || text.contains("曹操"))
+        (text.contains("滴滴")
+            || text.contains("高德")
+            || text.contains("T3")
+            || text.contains("曹操"))
             && !text.contains("行程单")
     }
 
@@ -153,37 +162,55 @@ mod tests {
     #[test]
     fn test_detect_vat_electronic_invoice() {
         let ocr = create_ocr_output(vec!["增值税电子发票", "价税合计：100.00"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::VatElectronicInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::VatElectronicInvoice
+        );
     }
 
     #[test]
     fn test_detect_ride_hailing_itinerary_didi() {
         let ocr = create_ocr_output(vec!["滴滴出行行程单", "出发时间：2025-01-01"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::RideHailingItinerary);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::RideHailingItinerary
+        );
     }
 
     #[test]
     fn test_detect_ride_hailing_itinerary_amap() {
         let ocr = create_ocr_output(vec!["高德打车行程单"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::RideHailingItinerary);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::RideHailingItinerary
+        );
     }
 
     #[test]
     fn test_detect_transit_card_statement() {
         let ocr = create_ocr_output(vec!["天府通电子行程单", "地铁消费"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TransitCardStatement);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::TransitCardStatement
+        );
     }
 
     #[test]
     fn test_detect_flight_invoice() {
         let ocr = create_ocr_output(vec!["机票行程单", "航班号：CA1234"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::FlightInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::FlightInvoice
+        );
     }
 
     #[test]
     fn test_detect_hotel_statement() {
         let ocr = create_ocr_output(vec!["酒店结账单", "住宿费"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::HotelStatement);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::HotelStatement
+        );
     }
 
     #[test]
@@ -194,7 +221,12 @@ mod tests {
 
     #[test]
     fn test_detect_railway_electronic_ticket() {
-        let ocr = create_ocr_output(vec!["电子发票（铁路电子客票）", "G878", "长沙南站", "武汉站"]);
+        let ocr = create_ocr_output(vec![
+            "电子发票（铁路电子客票）",
+            "G878",
+            "长沙南站",
+            "武汉站",
+        ]);
         assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::TrainInvoice);
     }
 
@@ -207,7 +239,10 @@ mod tests {
     #[test]
     fn test_detect_ride_hailing_invoice() {
         let ocr = create_ocr_output(vec!["滴滴出行电子发票", "网约车服务"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::RideHailingInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::RideHailingInvoice
+        );
     }
 
     #[test]
@@ -219,13 +254,19 @@ mod tests {
     #[test]
     fn test_priority_itinerary_over_invoice() {
         let ocr = create_ocr_output(vec!["滴滴出行行程单"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::RideHailingItinerary);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::RideHailingItinerary
+        );
     }
 
     #[test]
     fn test_flight_from_travel_platform() {
         let ocr = create_ocr_output(vec!["飞猪行程单", "航班信息"]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::FlightInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::FlightInvoice
+        );
     }
 
     #[test]
@@ -238,7 +279,10 @@ mod tests {
             "众安在线财产保险股份有限公司",
             "价税合计：¥50.00",
         ]);
-    assert_ne!(InvoiceTypeDetector::detect(&ocr), InvoiceType::FlightInvoice);
+        assert_ne!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::FlightInvoice
+        );
     }
 
     #[test]
@@ -276,7 +320,10 @@ mod tests {
             "众安在线财产保险股份有限公司",
             "价税合计：¥50.00",
         ]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::VatElectronicInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::VatElectronicInvoice
+        );
     }
 
     #[test]
@@ -289,7 +336,10 @@ mod tests {
             "旅客运输服务",
             "湖南滴滴出行科技有限公司",
         ]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::RideHailingInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::RideHailingInvoice
+        );
     }
 
     #[test]
@@ -302,6 +352,9 @@ mod tests {
             "四川景澜酒店管理有限公司",
             "价税合计：¥2528.05",
         ]);
-        assert_eq!(InvoiceTypeDetector::detect(&ocr), InvoiceType::VatElectronicInvoice);
+        assert_eq!(
+            InvoiceTypeDetector::detect(&ocr),
+            InvoiceType::VatElectronicInvoice
+        );
     }
 }
