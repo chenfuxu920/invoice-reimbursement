@@ -169,4 +169,4 @@ npm run test
 
 [MIT](LICENSE)
 
-Copyright © 2026 白开水
+Copyright © 2026 白开水 <chenfuxu920@163.com>
