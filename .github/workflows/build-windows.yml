@@ -54,6 +54,10 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 私钥用于给更新产物签名；与 release.yml 一致，空密码可防止非交互环境下
+          # tauri-signer 从 stdin 提示密码导致 CI 永久挂起（tauri#14829）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: |
           Write-Host "Starting Tauri build..."
           npx tauri build --bundles nsis 2>&1 | Write-Host
