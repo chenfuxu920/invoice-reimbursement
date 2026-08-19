@@ -48,21 +48,21 @@ Skills 位于 `.opencode/skills/` 目录，每个 skill 有独立的 `SKILL.md` 
 
 ### 关键架构
 
-- **src-tauri/src/parser/invoice_parser.rs** — 发票解析（区域分割 + 正则提取 + 坐标回退销售方）
-- **src-tauri/src/parser/itinerary_parser.rs** — 行程单解析（OCR坐标表格解析 + parangi交叉验证）
+- **src-tauri/src/parser/invoice_parser.rs** — 发票解析（单元格/区域分割 + 正则提取 + 坐标回退销售方）
+- **src-tauri/src/parser/itinerary_parser.rs** — 行程单解析（pdfplumber 表格/坐标解析 + OCR 坐标 + 纯文本交叉验证）
 - **src-tauri/src/pdf/invoice_pipeline.rs** — 发票/行程单解析入口、配对逻辑
-- **src-tauri/src/ocr/engine.rs** — PaddleOCR v5 封装（PDFium RGBA→RGB已修复）
+- **src-tauri/src/ocr/engine.rs** — PaddleOCR v5 封装（zpdf 渲染 PDF，无 PDFium 依赖）
 - **src-tauri/src/pdf/text_extractor.rs** — pdfplumber 文字提取封装（含 `extract_raw_words_debug` 调试接口）
-- **src-tauri/src/pdf/debug_extract.rs** — PDF 提取调试界面后端（三引擎坐标统一：pdfplumber/zpdf/OCR）
+- **src-tauri/src/pdf/debug_extract.rs** — PDF 提取调试界面后端（pdfplumber/OCR 坐标统一 + 表格/线条/单元格可视化）
 
 ### pdfplumber 依赖（自建 fork，必要时可直接改 pdfplumber 源码）
 
 **依赖声明** (`src-tauri/Cargo.toml`):
 ```toml
-pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "cjk-safe-lenient", optional = true }
+pdfplumber = { git = "https://github.com/chenfuxu920/pdfplumber-rs.git", branch = "main", optional = true }
 ```
 
-**Fork 仓库**: https://github.com/chenfuxu920/pdfplumber-rs · 分支 `cjk-safe-lenient`
+**Fork 仓库**: https://github.com/chenfuxu920/pdfplumber-rs · 分支 `main`（原 `cjk-safe-lenient` 修复已并入并继续维护）
 
 **为什么不用上游 crates.io 0.2.0**:
 - 上游 0.2.0 tokenizer 遇内容流中的 `<<` 硬失败（`unexpected '<<' in content stream`），中国发票 PDF 普遍触发
@@ -87,7 +87,7 @@ c2ab510 fix(table): bar-rect 单边 + 按行成格，修复发票单元格提取
 93c14cb feat: tokenize_lenient <<修复 (PR#214 cherry-pick, 适配 0.2.0 API)
 0a436bf fix: char bbox and word grouping (0.2.0 base, CJK 0% mismatch)
 ```
-（merge commit `0bdfaa4` 合并了 `cjk-safe-lenient-full` 进 canonical 分支，含上述所有修复；当前 Cargo.lock 锁定 `44cc05a`）
+（上述 commit 来自历史 `cjk-safe-lenient` 分支；当前 Cargo.toml 使用 `main` 分支，已包含这些修复及后续上游更新）
 
 **Predefined CJK CMap 字节解码修复** (24ffb68): 火车票/部分行程单 PDF 用 `GBK-EUC-H` 编码 Type0 CID 字体且无 `/ToUnicode`，旧代码 `show_string_cid` 把 GBK 双字节当 2-byte CID，`emit_char_events` 走 `char::from_u32(cid)` fallback → 0xB9FA 解为 U+B9FA = "뻺"（韩文 Hangul），全文 91+11 个韩文乱码。修复：`CachedFont` 加 `encoding_name: Option<String>` 字段（Type0 分支用 `get_type0_encoding(fd)` 填充），`handle_tj`/`handle_tj_array` 在 `is_predefined_cjk_cmap(encoding_name)` 为真时分派到新函数 `show_string_predefined_cjk`，用 `encoding_rs` 解码整段字节为 Unicode 字符串（GBK/BIG5/UTF_16BE/SHIFT_JIS/EUC_JP/EUC_KR），每个 RawChar 的 `char_code` 直接是 Unicode 码点，让既有 `char::from_u32` fallback 正确解析。Identity-H 路径**未改**（仍走 `show_string_cid` + ToUnicode）。`/W` 宽度查找：44cc05a 起先做 Unicode 码点 → Adobe CID 映射（U+0020-007E → CID 1-95）再查 `/W`，miss 才走 f9444db 的 0.5× 兜底（见下）。位置：`crates/pdfplumber-parse/src/{interpreter,text_renderer,cid_font}.rs` + `crates/pdfplumber-parse/Cargo.toml` 加 `encoding_rs = "0.8"`。项目内 `tests/train_ticket_cid_debug_test.rs` 用真实火车票 PDF 作回归检查（韩文音节+兼容字母必须为 0，CJK 主区 ≥ 50）。
 
@@ -95,7 +95,7 @@ c2ab510 fix(table): bar-rect 单边 + 按行成格，修复发票单元格提取
 - **f9444db**: `/W` miss 时对 ASCII 范围（0x20-0x7E）返回 `default_width * 0.5`，CJK 范围仍用 `default_width`；
 - **44cc05a**: `/W` 是 Adobe CID 索引的，而 ASCII Unicode 码点 U+0020-007E 恰对应 CID 1-95（CID = 码点 - 0x1F），先做码点 → CID 映射再查 `/W`，命中即用真值，f9444db 的 0.5× 只作最终兜底。
 
-zpdf 0.9 渲染同样有此问题（Type0 分支 `/W` miss 不回退 hmtx），已在 zpdf fork `cjk-ascii-width` 分支修复，见下方 zpdf 依赖节。项目内 `tests/ascii_width_test.rs` 用真实火车票 PDF 作回归（G878/Changshanan/Wuhan 的 per_char 宽度必须在半角范围内）。
+zpdf 渲染同样有此问题（Type0 分支 `/W` miss 不回退 hmtx），已在 zpdf fork `main` 分支修复，见下方 zpdf 依赖节。项目内 `tests/ascii_width_test.rs` 用真实火车票 PDF 作回归（G878/Changshanan/Wuhan 的 per_char 宽度必须在半角范围内）。
 
 **按 non_stroking_color 分组字符修复** (7828008): 部分中国发票 PDF（如 043002200111_32092584.pdf）把棕色表单标签（"名称:"）与黑色填写值叠在同一坐标上，坐标排序的 word 分组会把两者交错拼词。修复：word 提取前先按 `non_stroking_color` 分组（颜色不同的字符不进同一 word），依赖 fork 中 0729db5 暴露的 `color` 字段。
 
@@ -112,12 +112,12 @@ zpdf 0.9 渲染同样有此问题（Type0 分支 `/W` miss 不回退 hmtx），�
 - PR#215/216 (Arabic CID / CJK vertical vmtx): 在 PR#208 之后，依赖其改动
 
 **修改 pdfplumber 源码的流程**:
-1. Clone fork: `git clone -b cjk-safe-lenient git@github.com:chenfuxu920/pdfplumber-rs.git`
+1. Clone fork: `git clone -b main git@github.com:chenfuxu920/pdfplumber-rs.git`
 2. 改代码（表格/边/形状在 `crates/pdfplumber-core/src/{table,edges,shapes}.rs`；tokenizer/解释器在 `crates/pdfplumber-parse/src/{tokenizer,interpreter}.rs`；`/Contents` 解析与后端在 `crates/pdfplumber-parse/src/lopdf_backend.rs`）
 3. `cargo check -p pdfplumber` 确认编译
 4. 用 path 依赖测试: `pdfplumber = { path = "<local>/pdfplumber-rs/crates/pdfplumber" }`
 5. 跑 `cargo test --features pdfplumber --test pdfplumber_cjk_fidelity_test --test debug_extract_test --test pdfplumber_cell_debug_test`
-6. Push 到 fork: `git push origin cjk-safe-lenient`
+6. Push 到 fork: `git push origin main`
 7. 项目里 `cargo update -p pdfplumber` 更新 Cargo.lock
 
 **关键测试** (CJK fidelity 5/5 必须全过):
@@ -134,10 +134,10 @@ zpdf 0.9 渲染同样有此问题（Type0 分支 `/W` miss 不回退 hmtx），�
 
 **依赖声明** (`src-tauri/Cargo.toml`):
 ```toml
-zpdf-font = { git = "https://github.com/chenfuxu920/zpdf.git", branch = "cjk-ascii-width" }
+zpdf-font = { git = "https://github.com/chenfuxu920/zpdf.git", branch = "main" }
 ```
 
-**Fork 仓库**: https://github.com/chenfuxu920/zpdf · 分支 `cjk-ascii-width`
+**Fork 仓库**: https://github.com/chenfuxu920/zpdf · 分支 `main`（原 `cjk-ascii-width` 修复已并入并继续维护）
 
 **背景**: 上游 zpdf 0.9 的 Type0 CID 字体宽度处理与 pdfplumber fork 的 f9444db 问题同源：`zpdf-font/src/lib.rs` 的 `CidWidths::get` 对 `/W` 缺 ASCII 条目的 CID 字体回退 `/DW=1000`，ASCII 字符渲染 2× 过宽。上游无 fix，故自建 fork。
 
@@ -148,7 +148,7 @@ f6a0412 fix(font): ASCII CID 范围 1..=0x7E，覆盖 GBK-EUC-H/B5pc 等 legacy 
 98005f6 fix(font): ASCII 0x20-0x7E 用 0.5× /DW（CidWidths::get 的 /W miss 兜底，与 pdfplumber f9444db 同思路）
 ```
 
-**修改 zpdf 源码的流程**: Clone fork → 改 `crates/zpdf-font/src/lib.rs`（`CidWidths::get`）→ `cargo check -p zpdf-font` → 用 path 依赖测试: `zpdf-font = { path = "<local>/zpdf-fork/crates/zpdf-font" }` → 跑 `cargo test --test zpdf_ascii_width_test --test zpdf_cjk_identity_h_width_test` → push 到 fork `cjk-ascii-width` → 项目里 `cargo update -p zpdf-font` 更新 Cargo.lock。
+**修改 zpdf 源码的流程**: Clone fork → 改 `crates/zpdf-font/src/lib.rs`（`CidWidths::get`）→ `cargo check -p zpdf-font` → 用 path 依赖测试: `zpdf-font = { path = "<local>/zpdf-fork/crates/zpdf-font" }` → 跑 `cargo test --test zpdf_ascii_width_test --test zpdf_cjk_identity_h_width_test` → push 到 fork `main` → 项目里 `cargo update -p zpdf-font` 更新 Cargo.lock。
 
 ### 近期重大改进 (2026-05)
 
@@ -156,18 +156,18 @@ f6a0412 fix(font): ASCII CID 范围 1..=0x7E，覆盖 GBK-EUC-H/B5pc 等 legacy 
 - 主行/续行分离：按序号Y坐标±30%行高分 group
 - 锚点构建：序号锚点 + 时间锚点 + 间隔填充（gap >1.8×行高时补金额锚点）
 - 里程/金额合并列分割：检测表头"里程[公里]金额[元]"合并块，金额只用 X>header_x 数据
-- 三重交叉验证（parangi纯文本 → OCR坐标结果）：
-  1. 金额修正（OCR误读12.0→parangi修正12.90）
-  2. Provider补全（OCR缺失"滴滴轻享"→parangi续行合并）
-  3. 时间恢复（OCR乱码"成都A428"→parangi恢复"04-25 08:48"，含续行分钟提取）
+- 三重交叉验证（参考文本 → OCR坐标结果）：
+  1. 金额修正（OCR误读12.0→参考文本修正12.90）
+  2. Provider补全（OCR缺失"滴滴轻享"→参考文本续行合并）
+  3. 时间恢复（OCR乱码"成都A428"→参考文本恢复"04-25 08:48"，含续行分钟提取）
 
 **发票解析修复** (`invoice_parser.rs`):
 - `extract_seller_by_coords`: 坐标感知销售方提取（取最右侧"名称："块）
 - `extract_amount`: total区域失败时回退全文搜索
-- pipeline: parangi提取seller为空时回退OCR重解析
+- pipeline: pdfplumber 提取 seller 为空/异常时回退 OCR 重解析
 
 ### 已知限制
 - 滴滴page2表头合并块"序号车型上车时间城市"导致provider/time边界过宽
-- parangi对中文发票多列布局会乱序
-- 部分OCR乱码时间（如"A428"、"042708"）无法从OCR本身恢复，依赖parangi交叉验证
+- 参考文本对中文发票多列布局可能乱序
+- 部分OCR乱码时间（如"A428"、"042708"）无法从OCR本身恢复，依赖参考文本/交叉验证
 - **发票号码/开票日期不在表格内**（find_tables 检测不到表头区），只能全文正则提取（`build_invoice_from_cells`），不要试图用单元格提取——历史已验证同格/分格标签定位均失败

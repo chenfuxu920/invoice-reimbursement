@@ -3,14 +3,14 @@
 ## 前置条件
 
 - **Node.js** 18+
-- **Rust** 1.75+（推荐使用 rustup 安装）
+- **Rust** stable（≥ 1.77，推荐使用 rustup 安装）
 - **系统依赖**：
   - **Linux**: `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`
     ```bash
     sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
     ```
-  - **Windows**: 无额外依赖（需安装 Visual Studio Build Tools）
-  - **macOS**: 无额外依赖（需安装 Xcode Command Line Tools）
+  - **Windows**: 需安装 Visual Studio Build Tools（MSVC 工具链）
+  - **macOS**: 需安装 Xcode Command Line Tools
 
 ## 开发模式
 
@@ -23,17 +23,26 @@ npm run tauri dev
 
 ## 生产构建
 
+项目提供三个 npm 脚本：
+
 ```bash
-npm run tauri build
+# 便携版（免安装，release 配置）
+npm run tauri:build
+
+# 便携版（快速配置，关闭 LTO 加快编译）
+npm run tauri:build:fast
+
+# NSIS 安装包（含自动更新签名与安装程序）
+npm run tauri:build:installer
 ```
 
-构建产物在 `src-tauri/target/release/bundle/` 下，按操作系统不同包含：
+构建产物：
 
-| 平台 | 产物路径 | 安装包格式 |
-|------|---------|-----------|
-| Windows | `bundle/nsis/` | `.exe` (NSIS 安装程序) |
-| macOS | `bundle/dmg/` | `.dmg` |
-| Linux | `bundle/deb/` / `bundle/appimage/` | `.deb` / `.AppImage` |
+| 目标 | 产物路径 |
+|------|---------|
+| Windows 便携版 | `src-tauri/target/release/portable/`（或 `release-fast/portable/`） |
+| Windows NSIS 安装包 | `src-tauri/target/release/bundle/nsis/` |
+| macOS / Linux 安装包（CI 产物） | `src-tauri/target/release/bundle/` 下对应 `dmg/`、`deb/`、`appimage/` |
 
 ### 仅构建前端
 
@@ -58,10 +67,15 @@ cargo build --release
 
 ```toml
 [profile.release]
-opt-level = "s"       # 优化体积
-lto = true            # 链接时优化
+opt-level = "z"       # 优化体积
+lto = "fat"           # 链接时优化（fat LTO）
 strip = true          # 剥离调试符号
 codegen-units = 1     # 单编译单元，更好的优化
+
+[profile.release-fast]
+inherits = "release"
+lto = false
+codegen-units = 16
 ```
 
 ## 打包配置
@@ -69,10 +83,12 @@ codegen-units = 1     # 单编译单元，更好的优化
 Tauri 打包配置位于 `src-tauri/tauri.conf.json`，主要配置项：
 
 - **identifier**: `com.invoice-reimbursement.app`
-- **productName**: `发票报销助手 v0.2.0 - By 白开水`
+- **productName**: `InvoiceAssistant`
+- **version**: `1.1.0`（与 `package.json`、`Cargo.toml` 同步）
 - **窗口**: 1024×768（最小 800×600），居中显示，可调整大小
 - **NSIS 安装程序**（Windows）: 支持简体中文/英文，both 安装模式（可选当前用户/所有用户）
 - **DEB 包**（Linux）: 声明 webkit2gtk 和 GTK3 依赖
+- **自动更新**: tauri-plugin-updater + minisign，GitHub Releases 分发
 
 ## 常见问题
 
@@ -94,4 +110,4 @@ xcode-select --install
 
 ### cargo build --release 太慢
 
-release 构建由于启用了 LTO，首次构建可能需要较长时间（5-15 分钟），后续增量构建会快很多。开发调试请使用 `npm run tauri dev`。
+release 构建由于启用了 fat LTO，首次构建可能需要较长时间（5-15 分钟），后续增量构建会快很多。开发调试请使用 `npm run tauri dev`；需要快速出包时使用 `npm run tauri:build:fast`。

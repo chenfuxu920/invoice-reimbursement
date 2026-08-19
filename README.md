@@ -15,18 +15,18 @@
 
 ### 发票识别与解析
 
-- **双通道解析**：文字型 PDF 优先本地直接解析（无需 OCR，快且准）；图片与扫描件自动回退本地 OCR（PaddleOCR v5 ONNX 推理，模型随应用内置）
-- **多策略字段提取**：区域分割 + 正则提取 + 单元格引导（find_tables）三路配合，自动提取金额、销售方、开票日期、发票号码等字段
-  - 销售方提取失败时按坐标回退：自动定位最右侧「名称：」块
+- **双通道解析**：文字型 PDF 优先本地直接解析（无需 OCR，快且准）；图片与扫描件自动回退本地 OCR（PaddleOCR v5 MNN 推理，模型随应用内置）
+- **多策略字段提取**：pdfplumber 表格单元格提取为主，区域分割、正则、坐标回退为辅，自动提取金额、销售方、开票日期、发票号码等字段
+  - 销售方提取失败时按坐标回退：优先竖排「销售方信息」定位，再自动定位最右侧「名称：」块
   - 金额在表格区域提取失败时回退全文搜索
 - **票据专属字段**：高铁 / 机票自动提取票面出行日期与出发 / 到达城市；住宿发票提取住宿详情；高速通行费发票从备注提取通行时间
 - **发票类型自动检测**：增值税电子发票、火车票 / 铁路电子客票、机票、酒店账单、滴滴 / 高德打车行程单、打车发票、交通卡账单、高速通行费发票、保险等自动区分，无需手动选择
 - **费用类别自动分类**：高铁 / 车船票、飞机票、保险、退改签、市内交通、住宿、餐饮、高速通行费、其他
-- **多来源导入**：拖拽批量导入 PDF / 图片；支持发票链接（二维码提取）与外部链接录入；纸质票据可手动录入空发票；重复导入自动去重
+- **多来源导入**：拖拽批量导入 PDF / 图片；支持外部链接来源的手动录入（二维码解析尚未启用）；纸质票据可手动录入空发票；重复导入自动去重
 
 ### 行程单解析（市内交通）
 
-- **坐标表格 + 文本交叉验证**：OCR 坐标表格解析为主，parangi 纯文本提取作交叉验证与补充，任一通道缺漏的字段由另一通道补全或修正
+- **坐标表格 + 文本交叉验证**：pdfplumber 表格/坐标解析为主，OCR 坐标与纯文本提取作交叉验证与补充，任一通道缺漏的字段由另一通道补全或修正
 - **表格健壮性处理**：主行 / 续行自动分离（按序号 Y 坐标分组）、时间 / 序号 / 金额锚点构建、里程 / 金额合并列分割
 - **三重交叉验证**：金额 OCR 误读自动修正、缺失服务商（如滴滴轻享）自动补全、乱码时间（如「成都A428」）自动恢复
 - **多样式兼容**：天府通、滴滴、高德、火车票等行程单样式
@@ -36,7 +36,7 @@
 - **账单导入**：支持微信 / 支付宝导出的 XLSX / CSV 账单
 - **匹配策略自适应**：一对一（高铁 / 机票 / 住宿）、一对多（打车：行程金额汇总匹配发票）、手动确认三种模式自动选择
 - **多维度评分**：金额、商家名称（Levenshtein 相似度 + 关键词匹配）、时间、类别四维加权评分，内置金额误差容忍（默认 ±1 元）
-- **批量优化**：自动寻找全局最优匹配组合，输出匹配率与高置信度匹配结果
+- **批量匹配**：高速费/保险/行程特化处理，输出匹配率与高置信度匹配结果
 - **人工修正**：匹配结果可手动配对 / 解除，失败票据可一键重试或手动补录
 
 ### 按行程分趟与报销标准
@@ -52,7 +52,7 @@
 
 ### 调试与运维
 
-- **调试视图**：PDF 文字提取可视化——pdfplumber / zpdf / OCR 三引擎坐标统一对比、表格单元格层可视化（find_tables 识别结果）、逐引擎提取日志
+- **调试视图**：PDF 文字提取可视化——pdfplumber / OCR 坐标统一对比、表格线条/单元格层可视化（find_tables 识别结果）、逐引擎提取日志
 - **完全离线**：解析、识别、匹配全部在本机完成，数据不出本机；内置 GitHub Releases 自动更新（可选联网，含便携版更新通道）
 
 ## 工作原理
@@ -67,12 +67,12 @@
 
 后端核心链路位于 `src-tauri/src/`：
 
-- **ocr/** — PaddleOCR v5（ONNX 推理）封装，输出结构化识别结果
-- **parser/** — 发票 / 行程单 / 微信 / 支付宝账单解析，含去重与发票类型检测
-- **pdf/** — PDF 文字提取（pdfplumber / zpdf）、解析流水线、调试提取接口（三引擎坐标统一）、报销表单与对照清单生成
-- **matching/** — 匹配引擎：策略选择、多维度评分、批量优化、人工匹配
+- **ocr/** — PaddleOCR v5（MNN 推理）封装、模型下载，输出结构化识别结果
+- **parser/** — 发票 / 行程单 / 微信 / 支付宝账单解析，含布局/单元格提取、去重与发票类型检测
+- **pdf/** — PDF 文字提取（pdfplumber）、解析流水线、调试提取接口（pdfplumber/OCR 坐标统一）、报销表单与对照清单生成
+- **matching/** — 匹配引擎：策略选择、多维度评分、批量匹配（含高速费/保险特化）、人工匹配、分趟
 
-行程单与发票的字段提取以「PDF 纯文本提取」为主通道、本地 OCR 坐标为扫描件回退与交叉验证通道，任一通道缺漏的字段由另一通道补全或修正，显著提升金额、时间、销售方等关键字段的准确率。导入时自动完成去重、发票类型检测与费用类别分类，全程无需人工干预。
+行程单与发票的字段提取以「pdfplumber 表格/坐标提取」为主通道、本地 OCR 坐标为扫描件回退与交叉验证通道，任一通道缺漏的字段由另一通道补全或修正，显著提升金额、时间、销售方等关键字段的准确率。导入时自动完成去重、发票类型检测与费用类别分类，全程无需人工干预。
 
 ## 快速开始
 
@@ -115,7 +115,9 @@ npm run tauri:build:fast
 npm run tauri:build:installer
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。
+构建产物：
+- 便携版位于 `src-tauri/target/release/portable/`（`invoice-reimbursement_v<版本>_portable.exe`）
+- NSIS 安装包位于 `src-tauri/target/release/bundle/nsis/`
 
 ## 使用流程
 
@@ -127,7 +129,7 @@ npm run tauri:build:installer
  直接解析/OCR    XLSX/CSV 导入    误差容忍 + 修正   人工归趟        + 对照清单
 ```
 
-应用内置六个视图：首页、导入、匹配、导出、调试（PDF 文字提取与三引擎坐标对比）与设置。
+应用内置六个视图：首页、导入、匹配、导出、调试（PDF 文字提取与 pdfplumber/OCR 坐标对比）与设置。
 
 ## 项目结构
 
@@ -141,12 +143,12 @@ invoice-reimbursement/
 ├── src-tauri/                  # Rust 后端
 │   ├── src/
 │   │   ├── ocr/                # PaddleOCR v5 封装与模型下载
-│   │   ├── parser/             # 发票 / 行程单 / 账单解析、去重
+│   │   ├── parser/             # 发票 / 行程单 / 账单解析、布局/单元格提取、去重
 │   │   ├── pdf/                # 文本提取、解析流水线、表单与对照清单生成
-│   │   ├── matching/           # 匹配引擎、评分、批量优化、分趟
+│   │   ├── matching/           # 匹配引擎、评分、批量匹配、分趟
 │   │   ├── models/             # 发票 / 支付 / 匹配结果 / 报销数据模型
 │   │   └── commands/           # Tauri 命令注册
-│   ├── models/                 # PaddleOCR v5 ONNX 模型（随应用分发）
+│   ├── models/                 # PaddleOCR v5 MNN 模型（随应用分发）
 │   ├── tests/                  # Rust 集成测试（含真实票据回归测试）
 │   └── bin/                    # 命令行调试工具
 ├── config/                     # 发票模板配置
@@ -164,8 +166,8 @@ invoice-reimbursement/
 | 样式 | TailwindCSS v4 | 原子化 CSS |
 | 状态管理 | Pinia | 官方状态库 |
 | 桌面框架 | Tauri 2.x | Rust 后端 + 系统 WebView |
-| OCR 引擎 | PaddleOCR v5（ONNX） | 本地推理，模型内置（仅图片/扫描件回退使用） |
-| PDF 处理 | pdfplumber / zpdf / lopdf | 文本提取、解析与生成 |
+| OCR 引擎 | PaddleOCR v5（MNN） | 本地推理，模型内置/可下载（仅图片/扫描件回退使用） |
+| PDF 处理 | pdfplumber / zpdf / medpdf / lopdf | 文本提取、渲染、解析与生成 |
 | 电子表格 | calamine / rust_xlsxwriter | XLSX / CSV 读写 |
 | 自动更新 | tauri-plugin-updater + minisign | GitHub Releases 分发 |
 
@@ -188,15 +190,15 @@ npm run test
 
 项目对两个上游 PDF 库维护自建 fork，解决中文票据 PDF 的兼容性问题：
 
-- **pdfplumber-rs**（分支 `cjk-safe-lenient`）：修复 CJK CID 字体乱码、ASCII 半角宽度（Unicode→Adobe CID 映射查 `/W`）、`/Contents` 间接引用解析、表格单元格提取、按颜色分组字符等问题，详见 [fork 仓库](https://github.com/chenfuxu920/pdfplumber-rs/tree/cjk-safe-lenient)
-- **zpdf**（分支 `cjk-ascii-width`）：修复 Type0 CID 字体 ASCII 字符宽度（`CidWidths::get` 兜底与 CID 范围）与 Identity-H 子集字形宽度，详见 [fork 仓库](https://github.com/chenfuxu920/zpdf/tree/cjk-ascii-width)
+- **pdfplumber-rs**（分支 `main`）：基于原 `cjk-safe-lenient` 修复继续维护，包含 CJK CID 字体乱码、ASCII 半角宽度（Unicode→Adobe CID 映射查 `/W`）、`/Contents` 间接引用解析、表格单元格提取、按颜色分组字符等问题，详见 [fork 仓库](https://github.com/chenfuxu920/pdfplumber-rs/tree/main)
+- **zpdf**（分支 `main`）：基于原 `cjk-ascii-width` 修复继续维护，包含 Type0 CID 字体 ASCII 字符宽度（`CidWidths::get` 兜底与 CID 范围）与 Identity-H 子集字形宽度，详见 [fork 仓库](https://github.com/chenfuxu920/zpdf/tree/main)
 
 ## 文档
 
 - [需求规格](docs/REQUIREMENTS.md) — 功能与非功能需求
 - [构建说明](docs/BUILD.md) — 各平台构建与打包指南
 - [产品说明](PRODUCT.md) — 产品定位与设计原则
-- [实施计划](docs/plans/) — 各阶段设计规格与实现计划
+
 
 ## License
 
