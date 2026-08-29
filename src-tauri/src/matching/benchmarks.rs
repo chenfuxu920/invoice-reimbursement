@@ -73,6 +73,7 @@ pub fn generate_test_invoices(count: usize) -> Vec<Invoice> {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         });
     }
 
@@ -284,6 +285,7 @@ mod performance_tests {
                 departure_city: None,
                 arrival_city: None,
                 toll_travel_time: None,
+                travel_time: None,
             });
         }
 

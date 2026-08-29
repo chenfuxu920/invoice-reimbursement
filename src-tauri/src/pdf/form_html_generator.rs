@@ -331,6 +331,7 @@ mod tests {
             city_transport_count: 20,
             city_transport_amount: 956.65,
             city_transport_actual_amount: 956.65,
+            city_transport_daily_std: 80.0,
             hotel_levels: vec![HotelLevelDetail {
                 level: "其他人员".to_string(),
                 persons: 1,

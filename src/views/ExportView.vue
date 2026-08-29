@@ -18,6 +18,7 @@
         <span v-if="matchStore.unmatchedInvoices.length" class="chip bg-amber-50 text-amber-700 border border-amber-200/70"><AlertTriangle :size="13" /> 未匹配发票 {{ matchStore.unmatchedInvoices.length }}</span>
         <span v-if="matchStore.unmatchedPayments.length" class="chip bg-slate-50 text-slate-600 border border-slate-200/70">未匹配支付 {{ matchStore.unmatchedPayments.length }}</span>
         <span class="chip bg-white text-slate-600 border border-slate-200 shadow-card"><Package :size="13" class="text-primary-600" /> 出差 {{ matchStore.trips.length }} 趟</span>
+        <span v-if="stayMismatchCount" class="chip bg-amber-50 text-amber-700 border border-amber-200/70"><AlertTriangle :size="13" /> 住宿天数不符 {{ stayMismatchCount }} 趟</span>
       </div>
 
       <!-- 分趟工具栏：存在待调整票据时提供出发城市重匹配 -->
@@ -105,7 +106,7 @@
           <h3 class="font-display text-base font-bold text-amber-800">待调整（{{ matchStore.unassigned.length }}）</h3>
         </div>
         <p class="text-xs text-amber-600/90 mb-4 leading-relaxed">
-          以下发票无法自动归入某趟出差（票据未配对成功或日期在行程之外），可移入某趟；票据可「新建出差」。
+          以下发票已匹配支付记录，但尚未归入任何一趟出差，可移入某趟；票据可「新建出差」。
         </p>
         <div class="space-y-2">
           <div v-for="m in matchStore.unassigned" :key="m.invoice_id"
@@ -155,6 +156,7 @@ import { useProfile } from '../composables/profile'
 import type { Invoice, MatchResult, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
+import { analyzeStayDays } from '../utils/stay'
 
 const matchStore = useMatchStore()
 const invoiceStore = useInvoiceStore()
@@ -197,6 +199,11 @@ const batchFormInfo = computed(() => {
 
 const hasUnassignedTickets = computed(() =>
   matchStore.unassigned.some(m => isTicket(m.invoice))
+)
+
+// 住宿天数与行程对不上的趟数（摘要芯片提示，详情见对应出差卡片）
+const stayMismatchCount = computed(() =>
+  matchStore.trips.filter(t => analyzeStayDays(t)?.status === 'mismatch').length
 )
 
 function otherTrips(trip: Trip): Trip[] {

@@ -836,6 +836,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         }
     }
 
@@ -865,6 +866,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         }
     }
 
@@ -1028,6 +1030,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         }
     }
 
@@ -1073,6 +1076,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         }
     }
 
@@ -1240,6 +1244,7 @@ mod tests {
                 "%Y-%m-%d %H:%M:%S",
             )
             .ok(),
+            travel_time: None,
         }
     }
 

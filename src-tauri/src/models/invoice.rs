@@ -32,6 +32,8 @@ pub struct Invoice {
     pub item_name: String,              // 项目名称
     pub date: NaiveDate,                // 开票日期
     pub travel_date: Option<NaiveDate>, // 票面实际出行日期（仅 Train/Flight 类发票有值）
+    #[serde(default)]
+    pub travel_time: Option<String>, // 出发时刻 HH:MM（仅 Train/Flight，从票面"日期 时间"提取）
     pub category: InvoiceCategory,      // 自动识别的类别
     pub source: InvoiceSource,          // 来源
     pub itineraries: Vec<Itinerary>,    // 行程（打车场景）
@@ -199,6 +201,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         };
         assert_eq!(invoice.id, "test-id");
         assert_eq!(invoice.invoice_number, "INV001");
@@ -236,6 +239,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         };
         assert_eq!(invoice.itineraries.len(), 1);
         assert_eq!(invoice.itineraries[0].provider, "滴滴");
@@ -280,6 +284,7 @@ mod tests {
                 chrono::NaiveDateTime::parse_from_str("2026-05-25 10:06:04", "%Y-%m-%d %H:%M:%S")
                     .unwrap(),
             ),
+            travel_time: None,
         };
         assert!(invoice.toll_travel_time.is_some());
         assert_eq!(invoice.category, InvoiceCategory::Toll);

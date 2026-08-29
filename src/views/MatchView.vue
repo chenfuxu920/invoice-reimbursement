@@ -36,18 +36,29 @@
       </div>
     </section>
 
+    <!-- 类别筛选 -->
+    <section v-if="pageInvoices.length" class="mt-5 animate-fade-in-up">
+      <div class="card px-4 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span class="flex items-center gap-1.5 text-xs font-medium text-slate-400 shrink-0">
+          <ListFilter :size="14" />
+          按类别筛选
+        </span>
+        <CategoryFilterChips v-model="activeCategory" :counts="categoryCounts" :total="pageInvoices.length" />
+      </div>
+    </section>
+
     <!-- 已匹配 -->
     <section v-if="matchStore.matches.length" class="mt-8">
       <div class="flex items-center justify-between mb-3 animate-fade-in-up">
         <h3 class="font-display text-base font-bold text-slate-800 flex items-center gap-2">
           <CheckCircle2 :size="17" class="text-emerald-500" />
-          已匹配（{{ matchStore.matches.length }}）
+          已匹配（{{ countLabel(filteredMatches.length, matchStore.matches.length) }}）
         </h3>
         <span class="text-xs text-slate-400">点击卡片可调整 / 查看详情</span>
       </div>
-      <div class="grid gap-3">
+      <div v-if="filteredMatches.length" class="grid gap-3">
         <MatchCard
-          v-for="(m, i) in matchStore.matches"
+          v-for="(m, i) in filteredMatches"
           :key="m.invoice_id"
           :match="m"
           :style="{ animationDelay: `${i * 70}ms` }"
@@ -59,16 +70,19 @@
           @remove-payment="handleRemovePayment"
         />
       </div>
+      <p v-else class="card px-4 py-3 text-xs text-slate-400">「{{ activeCategoryLabel }}」类别下暂无已匹配项</p>
     </section>
 
     <!-- 未匹配发票 -->
     <section v-if="matchStore.unmatchedInvoices.length" class="mt-8">
       <div class="flex items-center gap-2 mb-3 animate-fade-in-up">
         <AlertTriangle :size="16" class="text-amber-500" />
-        <h3 class="font-display text-base font-bold text-amber-700">未匹配发票（{{ matchStore.unmatchedInvoices.length }}）</h3>
+        <h3 class="font-display text-base font-bold text-amber-700">
+          未匹配发票（{{ countLabel(filteredUnmatchedInvoices.length, matchStore.unmatchedInvoices.length) }}）
+        </h3>
       </div>
-      <div class="space-y-2">
-        <div v-for="(inv, i) in matchStore.unmatchedInvoices" :key="inv.id"
+      <div v-if="filteredUnmatchedInvoices.length" class="space-y-2">
+        <div v-for="(inv, i) in filteredUnmatchedInvoices" :key="inv.id"
              class="card card-hover flex flex-wrap items-center justify-between gap-3 px-4 py-3 cursor-pointer animate-fade-in-up"
              :style="{ animationDelay: `${i * 60}ms` }"
              @click="handleViewInvoice(inv)">
@@ -96,6 +110,7 @@
           </div>
         </div>
       </div>
+      <p v-else class="card px-4 py-3 text-xs text-slate-400">「{{ activeCategoryLabel }}」类别下没有未匹配发票</p>
     </section>
 
     <!-- 未匹配支付 -->
@@ -182,7 +197,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
-  ScanSearch, Sparkles, CheckCircle2, AlertTriangle, ArrowRight, ChevronRight, Wand2, Loader2,
+  ScanSearch, Sparkles, CheckCircle2, AlertTriangle, ArrowRight, ChevronRight, Wand2, Loader2, ListFilter,
 } from 'lucide-vue-next'
 import { useInvoiceStore } from '../stores/invoice'
 import { usePaymentStore } from '../stores/payment'
@@ -193,6 +208,7 @@ import MatchCard from '../components/MatchCard.vue'
 import AppButton from '../components/ui/AppButton.vue'
 import AppIcon from '../components/ui/AppIcon.vue'
 import AppEmpty from '../components/ui/AppEmpty.vue'
+import CategoryFilterChips from '../components/ui/CategoryFilterChips.vue'
 import { toast } from '../composables/toast'
 import { listen } from '@tauri-apps/api/event'
 import MatchAdjustDialog from '../components/MatchAdjustDialog.vue'
@@ -200,11 +216,33 @@ import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import PaymentDetailModal from '../components/PaymentDetailModal.vue'
 import type { Invoice, MatchResult, PaymentRecord, InvoiceCategory, ItineraryPaymentPair } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
-import { getCategoryBadgeClass, getCategoryIcon } from '../utils/category'
+import { getCategoryBadgeClass, getCategoryIcon, getCategoryLabel } from '../utils/category'
 
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
 const matchStore = useMatchStore()
+
+// 发票类别筛选：同时作用于已匹配与未匹配发票两个列表
+const activeCategory = ref<InvoiceCategory | null>(null)
+const pageInvoices = computed<Invoice[]>(() => [
+  ...matchStore.matches.map(m => m.invoice),
+  ...matchStore.unmatchedInvoices,
+])
+const categoryCounts = computed(() => {
+  const counts: Partial<Record<InvoiceCategory, number>> = {}
+  for (const inv of pageInvoices.value) counts[inv.category] = (counts[inv.category] || 0) + 1
+  return counts
+})
+const activeCategoryLabel = computed(() => (activeCategory.value ? getCategoryLabel(activeCategory.value) : ''))
+const filteredMatches = computed(() =>
+  activeCategory.value ? matchStore.matches.filter(m => m.invoice.category === activeCategory.value) : matchStore.matches
+)
+const filteredUnmatchedInvoices = computed(() =>
+  activeCategory.value ? matchStore.unmatchedInvoices.filter(i => i.category === activeCategory.value) : matchStore.unmatchedInvoices
+)
+function countLabel(filtered: number, total: number): string {
+  return activeCategory.value ? `${filtered}/${total}` : String(total)
+}
 
 const showUnmatchedPayments = ref(false)
 const showAdjustDialog = ref(false)

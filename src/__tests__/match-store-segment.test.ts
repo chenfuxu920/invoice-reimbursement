@@ -210,4 +210,108 @@ describe('matchStore 分趟逻辑', () => {
     expect(store.matches[0].invoice.amount).toBe(999)
     expect(store.trips[0].matches[0].invoice.amount).toBe(999)
   })
+
+  // 不变式：任何已匹配发票要么在某趟中，要么出现在待调整（unassigned = matches − trips 派生）
+  it('手动补匹配的发票出现在待调整，可再移入某趟', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValueOnce({
+      trips: [{
+        id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22',
+        ticket_ids: ['t1', 't2'], invoice_ids: ['t1', 't2'],
+      }],
+      unassigned_ids: [],
+    })
+    const matches = [
+      makeMatch('t1', { departure_city: '长沙', arrival_city: '上海', travel_date: '2026-05-20' }),
+      makeMatch('t2', { departure_city: '上海', arrival_city: '长沙', travel_date: '2026-05-22' }),
+    ]
+    await store.resegment(matches, '')
+    expect(store.unassigned).toHaveLength(0)
+
+    const hotel = makeMatch('h1', { category: 'Hotel' })
+    invokeMock.mockResolvedValue(hotel)
+    await store.manualMatch(hotel.invoice, [])
+
+    expect(store.unassigned.map(m => m.invoice_id)).toEqual(['h1'])
+
+    store.moveToTrip('h1', 'trip-1')
+    expect(store.trips[0].matches.map(m => m.invoice_id)).toEqual(['t1', 't2', 'h1'])
+    expect(store.unassigned).toHaveLength(0)
+  })
+
+  it('调整已归趟发票的匹配后就地替换，留在原趟且不重复出现', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValueOnce({
+      trips: [{
+        id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22',
+        ticket_ids: ['t1'], invoice_ids: ['t1', 'h1'],
+      }],
+      unassigned_ids: [],
+    })
+    const matches = [
+      makeMatch('t1', { departure_city: '长沙', arrival_city: '上海', travel_date: '2026-05-20' }),
+      makeMatch('h1', { category: 'Hotel' }),
+    ]
+    await store.resegment(matches, '')
+    expect(store.trips[0].matches).toHaveLength(2)
+    expect(store.unassigned).toHaveLength(0)
+
+    const updated = makeMatch('h1', { category: 'Hotel', amount: 888 })
+    invokeMock.mockResolvedValue(updated)
+    await store.manualMatch(matches[1].invoice, [])
+
+    expect(store.trips[0].matches).toHaveLength(2)
+    // store 状态是响应式代理，用内容断言就地替换后的新匹配对象
+    expect(store.trips[0].matches[1]).toStrictEqual(updated)
+    expect(store.trips[0].matches[1].invoice.amount).toBe(888)
+    expect(store.matches).toContainEqual(updated)
+    expect(store.unassigned).toHaveLength(0)
+  })
+
+  it('取消匹配后发票不再留在趟内，也不进待调整', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValueOnce({
+      trips: [{
+        id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22',
+        ticket_ids: ['t1'], invoice_ids: ['t1', 'h1'],
+      }],
+      unassigned_ids: [],
+    })
+    const matches = [
+      makeMatch('t1', { departure_city: '长沙', arrival_city: '上海', travel_date: '2026-05-20' }),
+      makeMatch('h1', { category: 'Hotel' }),
+    ]
+    await store.resegment(matches, '')
+
+    store.unmatchInvoice('h1')
+
+    expect(store.matches.map(m => m.invoice_id)).toEqual(['t1'])
+    expect(store.trips[0].matches.map(m => m.invoice_id)).toEqual(['t1'])
+    expect(store.unassigned).toHaveLength(0)
+    expect(store.unmatchedInvoices.map(i => i.id)).toEqual(['h1'])
+  })
+
+  it('不在任何趟中的票据可新建出差（手动补匹配场景）', async () => {
+    const store = useMatchStore()
+    invokeMock.mockResolvedValueOnce({
+      trips: [{
+        id: 'trip-1', destination: '上海', travel_start: '2026-05-20', travel_end: '2026-05-22',
+        ticket_ids: ['t1'], invoice_ids: ['t1'],
+      }],
+      unassigned_ids: [],
+    })
+    const t1 = makeMatch('t1', { departure_city: '长沙', arrival_city: '上海', travel_date: '2026-05-20' })
+    await store.resegment([t1], '')
+
+    const t9 = makeMatch('t9', { departure_city: '北京', arrival_city: '长沙', travel_date: '2026-06-01' })
+    invokeMock.mockResolvedValue(t9)
+    await store.manualMatch(t9.invoice, [])
+
+    expect(store.unassigned.map(m => m.invoice_id)).toEqual(['t9'])
+
+    store.createTripFromTicket(store.unassigned[0])
+    expect(store.trips).toHaveLength(2)
+    expect(store.trips[1].ticketIds).toEqual(['t9'])
+    expect(store.unassigned).toHaveLength(0)
+  })
 })

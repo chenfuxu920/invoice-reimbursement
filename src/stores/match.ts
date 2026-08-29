@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { MatchResult, Invoice, PaymentRecord, InvoiceCategory, ItineraryPaymentPair, Trip } from '../types'
 import { invoke } from '@tauri-apps/api/core'
@@ -23,16 +23,26 @@ export const useMatchStore = defineStore('match', () => {
   }
 
   const trips = ref<Trip[]>([])
-  const unassigned = ref<MatchResult[]>([])
+  // 待调整 = 已匹配但未归入任何趟（由 matches − trips 派生）。
+  // 保证任何已匹配发票要么在趟内、要么出现在待调整区：手动补匹配、分趟未重算等状态漂移都会落到这里。
+  const unassigned = computed<MatchResult[]>(() => {
+    const inTrip = new Set<string>()
+    for (const trip of trips.value) {
+      for (const m of trip.matches) inTrip.add(m.invoice_id)
+    }
+    return matches.value.filter(m => !inTrip.has(m.invoice_id))
+  })
   const segmentOrigin = ref('')
 
   function isTicket(inv: Invoice) {
     return inv.category === 'Train' || inv.category === 'Flight'
   }
 
-  async function resegment(matches: MatchResult[], origin: string) {
+  async function resegment(matchResults: MatchResult[], origin: string) {
+    // 先同步到 store 状态：unassigned 由 matches − trips 派生，必须与分趟用同一份已匹配列表
+    matches.value = [...matchResults]
     const result = await invoke<{ trips: TripGroupDto[]; unassigned_ids: string[] }>('segment_trips', {
-      matchResults: matches,
+      matchResults,
       origin: origin || null,
     })
     trips.value = result.trips.map(t => ({
@@ -43,14 +53,11 @@ export const useMatchStore = defineStore('match', () => {
       hotelLevel: '其他人员',
       ticketIds: t.ticket_ids,
       matches: t.invoice_ids
-        .map(id => matches.find(m => m.invoice_id === id))
+        .map(id => matches.value.find(m => m.invoice_id === id))
         .filter((m): m is MatchResult => !!m),
     }))
-    unassigned.value = result.unassigned_ids
-      .map(id => matches.find(m => m.invoice_id === id))
-      .filter((m): m is MatchResult => !!m)
     // 兜底：无任何票据时全部作为单趟展示（保持原有单张导出可用）
-    if (trips.value.length === 0 && !matches.some(m => isTicket(m.invoice))) {
+    if (trips.value.length === 0 && !matches.value.some(m => isTicket(m.invoice))) {
       trips.value = [{
         id: 'trip-1',
         destination: '',
@@ -58,9 +65,8 @@ export const useMatchStore = defineStore('match', () => {
         travelEnd: '',
         hotelLevel: '其他人员',
         ticketIds: [],
-        matches,
+        matches: [...matches.value],
       }]
-      unassigned.value = []
     }
   }
 
@@ -76,15 +82,13 @@ export const useMatchStore = defineStore('match', () => {
         break
       }
     }
+    // 待调整中的发票不在任何趟里，直接从已匹配列表取（覆盖手动补匹配等未重算分趟的发票）
     if (!match) {
-      const idx = unassigned.value.findIndex(m => m.invoice_id === invoiceId)
-      if (idx >= 0) match = unassigned.value.splice(idx, 1)[0]
+      match = matches.value.find(m => m.invoice_id === invoiceId)
     }
     if (!match) return
-    if (targetTripId === null) {
-      unassigned.value.push(match)
-      return
-    }
+    // 目标为 null = 移出趟，留在待调整（派生列表自动包含）
+    if (targetTripId === null) return
     const target = trips.value.find(t => t.id === targetTripId)
     if (target) {
       target.matches.push(match)
@@ -95,8 +99,8 @@ export const useMatchStore = defineStore('match', () => {
   }
 
   function createTripFromTicket(match: MatchResult) {
-    const idx = unassigned.value.findIndex(m => m.invoice_id === match.invoice_id)
-    if (idx === -1) return
+    // 已在某趟中的票据不重复归入；不在任何趟（含手动补匹配）的票据可直接建趟
+    if (trips.value.some(t => t.matches.some(m => m.invoice_id === match.invoice_id))) return
     trips.value.push({
       id: `trip-${Date.now()}`,
       destination: match.invoice.arrival_city || '',
@@ -106,7 +110,6 @@ export const useMatchStore = defineStore('match', () => {
       ticketIds: [match.invoice_id],
       matches: [match],
     })
-    unassigned.value.splice(idx, 1)
   }
 
   async function autoMatch(invoices: Invoice[], payments: PaymentRecord[], tolerance = 1.0) {
@@ -135,6 +138,14 @@ export const useMatchStore = defineStore('match', () => {
       unmatchedPayments.value = [...unmatchedPayments.value, ...match.payments]
       unmatchedInvoices.value = [...unmatchedInvoices.value, match.invoice]
     }
+    // 同步清理趟内残留：未匹配的发票不应继续留在趟中（否则趟内展示与导出仍会带上）
+    for (const trip of trips.value) {
+      const idx = trip.matches.findIndex(m => m.invoice_id === invoiceId)
+      if (idx >= 0) {
+        trip.matches.splice(idx, 1)
+        trip.ticketIds = trip.ticketIds.filter(id => id !== invoiceId)
+      }
+    }
   }
 
   async function manualMatch(
@@ -142,6 +153,17 @@ export const useMatchStore = defineStore('match', () => {
     payments: PaymentRecord[],
     itineraryPaymentPairs: ItineraryPaymentPair[] = [],
   ) {
+    // 记录原趟归属：调整已归趟发票的匹配后就地替换，发票留在原趟且数据保持最新
+    let homeTrip: Trip | undefined
+    let homeIdx = -1
+    for (const trip of trips.value) {
+      const idx = trip.matches.findIndex(m => m.invoice_id === invoice.id)
+      if (idx >= 0) {
+        homeTrip = trip
+        homeIdx = idx
+        break
+      }
+    }
     unmatchInvoice(invoice.id)
     const matchResult: MatchResult = await invoke('manual_match', {
       invoice,
@@ -149,6 +171,12 @@ export const useMatchStore = defineStore('match', () => {
       itineraryPaymentPairs,
     })
     matches.value.push(matchResult)
+    if (homeTrip) {
+      homeTrip.matches.splice(Math.min(homeIdx, homeTrip.matches.length), 0, matchResult)
+      if (isTicket(matchResult.invoice) && !homeTrip.ticketIds.includes(invoice.id)) {
+        homeTrip.ticketIds.push(invoice.id)
+      }
+    }
     unmatchedInvoices.value = unmatchedInvoices.value.filter(i => i.id !== invoice.id)
     const usedIds = new Set(payments.map(p => p.id))
     unmatchedPayments.value = unmatchedPayments.value.filter(p => !usedIds.has(p.id))
@@ -243,7 +271,6 @@ export const useMatchStore = defineStore('match', () => {
     unmatchedPayments.value = []
     reimbursementHtml.value = null
     trips.value = []
-    unassigned.value = []
     segmentOrigin.value = ''
   }
 

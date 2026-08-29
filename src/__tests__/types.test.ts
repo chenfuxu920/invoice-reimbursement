@@ -172,6 +172,7 @@ describe('Type definitions integrity', () => {
       city_transport_count: 5,
       city_transport_amount: 200.0,
       city_transport_actual_amount: 200.0,
+      city_transport_daily_std: 80.0,
       hotel_levels: [
         { level: '其他人员', persons: 1, days: 5, daily_rate: 180.0, amount: 900.0, actual_amount: 900.0 },
       ],

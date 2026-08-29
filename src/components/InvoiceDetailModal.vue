@@ -43,6 +43,17 @@
           </div>
         </div>
 
+        <!-- 出行相关事实（按类别：住宿 / 车票 / 通行费） -->
+        <div v-if="travelFacts.length" class="mb-4">
+          <h4 class="text-sm font-medium text-slate-700 mb-2">{{ travelFactsTitle }}</h4>
+          <div class="grid grid-cols-2 gap-3">
+            <div v-for="fact in travelFacts" :key="fact.label" class="bg-slate-50 rounded p-3">
+              <p class="text-xs text-slate-500">{{ fact.label }}</p>
+              <p class="font-medium" :class="fact.missing ? 'text-slate-400' : ''">{{ fact.value }}</p>
+            </div>
+          </div>
+        </div>
+
         <!-- 行程明细 — 可编辑 -->
         <div v-if="invoice?.itineraries?.length" class="mb-4">
           <h4 class="text-sm font-medium text-slate-700 mb-2">行程明细 ({{ invoice.itineraries.length }})</h4>
@@ -233,6 +244,55 @@ const sourceTypeLabel = computed(() => {
   if (t === 'Manual') return '手动添加'
   return t
 })
+
+// 出行相关事实（按类别提取）：报销核对的关键行程信息
+interface FactCell {
+  label: string
+  value: string
+  missing?: boolean
+}
+
+const travelFactsTitle = computed(() => {
+  switch (props.invoice?.category) {
+    case 'Hotel': return '住宿信息'
+    case 'Toll': return '通行信息'
+    default: return '出行信息'
+  }
+})
+
+const travelFacts = computed<FactCell[]>(() => {
+  const inv = props.invoice
+  if (!inv) return []
+  if (inv.category === 'Hotel') {
+    const hd = inv.hotel_detail
+    if (!hd) return []
+    return [
+      { label: '入住日期', value: hd.check_in || '未提取', missing: !hd.check_in },
+      { label: '离店日期', value: hd.check_out || '未提取', missing: !hd.check_out },
+      { label: '住宿晚数', value: `${hd.nights} 晚` },
+      { label: '每晚均价', value: `¥${hd.nightly_rate.toFixed(2)}` },
+    ]
+  }
+  if (inv.category === 'Train' || inv.category === 'Flight') {
+    const route = [inv.departure_city, inv.arrival_city].filter(Boolean).join(' → ')
+    return [
+      { label: '出行日期', value: inv.travel_date || '未提取', missing: !inv.travel_date },
+      { label: '出发时刻', value: inv.travel_time || '未提取', missing: !inv.travel_time },
+      { label: '出发 / 到达', value: route || '未提取', missing: !route },
+    ]
+  }
+  if (inv.category === 'Toll') {
+    return [
+      {
+        label: '通行时间',
+        value: inv.toll_travel_time ? inv.toll_travel_time.replace('T', ' ') : '未提取',
+        missing: !inv.toll_travel_time,
+      },
+    ]
+  }
+  return []
+})
+
 const canOpenFile = computed(() => {
   if (!props.invoice) return false
   return props.invoice.source.type === 'Photo' || props.invoice.source.type === 'Pdf'

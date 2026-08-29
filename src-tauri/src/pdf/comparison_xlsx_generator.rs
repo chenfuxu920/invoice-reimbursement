@@ -687,6 +687,7 @@ mod tests {
                     departure_city: None,
                     arrival_city: None,
                     toll_travel_time: None,
+                    travel_time: None,
                 },
                 payment_ids: vec!["pay-train".to_string()],
                 payments: vec![PaymentRecord {
@@ -748,6 +749,7 @@ mod tests {
                     departure_city: None,
                     arrival_city: None,
                     toll_travel_time: None,
+                    travel_time: None,
                 },
                 payment_ids: vec!["pay-didi".to_string()],
                 payments: vec![PaymentRecord {
@@ -795,6 +797,7 @@ mod tests {
                     departure_city: None,
                     arrival_city: None,
                     toll_travel_time: None,
+                    travel_time: None,
                 },
                 payment_ids: vec!["pay-hotel".to_string()],
                 payments: vec![PaymentRecord {
@@ -837,6 +840,7 @@ mod tests {
                     departure_city: None,
                     arrival_city: None,
                     toll_travel_time: None,
+                    travel_time: None,
                 },
                 payment_ids: vec![],
                 payments: vec![],

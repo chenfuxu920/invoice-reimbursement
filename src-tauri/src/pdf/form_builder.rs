@@ -199,6 +199,7 @@ pub fn build_reimbursement_form(
         city_transport_count,
         city_transport_amount,
         city_transport_actual_amount,
+        city_transport_daily_std,
         hotel_levels,
         hotel_subtotal: total_hotel_reimbursable,
         meal_subsidy,
@@ -235,6 +236,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         }
     }
 
@@ -265,6 +267,7 @@ mod tests {
             departure_city: None,
             arrival_city: None,
             toll_travel_time: None,
+            travel_time: None,
         }
     }
 

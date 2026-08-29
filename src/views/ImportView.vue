@@ -35,12 +35,14 @@
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-display text-base font-bold text-slate-800 flex items-center gap-2">
           <Receipt :size="17" class="text-primary-600" />
-          已识别发票（{{ invoiceStore.invoices.length }}）
+          已识别发票（{{ invoiceCountText }}）
         </h3>
         <span class="text-xs text-slate-400">点击卡片可展开行程明细</span>
       </div>
+      <CategoryFilterChips v-model="activeCategory" :counts="categoryCounts"
+                           :total="invoiceStore.invoices.length" class="mb-3" />
       <TransitionGroup name="card-flow" tag="div" class="grid gap-3">
-        <InvoiceCard v-for="(inv, i) in invoiceStore.invoices" :key="inv.id" :invoice="inv"
+        <InvoiceCard v-for="(inv, i) in filteredInvoices" :key="inv.id" :invoice="inv"
                      :style="{ transitionDelay: `${Math.min(i * 40, 320)}ms` }"
                      @remove="requestDeleteInvoice" @view-detail="openInvoiceDetail" />
       </TransitionGroup>
@@ -143,12 +145,13 @@ import BillImporter from '../components/BillImporter.vue'
 import PaymentTable from '../components/PaymentTable.vue'
 import LoadingOverlay from '../components/LoadingOverlay.vue'
 import AppButton from '../components/ui/AppButton.vue'
+import CategoryFilterChips from '../components/ui/CategoryFilterChips.vue'
 import { toast } from '../composables/toast'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
 import ManualInvoiceEntryModal from '../components/ManualInvoiceEntryModal.vue'
 import BlankInvoiceEntryModal from '../components/BlankInvoiceEntryModal.vue'
 import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
-import type { Invoice, ParseError } from '../types'
+import type { Invoice, InvoiceCategory, ParseError } from '../types'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { consumePendingDrop } from '../composables/pendingDrop'
@@ -156,6 +159,20 @@ import { consumePendingDrop } from '../composables/pendingDrop'
 const invoiceStore = useInvoiceStore()
 const paymentStore = usePaymentStore()
 const matchStore = useMatchStore()
+
+// 发票类别筛选
+const activeCategory = ref<InvoiceCategory | null>(null)
+const categoryCounts = computed(() => {
+  const counts: Partial<Record<InvoiceCategory, number>> = {}
+  for (const inv of invoiceStore.invoices) counts[inv.category] = (counts[inv.category] || 0) + 1
+  return counts
+})
+const filteredInvoices = computed(() =>
+  activeCategory.value ? invoiceStore.invoices.filter(i => i.category === activeCategory.value) : invoiceStore.invoices
+)
+const invoiceCountText = computed(() =>
+  activeCategory.value ? `${filteredInvoices.value.length}/${invoiceStore.invoices.length}` : String(invoiceStore.invoices.length)
+)
 
 // 弹窗状态
 const detailVisible = ref(false)

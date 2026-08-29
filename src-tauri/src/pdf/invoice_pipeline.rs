@@ -180,12 +180,14 @@ pub fn parse_invoice_from_pdf(
             let lines = text_extractor::reconstruct_lines_from_chars(&raw_words);
             if !lines.is_empty() {
                 let joined = lines.join("\n");
-                if let Some(td) = crate::parser::invoice_parser::extract_ticket_travel_date(
-                    &joined,
-                    &inv.category,
-                ) {
-                    eprintln!("  [cell] char-level reconstruct → travel_date={td}");
-                    inv.travel_date = Some(td);
+                if let Some((td, tt)) =
+                    crate::parser::invoice_parser::extract_ticket_travel_date(&joined, &inv.category)
+                {
+                    eprintln!("  [cell] char-level reconstruct → travel_date={td:?} travel_time={tt:?}");
+                    inv.travel_date = td;
+                    if tt.is_some() {
+                        inv.travel_time = tt;
+                    }
                 }
             }
         }
@@ -282,8 +284,9 @@ fn build_invoice_from_cells(
             (d.or(d2), a.or(a2))
         }
     };
-    let travel_date = extract_ticket_travel_date(&remarks, &category)
-        .or_else(|| extract_ticket_travel_date(all_text, &category));
+    let (travel_date, travel_time) = extract_ticket_travel_date(&remarks, &category)
+        .or_else(|| extract_ticket_travel_date(all_text, &category))
+        .unwrap_or((None, None));
 
     // 通行费发票：从备注提取通行时间
     let toll_travel_time = if category == InvoiceCategory::Toll {
@@ -310,6 +313,7 @@ fn build_invoice_from_cells(
         departure_city,
         arrival_city,
         travel_date,
+        travel_time,
         toll_travel_time,
     })
 }
@@ -985,6 +989,7 @@ pub fn pair_invoices_with_itineraries(
                 departure_city: None,
                 arrival_city: None,
                 toll_travel_time: None,
+                travel_time: None,
             });
         }
     }
