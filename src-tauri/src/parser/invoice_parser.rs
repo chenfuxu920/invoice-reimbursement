@@ -880,41 +880,355 @@ pub fn parse_invoice_text(texts: &[OcrTextItem], source: InvoiceSource) -> Resul
 /// 直接匹配日期范围模式 "M-DD至M-DD"，不依赖前缀标签
 /// 支持: "订单日期:4-24至4-27"、"入离日期:5-25至5-29"、"入住时间:6-1至6-3" 等
 pub(crate) fn parse_hotel_detail(remarks: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
-    // 在备注中搜索第一个 "M-DD至M-DD" 模式（不要求特定前缀）
-    let date_re = Regex::new(r"(\d{1,2})-(\d{1,2})\s*至\s*(\d{1,2})-(\d{1,2})").ok()?;
-    let caps = date_re.captures(remarks)?;
-    let in_month: u32 = caps.get(1)?.as_str().parse().ok()?;
-    let in_day: u32 = caps.get(2)?.as_str().parse().ok()?;
-    let out_month: u32 = caps.get(3)?.as_str().parse().ok()?;
-    let out_day: u32 = caps.get(4)?.as_str().parse().ok()?;
+    // 1. 全日期区间（任一侧含 4 位年份），如 "2026/6/23-2026/6/26"、"2026-06-23至2026-06-26"
+    if let Some((check_in, check_out)) = parse_full_year_range(remarks, invoice_date) {
+        return make_hotel_detail(check_in, check_out);
+    }
+    // 2. 无年份短日期区间：M月D日 / M-D / M/D / M.D
+    if let Some((check_in, check_out)) = parse_short_date_range(remarks, invoice_date) {
+        return make_hotel_detail(check_in, check_out);
+    }
+    // 3. 标签化 入住/离店 日期对（日期可在标签前或后，第二段可省略月份）
+    if let Some((check_in, check_out)) = parse_labeled_stay_range(remarks, invoice_date) {
+        return make_hotel_detail(check_in, check_out);
+    }
+    // 4. 单边日期 + 共N天 → 推导另一端
+    parse_single_date_with_nights(remarks, invoice_date)
+}
 
-    let in_year = resolve_year_for_stay(in_month, invoice_date);
-    let out_year = resolve_year_for_stay(out_month, invoice_date);
-    let check_in = NaiveDate::from_ymd_opt(in_year, in_month, in_day)?;
-    let check_out = NaiveDate::from_ymd_opt(out_year, out_month, out_day)?;
-    let nights = (check_out - check_in).num_days().max(1) as usize;
-
+/// 由入住/离店日期构造住宿明细；离店早于入住或区间异常（超过一年）时返回 None
+fn make_hotel_detail(check_in: NaiveDate, check_out: NaiveDate) -> Option<HotelDetail> {
+    if check_out < check_in {
+        return None;
+    }
+    let nights = (check_out - check_in).num_days();
+    if nights > 366 {
+        return None; // 跨年回退误判等异常区间，交给 pipeline 兜底
+    }
     Some(HotelDetail {
         check_in: Some(check_in),
         check_out: Some(check_out),
-        nights,
+        nights: nights.max(1) as usize,
         nightly_rate: 0.0, // 后续由 form_builder 计算
     })
 }
 
-/// 根据入住月份推断年份（处理跨年场景）
-/// 发票日期上半年 + 入住月份下半年 → 前一年
-/// 发票日期下半年 + 入住月份上半年 → 后一年
-/// 同半边 → 发票年份
+/// 解析带年份的全日期区间；右端可为无年份短日期（跨年场景，如 "2026-12-30至1-2"）
+/// 支持分隔符：至/到/~/-，日期格式：YYYY年M月D日 / YYYY-M-D / YYYY/M/D / YYYY.M.D
+fn parse_full_year_range(remarks: &str, invoice_date: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
+    let re = Regex::new(
+        r"(\d{4})[年\-./](\d{1,2})[月\-./](\d{1,2})[日]?\s*(?:至|到|~|-)\s*(?:(?:(\d{4})[年\-./])?(\d{1,2})[月\-./](\d{1,2})[日]?)",
+    )
+    .ok()?;
+    let caps = re.captures(remarks)?;
+    let check_in = NaiveDate::from_ymd_opt(
+        caps[1].parse().ok()?,
+        caps[2].parse().ok()?,
+        caps[3].parse().ok()?,
+    )?;
+    let out_m: u32 = caps[5].parse().ok()?;
+    let out_d: u32 = caps[6].parse().ok()?;
+    let out_year = match caps.get(4) {
+        Some(m) if !m.as_str().is_empty() => m.as_str().parse::<i32>().ok()?,
+        _ => {
+            // 无年份侧按发票日期推断；若落在入住之前则顺延一年
+            let y = resolve_year_for_stay(out_m, invoice_date);
+            if NaiveDate::from_ymd_opt(y, out_m, out_d).map_or(false, |d| d >= check_in) {
+                y
+            } else {
+                y + 1
+            }
+        }
+    };
+    let check_out = NaiveDate::from_ymd_opt(out_year, out_m, out_d)?;
+    if check_out < check_in {
+        return None;
+    }
+    Some((check_in, check_out))
+}
+
+/// 解析无年份短日期区间：M月D日（第二段可省略月份）/ M-D / M/D / M.D
+/// 点分短日期以短横分隔时需日期关键词（如"住宿日期"），防止小数误匹配
+fn parse_short_date_range(remarks: &str, invoice_date: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
+    // 1) 中文月日区间："6月23日至6月26日"、"6月23日-6月26日"、"6月23日至26日"
+    let re = Regex::new(
+        r"(\d{1,2})月(\d{1,2})日\s*(?:至|到|~|-)\s*(?:(\d{1,2})月)?(\d{1,2})日",
+    )
+    .ok()?;
+    if let Some(caps) = re.captures(remarks) {
+        let in_m: u32 = caps[1].parse().ok()?;
+        let out_m = match caps.get(3) {
+            Some(m) if !m.as_str().is_empty() => m.as_str().parse().ok()?,
+            _ => in_m,
+        };
+        return resolve_short_range(
+            in_m,
+            caps[2].parse().ok()?,
+            out_m,
+            caps[4].parse().ok()?,
+            invoice_date,
+        );
+    }
+    // 2) 横线短日期："6-1至6-4"、"5-29至6-5"（月份<=12 天然排除电话号等）
+    let re = Regex::new(r"(\d{1,2})-(\d{1,2})\s*(?:至|到|~|-)\s*(\d{1,2})-(\d{1,2})").ok()?;
+    if let Some(caps) = re.captures(remarks) {
+        return resolve_short_range(
+            caps[1].parse().ok()?,
+            caps[2].parse().ok()?,
+            caps[3].parse().ok()?,
+            caps[4].parse().ok()?,
+            invoice_date,
+        );
+    }
+    // 3) 斜杠短日期："6/23至6/26"、"6/23-6/26"
+    let re = Regex::new(r"(\d{1,2})/(\d{1,2})\s*(?:至|到|~|-)\s*(\d{1,2})/(\d{1,2})").ok()?;
+    if let Some(caps) = re.captures(remarks) {
+        return resolve_short_range(
+            caps[1].parse().ok()?,
+            caps[2].parse().ok()?,
+            caps[3].parse().ok()?,
+            caps[4].parse().ok()?,
+            invoice_date,
+        );
+    }
+    // 4) 点分短日期："4.24至4.27"、"住宿日期:4.24-4.27"
+    let re = Regex::new(r"(\d{1,2})\.(\d{1,2})\s*((?:至|到|~|-))\s*(\d{1,2})\.(\d{1,2})").ok()?;
+    if let Some(caps) = re.captures(remarks) {
+        let sep = caps.get(3)?.as_str();
+        if sep == "-"
+            && !contains_any(remarks, &["入住", "离店", "住宿", "日期", "住店", "退房", "期间"])
+        {
+            return None; // 小数区间（如 "折扣4.24-4.27"）不应误匹配
+        }
+        return resolve_short_range(
+            caps[1].parse().ok()?,
+            caps[2].parse().ok()?,
+            caps[4].parse().ok()?,
+            caps[5].parse().ok()?,
+            invoice_date,
+        );
+    }
+    None
+}
+
+/// 由短日期四元组解析区间：两侧年份按发票日期各自推断，离店侧跨年可顺延一年
+fn resolve_short_range(
+    in_m: u32,
+    in_d: u32,
+    out_m: u32,
+    out_d: u32,
+    invoice_date: NaiveDate,
+) -> Option<(NaiveDate, NaiveDate)> {
+    let check_in = NaiveDate::from_ymd_opt(resolve_year_for_stay(in_m, invoice_date), in_m, in_d)?;
+    let mut check_out =
+        NaiveDate::from_ymd_opt(resolve_year_for_stay(out_m, invoice_date), out_m, out_d)?;
+    if check_out < check_in {
+        check_out = NaiveDate::from_ymd_opt(check_out.year() + 1, out_m, out_d)?;
+    }
+    if check_out < check_in {
+        return None;
+    }
+    Some((check_in, check_out))
+}
+
+/// 标签附近的日期 token
+enum DateToken {
+    Full(NaiveDate),
+    MonthDay { month: u32, day: u32 },
+    DayOnly(u32), // 仅日，月份继承另一端
+}
+
+/// 解析标签化 入住/离店 日期对
+/// 支持日期在标签前后：如 "7月17日入住，7月24日离店"、"入住：2026-06-23，离店：2026-06-26"、
+/// "入住时间:6-23,离店时间:6-26"、"住店日期：6月23日，退房日期：6月26日"；
+/// 第二段可省略月份（如 "7月17日入住，24日离店"），继承入住月份
+fn parse_labeled_stay_range(remarks: &str, invoice_date: NaiveDate) -> Option<(NaiveDate, NaiveDate)> {
+    // 入住类标签优先取标签前日期，离店类标签优先取标签后日期
+    let in_toks = extract_dates_near_label(remarks, &["入住", "住店"], false);
+    let out_toks = extract_dates_near_label(remarks, &["离店", "退房"], true);
+    for in_tok in in_toks {
+        if let Some(check_in) = resolve_token(&in_tok, invoice_date, None) {
+            for out_tok in &out_toks {
+                if let Some(check_out) = resolve_token(out_tok, invoice_date, Some(check_in)) {
+                    if check_out >= check_in {
+                        return Some((check_in, check_out));
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 提取标签附近的日期 token；prefer_after 时优先标签后，否则优先标签前
+fn extract_dates_near_label(remarks: &str, labels: &[&str], prefer_after: bool) -> Vec<DateToken> {
+    let mut toks = Vec::new();
+    for label in labels {
+        let mut search_from = 0;
+        while let Some(rel) = remarks[search_from..].find(label) {
+            let p = search_from + rel;
+            let after = p + label.len();
+            let tail_end = {
+                let mut e = remarks.len().min(after + 32);
+                while !remarks.is_char_boundary(e) {
+                    e -= 1;
+                }
+                e
+            };
+            let tail = &remarks[after..tail_end];
+            let head_start = {
+                let mut s = p.saturating_sub(24);
+                while !remarks.is_char_boundary(s) {
+                    s += 1;
+                }
+                s
+            };
+            let head = &remarks[head_start..p];
+            let mut after_toks = date_token_after_label(tail).into_iter().collect::<Vec<_>>();
+            let mut before_toks = date_token_before_label(head).into_iter().collect::<Vec<_>>();
+            if prefer_after {
+                toks.append(&mut after_toks);
+                toks.append(&mut before_toks);
+            } else {
+                toks.append(&mut before_toks);
+                toks.append(&mut after_toks);
+            }
+            search_from = after;
+        }
+    }
+    toks
+}
+
+/// 标签后窗口：可选 时间/日期 后缀 + 冒号/空格 + 日期字符序列
+fn date_token_after_label(tail: &str) -> Option<DateToken> {
+    let re = Regex::new(r"^(?:时间|日期)?[:：]?\s*([\d年月日./\-]{1,20})").ok()?;
+    let caps = re.captures(tail)?;
+    parse_date_token(caps.get(1)?.as_str())
+}
+
+/// 标签前窗口：紧邻标签前的日期字符序列（须以标签为结尾边界）
+fn date_token_before_label(head: &str) -> Option<DateToken> {
+    let re = Regex::new(r"([\d年月日./\-]{1,20})\s*$").ok()?;
+    let caps = re.captures(head)?;
+    parse_date_token(caps.get(1)?.as_str())
+}
+
+/// 从短字符串解析日期 token：全日期（YYYY年M月D日等）/ M月D日 / M-D / M/D / M.D / D日
+fn parse_date_token(s: &str) -> Option<DateToken> {
+    let re = Regex::new(r"(\d{4})[年\-./](\d{1,2})[月\-./](\d{1,2})[日]?").ok()?;
+    if let Some(caps) = re.captures(s) {
+        return Some(DateToken::Full(NaiveDate::from_ymd_opt(
+            caps[1].parse().ok()?,
+            caps[2].parse().ok()?,
+            caps[3].parse().ok()?,
+        )?));
+    }
+    let re = Regex::new(r"(\d{1,2})月(\d{1,2})日").ok()?;
+    if let Some(caps) = re.captures(s) {
+        return Some(DateToken::MonthDay {
+            month: caps[1].parse().ok()?,
+            day: caps[2].parse().ok()?,
+        });
+    }
+    let re = Regex::new(r"(\d{1,2})-(\d{1,2})").ok()?;
+    if let Some(caps) = re.captures(s) {
+        return Some(DateToken::MonthDay {
+            month: caps[1].parse().ok()?,
+            day: caps[2].parse().ok()?,
+        });
+    }
+    let re = Regex::new(r"(\d{1,2})/(\d{1,2})").ok()?;
+    if let Some(caps) = re.captures(s) {
+        return Some(DateToken::MonthDay {
+            month: caps[1].parse().ok()?,
+            day: caps[2].parse().ok()?,
+        });
+    }
+    let re = Regex::new(r"(\d{1,2})\.(\d{1,2})").ok()?;
+    if let Some(caps) = re.captures(s) {
+        return Some(DateToken::MonthDay {
+            month: caps[1].parse().ok()?,
+            day: caps[2].parse().ok()?,
+        });
+    }
+    let re = Regex::new(r"(\d{1,2})日").ok()?;
+    if let Some(caps) = re.captures(s) {
+        return Some(DateToken::DayOnly(caps[1].parse().ok()?));
+    }
+    None
+}
+
+/// 将日期 token 解析为具体日期；仅日 token 需继承另一端日期
+fn resolve_token(
+    tok: &DateToken,
+    invoice_date: NaiveDate,
+    inherit: Option<NaiveDate>,
+) -> Option<NaiveDate> {
+    match tok {
+        DateToken::Full(d) => Some(*d),
+        DateToken::MonthDay { month, day } => {
+            NaiveDate::from_ymd_opt(resolve_year_for_stay(*month, invoice_date), *month, *day)
+        }
+        DateToken::DayOnly(day) => {
+            let base = inherit?;
+            NaiveDate::from_ymd_opt(base.year(), base.month(), *day)
+        }
+    }
+}
+
+/// 单边日期 + 共N天：由入住或离店单边推导另一端；无共N天时返回 None（走 pipeline 天数回退）
+fn parse_single_date_with_nights(remarks: &str, invoice_date: NaiveDate) -> Option<HotelDetail> {
+    let nights = parse_nights_from_remarks(remarks)?;
+    if nights == 0 {
+        return None;
+    }
+    // 入住侧：日期 + 共N天 → 推导离店
+    if let Some(check_in) = resolve_first_labeled_date(remarks, &["入住", "住店"], false, invoice_date)
+    {
+        if let Some(detail) =
+            make_hotel_detail(check_in, check_in + chrono::Duration::days(nights as i64))
+        {
+            return Some(detail);
+        }
+    }
+    // 离店侧：日期 + 共N天 → 推导入住
+    if let Some(check_out) = resolve_first_labeled_date(remarks, &["离店", "退房"], true, invoice_date)
+    {
+        if let Some(detail) =
+            make_hotel_detail(check_out - chrono::Duration::days(nights as i64), check_out)
+        {
+            return Some(detail);
+        }
+    }
+    None
+}
+
+/// 解析标签附近第一个可用的日期
+fn resolve_first_labeled_date(
+    remarks: &str,
+    labels: &[&str],
+    prefer_after: bool,
+    invoice_date: NaiveDate,
+) -> Option<NaiveDate> {
+    extract_dates_near_label(remarks, labels, prefer_after)
+        .iter()
+        .find_map(|tok| resolve_token(tok, invoice_date, None))
+}
+
+/// 根据入住月份推断年份
+/// 以发票日期为基准：入住月份比发票月份晚 7 个月以上 → 前一年（如 发票1月+入住12月）
+/// 入住月份比发票月份早 7 个月以上 → 后一年（如 发票12月+入住1月）
+/// 其余（含 6月/7月 等相邻月份）→ 发票年份
 fn resolve_year_for_stay(stay_month: u32, invoice_date: NaiveDate) -> i32 {
     let inv_year = invoice_date.year();
     let inv_month = invoice_date.month();
-    if stay_month > 6 && inv_month <= 6 {
-        inv_year - 1 // e.g. 发票1月，入住12月 → 去年
-    } else if stay_month <= 6 && inv_month > 6 {
-        inv_year + 1 // e.g. 发票12月，入住1月 → 明年
+    let diff = inv_month as i32 - stay_month as i32;
+    if diff >= 7 {
+        inv_year + 1 // 发票年末 + 入住年初 → 明年（如发票12月，入住1月）
+    } else if diff <= -7 {
+        inv_year - 1 // 发票年初 + 入住年末 → 去年（如发票1月，入住12月）
     } else {
-        inv_year // 同半边
+        inv_year // 月份相邻或同月 → 今年
     }
 }
 
@@ -2569,6 +2883,187 @@ mod tests {
         let detail = parse_hotel_detail("电话:028-87751288,酒店:5-29至6-5", date);
         assert!(detail.is_some(), "应跳过电话号匹配日期");
         assert_eq!(detail.unwrap().nights, 7);
+    }
+
+    #[test]
+    fn test_parse_hotel_detail_full_date_range() {
+        // 景澜实际格式（住宿费目录）：全日期斜杠 + 短横分隔
+        let date = NaiveDate::from_ymd_opt(2026, 7, 3).unwrap();
+        let detail = parse_hotel_detail("入住时间：2026/6/23-2026/6/26", date);
+        let detail = detail.expect("斜杠全日期区间应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-06-23");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-06-26");
+        assert_eq!(detail.nights, 3);
+
+        // 全日期长横线 + 至
+        let detail = parse_hotel_detail("入住时间：2026-06-23至2026-06-26", date);
+        assert!(detail.is_some(), "长横线全日期区间应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 全日期点分
+        let detail = parse_hotel_detail("入住时间：2026.6.23-2026.6.26", date);
+        assert!(detail.is_some(), "点分全日期区间应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 至分隔（斜杠日期）
+        let detail = parse_hotel_detail("2026/6/23至2026/6/26", date);
+        assert!(detail.is_some(), "至分隔斜杠日期应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 年月日中文全日期
+        let detail = parse_hotel_detail("2026年6月23日至2026年6月26日", date);
+        assert!(detail.is_some(), "年月日全日期区间应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 波浪号分隔
+        let detail = parse_hotel_detail("入住时间：2026/6/23~2026/6/26", date);
+        assert!(detail.is_some(), "波浪号分隔应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 全日期 + 短日期混合（跨年）
+        let date2 = NaiveDate::from_ymd_opt(2027, 1, 5).unwrap();
+        let detail = parse_hotel_detail("2026-12-30至1-2", date2);
+        let detail = detail.expect("全+短混合区间应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-12-30");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2027-01-02");
+        assert_eq!(detail.nights, 3);
+    }
+
+    #[test]
+    fn test_parse_hotel_detail_cn_date_range() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        // M月D日至M月D日
+        let detail = parse_hotel_detail("6月23日至6月26日", date);
+        let detail = detail.expect("中文日期至分隔应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-06-23");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-06-26");
+        assert_eq!(detail.nights, 3);
+
+        // 短横分隔
+        let detail = parse_hotel_detail("6月23日-6月26日", date);
+        assert!(detail.is_some(), "中文日期短横分隔应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 到分隔
+        let detail = parse_hotel_detail("6月23日到6月26日", date);
+        assert!(detail.is_some(), "中文日期到分隔应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 第二段省略月份
+        let detail = parse_hotel_detail("6月23日至26日", date);
+        let detail = detail.expect("第二段省略月份应匹配");
+        assert_eq!(detail.check_out.unwrap().day(), 26);
+        assert_eq!(detail.nights, 3);
+
+        // 跨年：1月发票 + 12月入住 → 前一年
+        let date2 = NaiveDate::from_ymd_opt(2026, 1, 10).unwrap();
+        let detail = parse_hotel_detail("12月28日至12月31日", date2);
+        let detail = detail.expect("中文日期跨年应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2025-12-28");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2025-12-31");
+        assert_eq!(detail.nights, 3);
+    }
+
+    #[test]
+    fn test_parse_hotel_detail_labeled_check_in_out() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 30).unwrap();
+        // 景澜实际格式（住宿费目录）：日期在标签前
+        let detail = parse_hotel_detail("7月17日入住，7月24日离店", date);
+        let detail = detail.expect("日期在前标签在后应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-07-17");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-07-24");
+        assert_eq!(detail.nights, 7);
+
+        let detail = parse_hotel_detail("8月22日入住，8月28日离店", NaiveDate::from_ymd_opt(2026, 8, 29).unwrap());
+        let detail = detail.expect("8月入住离店应匹配");
+        assert_eq!(detail.nights, 6);
+
+        // 无标点紧凑格式
+        let detail = parse_hotel_detail("7月17日入住7月24日离店", date);
+        assert!(detail.is_some(), "无标点紧凑格式应匹配");
+        assert_eq!(detail.unwrap().nights, 7);
+
+        // 第二段省略月份（继承入住月）
+        let detail = parse_hotel_detail("7月17日入住，24日离店", date);
+        let detail = detail.expect("第二段省略月份标签格式应匹配");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-07-24");
+        assert_eq!(detail.nights, 7);
+
+        // 日期在标签后
+        let detail = parse_hotel_detail("入住：2026-06-23，离店：2026-06-26", date);
+        let detail = detail.expect("标签在前日期在后应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-06-23");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-06-26");
+        assert_eq!(detail.nights, 3);
+
+        // 短日期标签对
+        let date2 = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let detail = parse_hotel_detail("入住时间:6-23,离店时间:6-26", date2);
+        let detail = detail.expect("短日期标签对应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-06-23");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-06-26");
+        assert_eq!(detail.nights, 3);
+
+        // 短日期在标签前
+        let detail = parse_hotel_detail("6-23入住,6-26离店", date2);
+        let detail = detail.expect("短日期标签前应匹配");
+        assert_eq!(detail.nights, 3);
+
+        // 住店/退房别名
+        let detail = parse_hotel_detail("住店日期：6月23日，退房日期：6月26日", date2);
+        assert!(detail.is_some(), "住店/退房别名应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+    }
+
+    #[test]
+    fn test_parse_hotel_detail_single_date_with_nights() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        // 单边入住 + 共N天 → 推导另一端
+        let detail = parse_hotel_detail("成都酒店,入住时间:6-23,共3天", date);
+        let detail = detail.expect("单边入住+共N天应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-06-23");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-06-26");
+        assert_eq!(detail.nights, 3);
+
+        // 单边离店 + 共N天
+        let detail = parse_hotel_detail("酒店离店:6-26,共3天", date);
+        let detail = detail.expect("单边离店+共N天应匹配");
+        assert_eq!(detail.check_in.unwrap().to_string(), "2026-06-23");
+        assert_eq!(detail.check_out.unwrap().to_string(), "2026-06-26");
+        assert_eq!(detail.nights, 3);
+
+        // 无共N天时单边日期不足，应返回 None（走 pipeline 天数回退）
+        assert!(parse_hotel_detail("成都酒店,入住时间:6-23", date).is_none());
+    }
+
+    #[test]
+    fn test_parse_hotel_detail_dot_slash_short_range() {
+        let date = NaiveDate::from_ymd_opt(2026, 5, 1).unwrap();
+        // 点分短日期 + 短横（需日期关键词防小数误匹配）
+        let detail = parse_hotel_detail("住宿日期:4.24-4.27", date);
+        assert!(detail.is_some(), "点分短日期+关键词应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 斜杠短日期 + 短横
+        let date2 = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        let detail = parse_hotel_detail("住宿日期:6/23-6/26", date2);
+        assert!(detail.is_some(), "斜杠短日期+关键词应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 至分隔的点分日期无需关键词
+        let detail = parse_hotel_detail("4.24至4.27", date);
+        assert!(detail.is_some(), "至分隔点分日期应匹配");
+        assert_eq!(detail.unwrap().nights, 3);
+
+        // 无关键词的小数区间不应误匹配
+        assert!(parse_hotel_detail("折扣4.24-4.27", date).is_none());
+    }
+
+    #[test]
+    fn test_parse_hotel_detail_times_not_dates() {
+        let date = NaiveDate::from_ymd_opt(2026, 7, 1).unwrap();
+        // 入住/离店"时间"是钟点不是日期，不能误匹配出日期
+        assert!(parse_hotel_detail("入住时间:14:00,离店时间:12:00", date).is_none());
     }
 
     #[test]
