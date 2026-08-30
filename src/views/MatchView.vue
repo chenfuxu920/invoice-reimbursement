@@ -172,6 +172,8 @@
       :current-payments="adjustingMatch?.payments || []"
       :current-pairs="adjustingMatch?.itinerary_payment_pairs || []"
       :available-payments="matchStore.unmatchedPayments"
+      :used-payments="otherUsedPayments"
+      :used-owners="usedOwners"
       @close="handleAdjustClose"
       @confirm="handleManualMatch"
     />
@@ -324,15 +326,42 @@ function startManualMatch(invoice: Invoice) {
 }
 
 async function handleManualMatch(invoice: Invoice, paymentIds: string[], itineraryPaymentPairs: ItineraryPaymentPair[] = []) {
-  const allPayments = [...matchStore.unmatchedPayments]
-  if (adjustingMatch.value) {
-    allPayments.push(...adjustingMatch.value.payments)
+  // 候选池 = 未匹配 + 已被其他发票占用（可抢占） + 当前匹配，按 id 去重
+  const pool = new Map<string, PaymentRecord>()
+  for (const p of [
+    ...matchStore.unmatchedPayments,
+    ...otherUsedPayments.value,
+    ...(adjustingMatch.value?.payments || []),
+  ]) {
+    pool.set(p.id, p)
   }
-  const payments = allPayments.filter(p => paymentIds.includes(p.id))
+  const payments = paymentIds
+    .map(id => pool.get(id))
+    .filter((p): p is PaymentRecord => !!p)
   await matchStore.manualMatch(invoice, payments, itineraryPaymentPairs)
   showAdjustDialog.value = false
   adjustingMatch.value = null
 }
+
+// 已被其他发票匹配占用的支付：弹窗中显示「已匹配」标志，仍可选择，
+// 确认后由 store 从原发票的匹配中移除（原发票无支付则整张回到未匹配）
+const otherUsedPayments = computed<PaymentRecord[]>(() => {
+  const currentId = adjustingInvoice.value?.id
+  return matchStore.matches
+    .filter(m => m.invoice_id !== currentId)
+    .flatMap(m => m.payments)
+})
+
+const usedOwners = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  const currentId = adjustingInvoice.value?.id
+  for (const m of matchStore.matches) {
+    if (m.invoice_id === currentId) continue
+    const label = m.invoice.invoice_number || m.invoice.seller_name || '无编号发票'
+    for (const p of m.payments) map[p.id] = label
+  }
+  return map
+})
 
 function handleUpdateCategory(invoiceId: string, category: InvoiceCategory) {
   invoiceStore.updateCategory(invoiceId, category)

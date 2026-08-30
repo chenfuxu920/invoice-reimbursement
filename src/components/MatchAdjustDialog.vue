@@ -1,5 +1,6 @@
 <template>
-  <div v-if="visible" class="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50" @click.self="$emit('close')">
+  <!-- 点击遮罩不关闭弹窗：避免误触丢失用户已调整的匹配状态 -->
+  <div v-if="visible" class="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50">
     <div class="bg-white/95 rounded-2xl shadow-card-lg animate-scale-in w-[560px] max-h-[85vh] flex flex-col">
       <!-- 标题 -->
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
@@ -104,6 +105,12 @@
           </span>
         </div>
 
+        <!-- 抢占提示：选中已被其他发票占用的支付时 -->
+        <p v-if="selectedUsedCount > 0"
+           class="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200/70 rounded-lg px-2.5 py-1.5 leading-relaxed">
+          已选 {{ selectedUsedCount }} 条已被其他发票匹配的支付，确认后将自动从原发票的匹配中移除
+        </p>
+
         <!-- 行程级配对区（有行程单时） -->
         <div v-if="hasItineraries" class="space-y-2">
           <div v-for="(itin, idx) in invoice?.itineraries" :key="idx"
@@ -124,7 +131,7 @@
                       class="shrink-0 max-w-[200px] input">
                 <option value="">未选择</option>
                 <option v-for="p in candidatesForItinerary(idx)" :key="p.id" :value="p.id">
-                  ¥{{ p.amount.toFixed(2) }} · {{ p.merchant_name }} · {{ formatTime(p.transaction_time) }}
+                  {{ isUsedByOther(p) ? '【已匹配】' : '' }}¥{{ p.amount.toFixed(2) }} · {{ p.merchant_name }} · {{ formatTime(p.transaction_time) }}
                 </option>
               </select>
             </div>
@@ -175,7 +182,12 @@
                 </span>
               </div>
             </div>
-            <span v-if="currentPaymentIds.has(p.id)" class="shrink-0 text-xs text-primary-500">当前匹配</span>
+            <span v-if="isUsedByOther(p)"
+                  class="shrink-0 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700"
+                  :title="`已被发票「${props.usedOwners?.[p.id] || ''}」匹配，选择后将从原发票移除`">
+              已匹配
+            </span>
+            <span v-else-if="currentPaymentIds.has(p.id)" class="shrink-0 text-xs text-primary-500">当前匹配</span>
           </label>
           <div v-if="filteredPayments.length === 0" class="text-center py-4 text-sm text-slate-400">无匹配结果</div>
         </div>
@@ -205,6 +217,10 @@ const props = defineProps<{
   currentPayments: PaymentRecord[]
   currentPairs: ItineraryPaymentPair[]
   availablePayments: PaymentRecord[]
+  /// 已被其他发票匹配占用的支付（可选，选中后将从原发票匹配中移除）
+  usedPayments?: PaymentRecord[]
+  /// paymentId → 占用它的发票标识（用于标志提示）
+  usedOwners?: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -233,8 +249,21 @@ const currentPaymentIds = computed(() => new Set(props.currentPayments.map(p => 
 const hasItineraries = computed(() => (props.invoice?.itineraries.length ?? 0) > 0)
 
 const allPayments = computed(() => {
-  return [...props.currentPayments, ...props.availablePayments]
+  // 按支付 id 去重：候选池 = 当前匹配 + 未匹配 + 已被其他发票占用（可选抢占）
+  const seen = new Set<string>()
+  const merged: PaymentRecord[] = []
+  for (const p of [...props.currentPayments, ...props.availablePayments, ...(props.usedPayments || [])]) {
+    if (seen.has(p.id)) continue
+    seen.add(p.id)
+    merged.push(p)
+  }
+  return merged
 })
+
+/// 支付是否已被其他发票匹配占用
+function isUsedByOther(p: PaymentRecord): boolean {
+  return !!props.usedOwners?.[p.id]
+}
 
 const availableCategories = computed(() => {
   const set = new Set<string>()
@@ -264,6 +293,22 @@ const hasActiveFilter = computed(() => {
 
 const pairedCount = computed(() => {
   return Object.values(itineraryPairs.value).filter(v => v).length
+})
+
+/// 已选（或已配对）的支付中被其他发票占用的条数，用于提示确认后的抢占行为
+const selectedUsedCount = computed(() => {
+  const usedSet = new Set((props.usedPayments || []).map(p => p.id))
+  if (usedSet.size === 0) return 0
+  if (hasItineraries.value) {
+    return new Set(
+      Object.values(itineraryPairs.value).filter((v): v is string => !!v && usedSet.has(v)),
+    ).size
+  }
+  let n = 0
+  for (const id of selectedIds.value) {
+    if (usedSet.has(id)) n++
+  }
+  return n
 })
 
 const canConfirm = computed(() => {

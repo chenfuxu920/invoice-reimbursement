@@ -148,11 +148,43 @@ export const useMatchStore = defineStore('match', () => {
     }
   }
 
+  /// 从匹配结果中摘除一笔支付：同步 payments/payment_ids/行程配对与金额差。
+  /// 调用方负责处理摘除后 payments 为空的情况（整张取消匹配）。
+  function detachPaymentFromMatch(match: MatchResult, paymentId: string) {
+    match.payments = match.payments.filter(p => p.id !== paymentId)
+    match.payment_ids = match.payment_ids.filter(id => id !== paymentId)
+    if (match.itinerary_payment_pairs?.length) {
+      match.itinerary_payment_pairs = match.itinerary_payment_pairs.filter(pair => pair.payment_id !== paymentId)
+    }
+    match.amount_diff = Math.abs(match.invoice.amount - match.payments.reduce((s, p) => s + p.amount, 0))
+  }
+
+  /// 手动匹配抢占：选中已被其他发票使用的支付时，先从原发票匹配中移除；
+  /// 原发票因此没有任何支付时整张回到未匹配列表（含趟内残留清理）。
+  function takeOverUsedPayments(invoiceId: string, payments: PaymentRecord[]) {
+    const selectedIds = new Set(payments.map(p => p.id))
+    if (selectedIds.size === 0) return
+    const affected = matches.value.filter(
+      m => m.invoice_id !== invoiceId && m.payments.some(p => selectedIds.has(p.id)),
+    )
+    for (const m of affected) {
+      const takenIds = m.payments.filter(p => selectedIds.has(p.id)).map(p => p.id)
+      for (const id of takenIds) detachPaymentFromMatch(m, id)
+      if (m.payments.length === 0) {
+        unmatchInvoice(m.invoice_id)
+      } else if (m.payments.length === 1) {
+        m.match_type = 'OneToOne'
+      }
+    }
+  }
+
   async function manualMatch(
     invoice: Invoice,
     payments: PaymentRecord[],
     itineraryPaymentPairs: ItineraryPaymentPair[] = [],
   ) {
+    // 先抢占选中的已用支付（从原发票匹配移除），再走正常手动匹配流程
+    takeOverUsedPayments(invoice.id, payments)
     // 记录原趟归属：调整已归趟发票的匹配后就地替换，发票留在原趟且数据保持最新
     let homeTrip: Trip | undefined
     let homeIdx = -1
@@ -187,13 +219,7 @@ export const useMatchStore = defineStore('match', () => {
     if (!match) return
     const removed = match.payments.find(p => p.id === paymentId)
     if (!removed) return
-    match.payments = match.payments.filter(p => p.id !== paymentId)
-    match.payment_ids = match.payment_ids.filter(id => id !== paymentId)
-    // 同步清理行程-支付配对，避免残留指向已移除支付的脏配对
-    if (match.itinerary_payment_pairs?.length) {
-      match.itinerary_payment_pairs = match.itinerary_payment_pairs.filter(pair => pair.payment_id !== paymentId)
-    }
-    match.amount_diff = Math.abs(match.invoice.amount - match.payments.reduce((s, p) => s + p.amount, 0))
+    detachPaymentFromMatch(match, paymentId)
     if (match.payments.length === 0) {
       unmatchInvoice(invoiceId)
     } else {
