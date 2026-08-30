@@ -40,14 +40,41 @@ impl Default for PaymentRecord {
 }
 
 impl PaymentRecord {
-    /// 商家实际收到的金额 = max(支付金额 - 退款金额, 0) + 优惠金额
-    /// 考虑退款后，实际可匹配的支付净值
+    /// 实际可匹配的支付净值 = 实际支付金额（已扣除退款） + 优惠金额
+    /// 注意：解析器输出的 amount 已扣除退款，这里不能再减一次 refund_amount
     pub fn total_value(&self) -> f64 {
-        (self.amount - self.refund_amount).max(0.0) + self.discount
+        self.amount.max(0.0) + self.discount
     }
 
-    /// 是否是退款交易（退款金额 > 0 或实际支付金额 <= 0）
+    /// 是否是退款/收入方向的记录（净支付金额 <= 0）。
+    /// 部分退款的支付净额仍为正，不算退款记录，应按净额参与匹配。
     pub fn is_refund(&self) -> bool {
-        self.refund_amount > 0.0 || self.amount <= 0.0
+        self.amount <= 0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_total_value_does_not_double_deduct_refund() {
+        // 解析器输出的 amount 已是扣除退款后的净额（原 100 退 20 净 80）
+        let mut p = PaymentRecord::default();
+        p.amount = 80.0;
+        p.original_amount = 100.0;
+        p.refund_amount = 20.0;
+        assert!((p.total_value() - 80.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_partial_refund_is_not_a_refund_record() {
+        let mut p = PaymentRecord::default();
+        p.amount = 80.0;
+        p.refund_amount = 20.0;
+        assert!(!p.is_refund());
+
+        p.amount = -30.0; // 收入/退款方向记录
+        assert!(p.is_refund());
     }
 }

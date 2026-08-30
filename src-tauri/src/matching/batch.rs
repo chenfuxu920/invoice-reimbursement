@@ -36,7 +36,7 @@ pub fn batch_match_with_progress(
     // 按交易时间升序排序，消除文件读取顺序偏差（微信/支付宝混合时不再按导入顺序）
     let mut payments_sorted: Vec<PaymentRecord> = payments.to_vec();
     sort_payments_by_time(&mut payments_sorted);
-    // 过滤退款交易（退款金额 > 0 或实际支付金额 <= 0）
+    // 过滤退款/收入方向的记录（净支付金额 <= 0）；部分退款的支付按扣款后净额参与匹配
     let payments_sorted: Vec<PaymentRecord> = payments_sorted
         .into_iter()
         .filter(|p| !p.is_refund())
@@ -935,6 +935,25 @@ mod tests {
             .map(|p| p.amount)
             .sum();
         assert!((total - 100.50).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_batch_match_partial_refund_payment_matches_by_net_amount() {
+        // 部分退款支付：原额 100 退 20，净 80 → 应按净额参与匹配
+        let mut p1 = make_payment("p1", 80.00);
+        p1.original_amount = 100.00;
+        p1.refund_amount = 20.00;
+
+        // 退款/收入方向记录（净支付金额 <= 0）不参与匹配，也不出现在未匹配列表
+        let p2 = make_payment("p2", -30.00);
+
+        let invoices = vec![make_invoice("inv1", 80.00, InvoiceCategory::Hotel)];
+        let result = batch_match(&invoices, &[p1, p2], 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        assert_eq!(result.matched[0].payment_ids, vec!["p1".to_string()]);
+        assert_eq!(result.unmatched_invoices.len(), 0);
+        assert!(result.unmatched_payments.is_empty());
     }
 
     #[test]
