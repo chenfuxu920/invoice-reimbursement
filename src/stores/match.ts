@@ -189,6 +189,10 @@ export const useMatchStore = defineStore('match', () => {
     if (!removed) return
     match.payments = match.payments.filter(p => p.id !== paymentId)
     match.payment_ids = match.payment_ids.filter(id => id !== paymentId)
+    // 同步清理行程-支付配对，避免残留指向已移除支付的脏配对
+    if (match.itinerary_payment_pairs?.length) {
+      match.itinerary_payment_pairs = match.itinerary_payment_pairs.filter(pair => pair.payment_id !== paymentId)
+    }
     match.amount_diff = Math.abs(match.invoice.amount - match.payments.reduce((s, p) => s + p.amount, 0))
     if (match.payments.length === 0) {
       unmatchInvoice(invoiceId)

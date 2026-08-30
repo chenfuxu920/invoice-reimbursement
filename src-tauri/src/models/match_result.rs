@@ -42,14 +42,17 @@ pub struct MatchResult {
 
 impl MatchResult {
     /// 按行程索引查找对应支付。
-    /// 优先用 `itinerary_payment_pairs` 显式配对查找；无配对（旧数据或非行程场景）
-    /// 时回退按 `payments` 数组索引对应，保持向后兼容。
+    /// 优先用 `itinerary_payment_pairs` 显式配对查找；配对表为空（旧数据或非行程场景）
+    /// 时回退按 `payments` 数组索引对应。配对表非空但缺该索引 = 该行程未配上支付，
+    /// 返回 None（不得按索引误取他人支付）。
     pub fn payment_for_itinerary(&self, itinerary_index: usize) -> Option<&PaymentRecord> {
+        if self.itinerary_payment_pairs.is_empty() {
+            return self.payments.get(itinerary_index);
+        }
         self.itinerary_payment_pairs
             .iter()
             .find(|p| p.itinerary_index == itinerary_index)
             .and_then(|pair| self.payments.iter().find(|p| p.id == pair.payment_id))
-            .or_else(|| self.payments.get(itinerary_index))
     }
 }
 
@@ -145,6 +148,27 @@ mod tests {
     fn test_payment_for_itinerary_returns_none_when_out_of_range() {
         let result = make_result(vec![make_payment("p1")], vec![]);
         assert!(result.payment_for_itinerary(5).is_none());
+    }
+
+    #[test]
+    fn test_payment_for_itinerary_partial_pairs_no_index_fallback() {
+        // 部分配对：pairs 非空但缺行程1 → 返回 None，不得按索引误取行程2的支付
+        let result = make_result(
+            vec![make_payment("p1"), make_payment("p3")],
+            vec![
+                ItineraryPaymentPair {
+                    itinerary_index: 0,
+                    payment_id: "p1".to_string(),
+                },
+                ItineraryPaymentPair {
+                    itinerary_index: 2,
+                    payment_id: "p3".to_string(),
+                },
+            ],
+        );
+        assert_eq!(result.payment_for_itinerary(0).unwrap().id, "p1");
+        assert!(result.payment_for_itinerary(1).is_none());
+        assert_eq!(result.payment_for_itinerary(2).unwrap().id, "p3");
     }
 
     #[test]

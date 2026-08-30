@@ -269,10 +269,12 @@ pub fn batch_match_with_progress(
             && !invoice.itineraries.is_empty()
         {
             if invoice.itineraries.len() > 1 {
+                // 优先全量配对，其次发票总额子集和，最后部分配对兜底：
+                // 部分配对保留已配上的行程，未配上的行程显示为未配对而非整张丢失
                 match_itinerary_to_payments(invoice, &available, tolerance).or_else(|| {
                     let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
                     engine.match_one_to_many(invoice, &time_filtered)
-                })
+                }).or_else(|| match_itinerary_payments_partial(invoice, &available, tolerance))
             } else {
                 let time_filtered = filter_payments_by_itinerary_time(invoice, &available);
                 engine.match_one_to_many(invoice, &time_filtered)
@@ -561,21 +563,24 @@ fn filter_payments_by_itinerary_time(
     }
 }
 
-/// 按行程单条目逐条匹配支付记录
-/// 先宽容匹配确定真实商户，再锁定该商户重新匹配
-fn match_itinerary_to_payments(
+/// 行程-支付逐条配对结果。matched 按 (行程下标, 支付) 记录，unmatched 为未配上支付的行程下标。
+struct ItineraryPairing {
+    matched: Vec<(usize, PaymentRecord)>,
+    unmatched: Vec<usize>,
+}
+
+/// 行程逐条配对（第1轮宽容匹配定真实商户 + 第2轮锁定商户重配）。
+/// 第2轮配不上的行程记入 unmatched，不整体失败，由调用方决定全量/部分语义。
+fn pair_itineraries_locked(
     invoice: &Invoice,
     payments: &[PaymentRecord],
     tolerance: f64,
-) -> Option<MatchResult> {
+) -> ItineraryPairing {
     // === 第1轮：宽容匹配 ===
     // 优先匹配行程单服务商对应的商户，匹配不上再放宽
-    struct Candidate {
-        payment: PaymentRecord,
-    }
     let entry_count = invoice.itineraries.len();
-    let mut candidates: Vec<Option<Candidate>> = Vec::with_capacity(entry_count);
-    candidates.resize_with(entry_count, || None);
+    let mut first_pass: Vec<Option<PaymentRecord>> = Vec::with_capacity(entry_count);
+    first_pass.resize_with(entry_count, || None);
     let mut used_ids: Vec<String> = Vec::new();
 
     // 从行程单确定服务商（如"天府通""滴滴出行"）
@@ -602,17 +607,17 @@ fn match_itinerary_to_payments(
         };
         if let Some((pay, _)) = matched {
             used_ids.push(pay.id.clone());
-            candidates[idx] = Some(Candidate { payment: pay });
+            first_pass[idx] = Some(pay);
         }
     }
 
     // 统计各商户出现次数，取出现最多的为真实商户
     let mut merchant_counts: HashMap<String, usize> = HashMap::new();
-    for c in candidates.iter().flatten() {
-        let key = if c.payment.merchant_name.is_empty() {
+    for pay in first_pass.iter().flatten() {
+        let key = if pay.merchant_name.is_empty() {
             "__unknown__".to_string()
         } else {
-            c.payment.merchant_name.to_lowercase()
+            pay.merchant_name.to_lowercase()
         };
         *merchant_counts.entry(key).or_default() += 1;
     }
@@ -624,41 +629,96 @@ fn match_itinerary_to_payments(
         .unwrap_or_default();
 
     // === 第2轮：锁定真实商户，重新匹配 ===
-    // 清空所有匹配，仅用真实商户的支付重新逐条匹配
-    let mut matched_payments: Vec<PaymentRecord> = Vec::new();
+    // 清空第1轮结果，仅用真实商户的支付重新逐条匹配
+    let mut matched: Vec<(usize, PaymentRecord)> = Vec::new();
+    let mut unmatched: Vec<usize> = Vec::new();
     let mut final_used: Vec<String> = Vec::new();
 
-    for entry in &invoice.itineraries {
-        let matched = find_best_payment(
+    for (idx, entry) in invoice.itineraries.iter().enumerate() {
+        let matched_pay = find_best_payment(
             entry,
             payments,
             &final_used,
             Some(&real_merchant),
             tolerance,
         );
-        match matched {
+        match matched_pay {
             Some((pay, _)) => {
                 final_used.push(pay.id.clone());
-                matched_payments.push(pay);
+                matched.push((idx, pay));
             }
-            None => return None,
+            None => unmatched.push(idx),
         }
     }
 
-    let total: f64 = matched_payments.iter().map(|p| p.amount).sum();
-    let diff = (invoice.amount - total).abs();
-    let payment_ids: Vec<String> = matched_payments.iter().map(|p| p.id.clone()).collect();
-    // 行程-支付显式配对：matched_payments 按行程顺序逐条匹配，故下标即行程索引
-    let itinerary_payment_pairs: Vec<ItineraryPaymentPair> = matched_payments
+    ItineraryPairing { matched, unmatched }
+}
+
+/// 在锁定商户配对的基础上，对仍未配上的行程宽松重试（先服务商商户，再不限商户），
+/// 最大限度保留能配上的行程；仍配不上的保持 unmatched。
+fn pair_itineraries_with_retry(
+    invoice: &Invoice,
+    payments: &[PaymentRecord],
+    tolerance: f64,
+) -> ItineraryPairing {
+    let mut pairing = pair_itineraries_locked(invoice, payments, tolerance);
+    if pairing.unmatched.is_empty() {
+        return pairing;
+    }
+
+    let provider = invoice
+        .itineraries
+        .first()
+        .map(|e| e.provider.to_lowercase())
+        .filter(|p| !p.is_empty())
+        .unwrap_or_default();
+    let mut final_used: Vec<String> = pairing
+        .matched
         .iter()
-        .enumerate()
+        .map(|(_, p)| p.id.clone())
+        .collect();
+    let pending = std::mem::take(&mut pairing.unmatched);
+
+    for idx in pending {
+        let entry = &invoice.itineraries[idx];
+        let matched = if !provider.is_empty() {
+            find_best_payment(entry, payments, &final_used, Some(provider.as_str()), tolerance)
+                .or_else(|| find_best_payment(entry, payments, &final_used, None, tolerance))
+        } else {
+            find_best_payment(entry, payments, &final_used, None, tolerance)
+        };
+        match matched {
+            Some((pay, _)) => {
+                final_used.push(pay.id.clone());
+                pairing.matched.push((idx, pay));
+            }
+            None => pairing.unmatched.push(idx),
+        }
+    }
+
+    // 重试可能乱序补配，恢复按行程顺序
+    pairing.matched.sort_by_key(|(idx, _)| *idx);
+    pairing
+}
+
+/// 用配对结果构建行程发票 MatchResult（OneToMany，显式 itinerary_payment_pairs）
+fn build_itinerary_match_result(
+    invoice: &Invoice,
+    matched: Vec<(usize, PaymentRecord)>,
+) -> MatchResult {
+    let itinerary_payment_pairs: Vec<ItineraryPaymentPair> = matched
+        .iter()
         .map(|(idx, p)| ItineraryPaymentPair {
-            itinerary_index: idx,
+            itinerary_index: *idx,
             payment_id: p.id.clone(),
         })
         .collect();
+    let matched_payments: Vec<PaymentRecord> = matched.into_iter().map(|(_, p)| p).collect();
+    let total: f64 = matched_payments.iter().map(|p| p.amount).sum();
+    let diff = (invoice.amount - total).abs();
+    let payment_ids: Vec<String> = matched_payments.iter().map(|p| p.id.clone()).collect();
 
-    Some(MatchResult {
+    MatchResult {
         invoice_id: invoice.id.clone(),
         invoice: invoice.clone(),
         payment_ids,
@@ -669,7 +729,35 @@ fn match_itinerary_to_payments(
         itinerary_payment_pairs,
         shared_payment_ids: vec![],
         shared_from_invoice_id: None,
-    })
+    }
+}
+
+/// 按行程单条目逐条匹配支付记录（全量配对）：
+/// 先宽容匹配确定真实商户，再锁定该商户重新匹配；任一行程配不上即整体失败。
+fn match_itinerary_to_payments(
+    invoice: &Invoice,
+    payments: &[PaymentRecord],
+    tolerance: f64,
+) -> Option<MatchResult> {
+    let pairing = pair_itineraries_locked(invoice, payments, tolerance);
+    if !pairing.unmatched.is_empty() {
+        return None;
+    }
+    Some(build_itinerary_match_result(invoice, pairing.matched))
+}
+
+/// 行程部分配对：保留已配上支付的行程，未配上的行程不阻断整张发票。
+/// 至少配上一条才返回 Some；未配上的行程由 UI 显示"未配对"、其支付留在未匹配列表。
+fn match_itinerary_payments_partial(
+    invoice: &Invoice,
+    payments: &[PaymentRecord],
+    tolerance: f64,
+) -> Option<MatchResult> {
+    let pairing = pair_itineraries_with_retry(invoice, payments, tolerance);
+    if pairing.matched.is_empty() {
+        return None;
+    }
+    Some(build_itinerary_match_result(invoice, pairing.matched))
 }
 
 /// 为单个行程条目找最佳匹配支付
@@ -1212,6 +1300,187 @@ mod tests {
         assert_eq!(m.itinerary_payment_pairs[0].payment_id, "p2");
         assert_eq!(m.itinerary_payment_pairs[1].itinerary_index, 1);
         assert_eq!(m.itinerary_payment_pairs[1].payment_id, "p1");
+    }
+
+    #[test]
+    fn test_partial_itinerary_match_preserves_matched_pairs() {
+        // 回归：3条行程(30/40/50)，只有前两条有支付 → 旧逻辑整张发票匹配全丢，
+        // 现应保留已配上的2条，未配上的行程不阻断发票匹配
+        let mut invoice = make_city_transport_invoice("inv1", 120.00);
+        invoice.itineraries = vec![
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 30.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 14:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 18:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "E".to_string(),
+                dropoff: "F".to_string(),
+                amount: 50.00,
+                incomplete_fields: vec![],
+            },
+        ];
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-15 09:05"),
+            make_payment_at("p2", 40.00, "2025-01-15 14:05"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1, "部分配对应算匹配成功");
+        let m = &result.matched[0];
+        assert_eq!(m.payment_ids, vec!["p1".to_string(), "p2".to_string()]);
+        assert_eq!(m.itinerary_payment_pairs.len(), 2);
+        assert_eq!(m.itinerary_payment_pairs[0].itinerary_index, 0);
+        assert_eq!(m.itinerary_payment_pairs[1].itinerary_index, 1);
+        // 未配上的第3条行程金额计入差额
+        assert!((m.amount_diff - 50.0).abs() < 0.01);
+        assert_eq!(result.unmatched_invoices.len(), 0);
+        assert!(result.unmatched_payments.is_empty());
+    }
+
+    #[test]
+    fn test_partial_match_unmatched_payment_stays_available() {
+        // 2条行程(30/100)，仅第2条有支付，另有一笔无关支付 → 匹配保留第2条，
+        // 无关支付不被动用。第1条金额拉开差距，避免被 toll_best 宽松分支抢配
+        let mut invoice = make_city_transport_invoice("inv1", 130.00);
+        invoice.itineraries = vec![
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 30.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 14:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 100.00,
+                incomplete_fields: vec![],
+            },
+        ];
+        let payments = vec![
+            make_payment_at("p_trip2", 100.00, "2025-01-15 14:05"),
+            make_payment_at("p_other", 25.00, "2025-01-15 10:00"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        let m = &result.matched[0];
+        assert_eq!(m.payment_ids, vec!["p_trip2".to_string()]);
+        assert_eq!(m.itinerary_payment_pairs.len(), 1);
+        assert_eq!(m.itinerary_payment_pairs[0].itinerary_index, 1);
+        assert_eq!(result.unmatched_payments.len(), 1);
+        assert_eq!(result.unmatched_payments[0].id, "p_other");
+    }
+
+    #[test]
+    fn test_partial_match_retries_cross_merchant_entry() {
+        // 2条行程（跨天）：滴滴 + 高德各一条。第2轮锁定多数商户后必有一条配不上，
+        // 宽松重试应按金额+时间把另一商户的支付配上（整张发票全量配对）。
+        // 行程跨天使子集和兜底（首条行程+12h窗口）失效，确保走部分配对路径
+        let mut invoice = make_city_transport_invoice("inv1", 70.00);
+        invoice.itineraries = vec![
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 30.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-16 14:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.00,
+                incomplete_fields: vec![],
+            },
+        ];
+        let mut p1 = make_payment_at("p_didi", 30.00, "2025-01-15 09:05");
+        p1.merchant_name = "滴滴出行".to_string();
+        let mut p2 = make_payment_at("p_amap", 40.00, "2025-01-16 14:05");
+        p2.merchant_name = "高德打车".to_string();
+
+        let result = batch_match(&[invoice], &[p1, p2], 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        let m = &result.matched[0];
+        assert_eq!(m.itinerary_payment_pairs.len(), 2, "跨商户行程应经重试配上");
+        assert_eq!(m.payment_ids, vec!["p_didi".to_string(), "p_amap".to_string()]);
+    }
+
+    #[test]
+    fn test_subset_sum_fallback_still_precedes_partial() {
+        // 全量配对失败但发票总额可被子集和覆盖（如合并支付）时，
+        // 保持原有优先级：子集和兜底先于部分配对
+        let mut invoice = make_city_transport_invoice("inv1", 120.00);
+        invoice.itineraries = vec![
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 09:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "A".to_string(),
+                dropoff: "B".to_string(),
+                amount: 30.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 14:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "C".to_string(),
+                dropoff: "D".to_string(),
+                amount: 40.00,
+                incomplete_fields: vec![],
+            },
+            Itinerary {
+                city: String::new(),
+                date_time: "2025-01-15 18:00".to_string(),
+                provider: "滴滴".to_string(),
+                pickup: "E".to_string(),
+                dropoff: "F".to_string(),
+                amount: 50.00,
+                incomplete_fields: vec![],
+            },
+        ];
+        let payments = vec![
+            make_payment_at("p1", 30.00, "2025-01-15 09:05"),
+            make_payment_at("p2", 40.00, "2025-01-15 14:05"),
+            make_payment_at("p_lump", 119.50, "2025-01-15 19:00"),
+        ];
+
+        let result = batch_match(&[invoice], &payments, 1.00);
+
+        assert_eq!(result.matched.len(), 1);
+        let m = &result.matched[0];
+        assert_eq!(m.payment_ids, vec!["p_lump".to_string()], "应走子集和而非部分配对");
+        assert!(m.itinerary_payment_pairs.is_empty());
     }
 
     #[test]

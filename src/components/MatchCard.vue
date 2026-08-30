@@ -63,7 +63,7 @@
         <div v-if="match.match_type === 'OneToMany'" class="min-h-[92px] flex flex-col">
           <div class="flex-1 flex flex-col justify-between mt-2 rounded-xl bg-white/80 border border-slate-200/70 p-2.5">
             <div class="flex justify-between text-xs text-slate-500">
-              <span>共 {{ match.payments.length }} 笔支付<template v-if="hasItineraries"> · {{ match.invoice.itineraries.length }} 条行程</template></span>
+              <span>共 {{ match.payments.length }} 笔支付<template v-if="hasItineraries"> · {{ match.invoice.itineraries.length }} 条行程</template><template v-if="unpairedCount > 0"> · <span class="text-amber-600 font-medium">{{ unpairedCount }} 条未配对</span></template></span>
               <span :class="`${amountDiffClass(totalDiff)} font-medium`">差额 ¥{{ Math.abs(totalDiff).toFixed(2) }}</span>
             </div>
             <p class="font-display text-base font-bold text-slate-800 tabular-nums">支付合计 ¥{{ paymentTotal.toFixed(2) }}</p>
@@ -82,7 +82,9 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-1.5">
                 <span class="shrink-0 text-xs text-slate-400">#{{ row.idx + 1 }}</span>
-                <p class="text-sm font-medium truncate">{{ row.payment?.merchant_name || '未配对' }}</p>
+                <p v-if="row.payment" class="text-sm font-medium truncate">{{ row.payment.merchant_name || '未知' }}</p>
+                <span v-else class="shrink-0 chip border !py-0 !px-1.5 bg-amber-50 text-amber-700 border-amber-200/70"
+                      title="该行程未匹配到支付记录">未配对</span>
                 <span v-if="row.payment" class="shrink-0 chip border !py-0 !px-1.5"
                       :class="row.payment.source === 'Wechat' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/70' : 'bg-primary-50 text-primary-700 border-primary-200/70'">
                   {{ row.payment.source === 'Wechat' ? '微信' : '支付宝' }}
@@ -190,7 +192,8 @@ const paymentTotal = computed(() => props.match.payments.reduce((s, p) => s + p.
 const itineraryTotal = computed(() => props.match.invoice.itineraries.reduce((s, it) => s + it.amount, 0))
 const totalDiff = computed(() => paymentTotal.value - itineraryTotal.value)
 
-/// 行程-支付配对行：优先用 itinerary_payment_pairs，无配对时回退按索引
+/// 行程-支付配对行：优先用 itinerary_payment_pairs；部分配对时未配上的行程
+/// 不回退按索引取支付（避免错把他人支付展示到该行程上），仅旧数据（无配对）回退索引
 const itineraryRows = computed(() => {
   const itins = props.match.invoice.itineraries
   const pairs = props.match.itinerary_payment_pairs || []
@@ -198,12 +201,16 @@ const itineraryRows = computed(() => {
     const pair = pairs.find(p => p.itinerary_index === idx)
     const payment = pair
       ? props.match.payments.find(p => p.id === pair.payment_id)
-      : props.match.payments[idx]
+      : pairs.length > 0
+        ? undefined
+        : props.match.payments[idx]
     const timeDiffLabel = payment ? itineraryTimeDiffLabel(itin.date_time, payment.transaction_time) : ''
     const amountDiff = payment ? Math.abs(payment.amount - itin.amount) : 0
     return { itin, idx, payment, amountDiff, timeDiffLabel }
   })
 })
+
+const unpairedCount = computed(() => itineraryRows.value.filter(r => !r.payment).length)
 
 /// 行程时间与支付时间差异标签（具体时长）
 function itineraryTimeDiffLabel(itinTime: string, payTime: string): string {
