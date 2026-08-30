@@ -13,7 +13,7 @@
             </div>
           </div>
           <div class="flex justify-end gap-2.5 px-6 py-4 bg-slate-50/80 border-t border-slate-100">
-            <AppButton @click="emit('cancel')">取消</AppButton>
+            <AppButton @click="emit('cancel')">{{ cancelText }}</AppButton>
             <AppButton variant="danger" @click="emit('confirm')">{{ confirmText }}</AppButton>
           </div>
         </div>
@@ -32,7 +32,8 @@ const props = withDefaults(defineProps<{
   title?: string
   message: string
   confirmText?: string
-}>(), { title: '确认操作', confirmText: '确认' })
+  cancelText?: string
+}>(), { title: '确认操作', confirmText: '确认', cancelText: '取消' })
 
 const emit = defineEmits<{
   (e: 'confirm'): void

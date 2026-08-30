@@ -137,18 +137,31 @@
         @close="detailVisible = false"
         @save="handleDetailSave"
       />
+
+      <!-- 进入导出页的完整性提示：存在未匹配发票或发票中有未配对行程 -->
+      <ConfirmDialog
+        :visible="showExportWarning"
+        title="导出内容可能不完整"
+        :message="exportWarningMessage"
+        confirm-text="仍要导出"
+        cancel-text="返回处理"
+        @confirm="showExportWarning = false"
+        @cancel="handleExportWarningBack"
+      />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { CheckCircle2, AlertTriangle, Package, FileDown, Plus, ClipboardList } from 'lucide-vue-next'
 import { useMatchStore } from '../stores/match'
 import { useInvoiceStore } from '../stores/invoice'
 import TripCard from '../components/TripCard.vue'
 import ExportButton from '../components/ExportButton.vue'
 import InvoiceDetailModal from '../components/InvoiceDetailModal.vue'
+import ConfirmDialog from '../components/ui/ConfirmDialog.vue'
 import AppButton from '../components/ui/AppButton.vue'
 import AppEmpty from '../components/ui/AppEmpty.vue'
 import { toast } from '../composables/toast'
@@ -157,15 +170,49 @@ import type { Invoice, MatchResult, Trip } from '../types'
 import { CATEGORY_LABELS } from '../types/invoice'
 import { getCategoryBadgeClass } from '../utils/category'
 import { analyzeStayDays } from '../utils/stay'
+import { countUnmatchedItineraries, hasExportGaps } from '../utils/match'
 
 const matchStore = useMatchStore()
 const invoiceStore = useInvoiceStore()
+const router = useRouter()
 
 const { profile } = useProfile()
 
 const originInput = ref('')
 const detailVisible = ref(false)
 const detailInvoice = ref<Invoice | null>(null)
+
+// ── 进入导出页的完整性检查 ──
+// 存在未匹配发票，或已匹配发票中有未配上支付的行程（部分配对）时提醒，
+// 避免导出后才发现报销材料缺项；用户可选择返回处理或仍要导出。
+const showExportWarning = ref(false)
+
+const exportIssues = computed(() => {
+  const unmatchedInvoiceCount = matchStore.unmatchedInvoices.length
+  const partialMatches = matchStore.matches.filter(m => countUnmatchedItineraries(m) > 0)
+  const unmatchedItineraryCount = partialMatches.reduce((s, m) => s + countUnmatchedItineraries(m), 0)
+  return { unmatchedInvoiceCount, partialMatchCount: partialMatches.length, unmatchedItineraryCount }
+})
+
+const exportWarningMessage = computed(() => {
+  const { unmatchedInvoiceCount, partialMatchCount, unmatchedItineraryCount } = exportIssues.value
+  const parts: string[] = []
+  if (unmatchedInvoiceCount > 0) parts.push(`还有 ${unmatchedInvoiceCount} 张发票未匹配支付记录`)
+  if (partialMatchCount > 0) parts.push(`${partialMatchCount} 张发票中有 ${unmatchedItineraryCount} 条行程未配上支付`)
+  return `${parts.join('；')}。导出的报销材料可能不完整，建议先回匹配页核对处理。`
+})
+
+onMounted(() => {
+  if (hasExportGaps(matchStore.unmatchedInvoices.length, matchStore.matches)) {
+    showExportWarning.value = true
+  }
+})
+
+function handleExportWarningBack() {
+  showExportWarning.value = false
+  toast('可在匹配页处理未匹配项后再次进入导出', 'info')
+  void router.push('/match')
+}
 
 function openDetail(invoice: Invoice) {
   detailInvoice.value = invoice
