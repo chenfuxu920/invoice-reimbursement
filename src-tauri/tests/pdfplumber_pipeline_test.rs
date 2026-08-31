@@ -4,6 +4,7 @@ use invoice_reimbursement_lib::ocr::OcrEngine;
 use invoice_reimbursement_lib::pdf::invoice_pipeline::{
     parse_invoice_from_pdf, parse_itinerary_from_pdf, ExtractionConfig,
 };
+use pdfplumber::{Pdf, TableSettings};
 use std::path::Path;
 
 /// Resolves to project-root/data/
@@ -340,7 +341,11 @@ fn test_pipeline_invoice_didi_b_with_pdfplumber() {
     );
 }
 
+/// 审计工具（#[ignore]）：刻意永不失败——只记录 pdfplumber 对多栏 CJK 发票的已知局限，
+/// 回归保护由 OCR fallback 与 test_pipeline_summary 负责。
+/// 运行：cargo test --test pdfplumber_pipeline_test -- --ignored
 #[test]
+#[ignore]
 fn test_pipeline_invoice_vat_with_pdfplumber() {
     let mut engine = match try_init_engine() {
         Some(e) => e,
@@ -457,6 +462,43 @@ fn test_pipeline_invoice_vat_with_pdfplumber() {
     }
 }
 
+/// Regression (migrated from the removed pdfplumber_cell_debug_test.rs):
+/// page.find_tables() must populate cell text — the fixed pipeline yields a
+/// readable >=6-column itinerary table for 天府通.
+#[test]
+fn verify_find_tables_text_population() {
+    let pdf_path = data_path("行程单\\天府通\\天府通电子行程单.pdf");
+    if !Path::new(&pdf_path).exists() {
+        eprintln!("SKIP: {pdf_path} not found");
+        return;
+    }
+    let pdf = Pdf::open_file(&pdf_path, None).expect("open");
+    let mut found_6col = false;
+    for page_result in pdf.pages_iter() {
+        let page = match page_result {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let tables = page.find_tables(&TableSettings::default());
+        for t in &tables {
+            for row in &t.rows {
+                if row.len() >= 6 {
+                    found_6col = true;
+                    let texts: Vec<String> = row
+                        .iter()
+                        .map(|c| c.text.clone().unwrap_or_default().replace('\n', " "))
+                        .collect();
+                    eprintln!("6-col row: {:?}", texts);
+                }
+            }
+        }
+    }
+    assert!(
+        found_6col,
+        "expected at least one >=6-column row in 天府通 table"
+    );
+}
+
 #[test]
 fn test_pipeline_itinerary_tianfutong_with_pdfplumber() {
     let mut engine = match try_init_engine() {
@@ -518,7 +560,9 @@ fn test_pipeline_itinerary_didi_with_pdfplumber() {
     );
 }
 
+/// 审计工具（#[ignore]）：该文件内容不同，可能解析成功也可能失败，测试刻意不断言。
 #[test]
+#[ignore]
 fn test_pipeline_itinerary_didi_b_with_pdfplumber() {
     let mut engine = match try_init_engine() {
         Some(e) => e,

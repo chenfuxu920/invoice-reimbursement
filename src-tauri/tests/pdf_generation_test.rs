@@ -22,6 +22,7 @@ fn make_invoice(id: &str, amount: f64, category: InvoiceCategory) -> Invoice {
         item_name: "测试项目".to_string(),
         date: NaiveDate::from_ymd_opt(2025, 1, 15).unwrap(),
         travel_date: None,
+        travel_time: None,
         category,
         source: InvoiceSource::Photo("test.jpg".to_string()),
         itineraries: vec![],
@@ -76,6 +77,7 @@ fn test_generate_reimbursement_pdf() {
         city_transport_count: 5,
         city_transport_amount: 200.0,
         city_transport_actual_amount: 200.0,
+        city_transport_daily_std: 80.0,
         hotel_levels: vec![],
         hotel_subtotal: 1500.0,
         meal_subsidy: MealSubsidyDetail {
@@ -200,6 +202,7 @@ fn test_generate_empty_reimbursement_pdf() {
         city_transport_count: 0,
         city_transport_amount: 0.0,
         city_transport_actual_amount: 0.0,
+        city_transport_daily_std: 80.0,
         hotel_levels: vec![],
         hotel_subtotal: 0.0,
         meal_subsidy: MealSubsidyDetail {

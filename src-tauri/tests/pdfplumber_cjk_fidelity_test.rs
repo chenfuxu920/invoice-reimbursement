@@ -124,54 +124,7 @@ fn run_fidelity_test(
     );
 }
 
-// ─── Individual test functions ──────────────────────────────────────────────
-
-#[test]
-fn test_cjk_fidelity_didi_invoice() {
-    let mut results = Vec::new();
-    run_fidelity_test(
-        "滴滴电子发票A.pdf",
-        None,
-        Path::new("../data/市内交通"),
-        &mut results,
-    );
-}
-
-#[test]
-fn test_cjk_fidelity_vat_invoice() {
-    let mut results = Vec::new();
-    // dzfp_ hotel invoices are in 住宿/; the test needs a dzfp_ that's there
-    run_fidelity_test(
-        "dzfp_ (glob)",
-        Some("dzfp_"),
-        Path::new("../data/住宿"),
-        &mut results,
-    );
-}
-
-#[test]
-fn test_cjk_fidelity_itinerary() {
-    let mut results = Vec::new();
-    run_fidelity_test(
-        "天府通电子行程单.pdf",
-        None,
-        Path::new("../data/行程单/天府通"),
-        &mut results,
-    );
-}
-
-#[test]
-fn test_cjk_fidelity_flight_ticket() {
-    let mut results = Vec::new();
-    run_fidelity_test(
-        "飞猪 (glob)",
-        Some("飞猪"),
-        Path::new("../data/机票"),
-        &mut results,
-    );
-}
-
-// ─── Summary test ───────────────────────────────────────────────────────────
+// ─── Summary test (covers all sample PDFs) ─────────────────────────────────
 
 #[test]
 fn test_cjk_fidelity_summary() {

@@ -45,6 +45,7 @@ fn make_match(pdf: &str) -> MatchResult {
         item_name: "item".to_string(),
         date: chrono::NaiveDate::from_ymd_opt(2026, 6, 4).unwrap(),
         travel_date: None,
+        travel_time: None,
         category: InvoiceCategory::Insurance,
         source: InvoiceSource::Pdf(pdf.to_string()),
         itineraries: vec![],

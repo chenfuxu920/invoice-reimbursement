@@ -16,6 +16,7 @@ fn make_trip_invoice(id: &str, amount: f64, itin_time: &str, itin_amount: f64) -
         item_name: "市内交通".to_string(),
         date: NaiveDate::parse_from_str(&itin_time[..10], "%Y-%m-%d").unwrap(),
         travel_date: None,
+        travel_time: None,
         category: InvoiceCategory::CityTransport,
         source: InvoiceSource::Link("http://example.com".to_string()),
         itineraries: vec![Itinerary {
@@ -45,6 +46,7 @@ fn make_toll_invoice(id: &str, amount: f64, travel_time: &str) -> Invoice {
         item_name: "通行费".to_string(),
         date: NaiveDate::parse_from_str(&travel_time[..10], "%Y-%m-%d").unwrap(),
         travel_date: None,
+        travel_time: None,
         category: InvoiceCategory::Toll,
         source: InvoiceSource::Link("http://example.com".to_string()),
         itineraries: vec![],

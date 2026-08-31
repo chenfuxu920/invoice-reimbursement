@@ -30,6 +30,7 @@ fn make_match(pdf: &str, invoice_number: &str, category: InvoiceCategory) -> Mat
         item_name: "item".to_string(),
         date: chrono::NaiveDate::from_ymd_opt(2026, 5, 17).unwrap(),
         travel_date: None,
+        travel_time: None,
         category,
         source: InvoiceSource::Pdf(pdf.to_string()),
         itineraries: vec![],

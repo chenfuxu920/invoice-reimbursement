@@ -3,7 +3,6 @@
 use invoice_reimbursement_lib::models::invoice::InvoiceSource;
 use invoice_reimbursement_lib::ocr::{bbox_to_json, OcrTextItem};
 use invoice_reimbursement_lib::parser::invoice_parser::parse_invoice_text;
-use invoice_reimbursement_lib::parser::itinerary_parser::parse_itinerary_with_coords;
 use invoice_reimbursement_lib::pdf::text_extractor::extract_text_with_coords_flat;
 use pdfplumber::{Pdf, WordOptions};
 use std::path::Path;
@@ -174,45 +173,6 @@ fn test_pdfplumber_coords_flow_through_invoice_parser() {
                 "parse_invoice_text should succeed with line-level items from extract_text_with_coords_flat, but got error: {e}"
             );
         }
-    }
-}
-
-#[test]
-fn test_pdfplumber_coords_flow_through_itinerary_parser() {
-    let pdf_path = data_path("行程单\\天府通\\天府通电子行程单.pdf");
-    if !Path::new(&pdf_path).exists() {
-        eprintln!("SKIP: PDF not found at {pdf_path}");
-        return;
-    }
-
-    let items = extract_text_with_coords_flat(&pdf_path)
-        .expect("extract_text_with_coords_flat should extract line-level items from itinerary PDF");
-
-    // parse_itinerary_with_coords is public — call it directly
-    // It will fall back to parse_itinerary_text if coordinate data is insufficient.
-    let itineraries = parse_itinerary_with_coords(&items);
-
-    println!("=== Itinerary parser result ===");
-    println!("  Number of itineraries: {}", itineraries.len());
-
-    if itineraries.is_empty() {
-        eprintln!(
-            "NOTE: No itineraries parsed — coords-based parsing may need tuning for this PDF"
-        );
-    } else {
-        let first = &itineraries[0];
-        println!(
-            "  First itinerary: date_time='{}' provider='{}' amount={:.2}",
-            first.date_time, first.provider, first.amount
-        );
-    }
-
-    // Print all itineraries for diagnostics
-    for (i, it) in itineraries.iter().enumerate() {
-        println!(
-            "  [{i}] date_time='{}' provider='{}' pickup='{}' dropoff='{}' amount={:.2}",
-            it.date_time, it.provider, it.pickup, it.dropoff, it.amount
-        );
     }
 }
 
